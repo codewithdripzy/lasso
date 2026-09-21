@@ -1,0 +1,66 @@
+{
+  "name": "lasso",
+  "version": "0.1.0",
+  "description": "Select any part of your running app, describe a change, and let AI edit the real source code.",
+  "type": "commonjs",
+  "main": "dist/cli/index.js",
+  "bin": {
+    "lasso": "dist/cli/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "tsx src/cli/index.ts",
+    "build": "npm run build:cli && npm run build:overlay",
+    "build:cli": "tsc -p config/tsconfig.cli.json",
+    "build:overlay": "esbuild src/overlay/index.ts --bundle --outfile=dist/overlay.js",
+    "typecheck": "npm run typecheck:cli && npm run typecheck:overlay",
+    "typecheck:cli": "tsc -p tsconfig.cli.json --noEmit",
+    "typecheck:overlay": "tsc -p tsconfig.overlay.json",
+    "start": "node dist/cli/index.js",
+    "prepublishOnly": "npm run build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "ai",
+    "dev-tools",
+    "cli",
+    "vite",
+    "code-editing"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "chalk": "^6.0.0",
+    "commander": "^15.0.0",
+    "http-proxy": "^1.18.1",
+    "lasso": "link:",
+    "open": "^11.0.4",
+    "vite": "^7.0.0",
+    "ws": "^8.21.3"
+  },
+  "peerDependencies": {
+    "vite": "^8.3.0"
+  },
+  "peerDependenciesMeta": {
+    "vite": { "optional": true }
+  },
+  "devDependencies": {
+    "@types/http-proxy": "^1.17.17",
+    "@types/node": "^26.6.1",
+    "@types/ws": "^8.5.13",
+    "esbuild": "^0.24.0",
+    "html2canvas": "^1.4.1",
+    "prettier": "^3.9.8",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"  
+  }
+}

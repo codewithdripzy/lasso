@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "tsBuildInfoFile": "../node_modules/.tmp/tsconfig.overlay.tsbuildinfo", //
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "types": [],
+    "noEmit": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "include": ["../src/overlay/**/*"] //
+}

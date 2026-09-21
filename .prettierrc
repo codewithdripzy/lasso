@@ -1,0 +1,9 @@
+{
+  "semi": true,
+  "trailingComma": "es5",
+  "printWidth": 300,
+  "tabWidth": 2,
+  "useTabs": false,
+  "arrowParens": "always",
+  "bracketSpacing": true
+}

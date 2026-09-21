@@ -1,0 +1,4 @@
+{
+  "files": [],
+  "references": [{ "path": "./config/tsconfig.cli.json" }, { "path": "./config/tsconfig.overlay.json" }]
+}
