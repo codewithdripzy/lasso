@@ -1,85 +1,234 @@
+<div align="center">
+
+<img src="assets/lasso-icon.png" alt="Lasso" width="96" />
+
 # Lasso
 
-[![npm version](https://img.shields.io/npm/v/lasso.svg)](https://www.npmjs.com/package/lasso)
-[![license: ISC](https://img.shields.io/npm/l/lasso.svg)](https://github.com/codewithdripzy/lasso/blob/main/LICENSE)
-[![Node.js](https://img.shields.io/node/v/lasso.svg)](https://nodejs.org/)
-[![website](https://img.shields.io/badge/website-lasso.byorello.space-6366f1)](https://lasso.byorello.space)
+### Point at it. Describe it. Ship it.
 
-Select any part of your running app, describe a change, and let AI edit the **real source code**.
+**AI-powered visual code editing for your real source code.**
 
-**Website:** [lasso.byorello.space](https://lasso.byorello.space) · **Repository:** [github.com/codewithdripzy/lasso](https://github.com/codewithdripzy/lasso)
+Select any part of your running app, describe what you want changed, and Lasso turns that selection into a real code change — with a diff you approve before anything is written.
 
-Lasso is a local-first dev tool. You point at a component in the browser, type what you want
-changed, and — after a diff preview and your explicit accept — the change lands in your
-source files. The live DOM is never mutated; editing happens at the source level, so the
-framework's own reload mirrors every frame.
+<br />
 
-## Why Lasso
+[![npm version](https://img.shields.io/npm/v/lasso.svg?color=6366f1)](https://www.npmjs.com/package/lasso)
+[![npm downloads](https://img.shields.io/npm/dm/lasso.svg?color=6366f1)](https://www.npmjs.com/package/lasso)
+[![license](https://img.shields.io/npm/l/lasso.svg?color=6366f1)](LICENSE)
+[![Node.js](https://img.shields.io/node/v/lasso.svg?color=6366f1)](https://nodejs.org/)
 
-Most "click-the-element and edit it" tools rewrite the live DOM and fall apart the moment the
-page reloads. Lasso treats a selection as a **pointer into your codebase**, not a target for
-direct manipulation:
+<br />
 
-- **Edits source, not pixels.** A selection resolves to a file + line + component. Changes are
-  applied as deterministic old-string/new-string pairs to your code.
-- **Nothing is written without your say-so.** The agent's proposal streams back as a diff;
-  you preview, accept, or undo. Undo restores a snapshot — retries are free.
-- **Local and private.** Everything except the coding-agent call runs on your machine.
-  No telemetry, nothing leaves your machine except what you explicitly send to the agent
-  you configured.
-- **Bring your own agent.** Choose the built-in model, Claude Code (headless), or any CLI
-  coding tool you already trust. See [Agent configuration](#agent-configuration).
+[Website](https://lasso.byorello.space) · [Documentation](#documentation) · [Quickstart](#quickstart) · [GitHub](https://github.com/codewithdripzy/lasso)
+
+</div>
+
+---
+
+## What is Lasso?
+
+Lasso is a **local-first visual coding tool**.
+
+Instead of describing your entire problem in a chat window, point directly at the thing you want to change.
+
+```text
+Select a component
+       ↓
+Describe the change
+       ↓
+AI understands the source
+       ↓
+Preview the diff
+       ↓
+Accept
+       ↓
+Your source code changes
+```
+
+The browser is simply the interface for selecting what you want to change.
+
+**Lasso edits your actual source files — not the live DOM.**
+
+That means your changes survive refreshes, work with your framework's own rendering system, and remain ordinary code that you can review, commit, or undo.
+
+---
+
+## Why Lasso?
+
+Traditional visual editing tools manipulate the rendered page.
+
+Lasso works differently.
+
+| | Lasso |
+|---|---|
+| 🎯 **Point at the UI** | Select exactly what you want to change |
+| 🧠 **AI understands context** | The selected component is resolved back to your source |
+| 📝 **Real code changes** | Lasso modifies your actual source files |
+| 👀 **Preview first** | Every change comes back as a diff |
+| 🔒 **You stay in control** | Nothing is written until you explicitly accept |
+| ↩️ **Undo changes** | Revert an accepted change from a local snapshot |
+| 💻 **Local-first** | The bridge, source resolution, and editing pipeline run locally |
+| 🔌 **Bring your own agent** | Use Lasso's built-in agent, Claude Code, or your own adapter |
+
+---
 
 ## Features
 
-- Floating overlay in select mode with lasso / click selection
-- Source resolution for **Vite** (native build plugin, exact JSX lines) and **Next.js**
-  (React `_debugSource` fiber data)
-- Persistent WebSocket bridge to a local CLI
-- Inline prompt box, screenshot-of-selection context, diff preview + accept + undo
-- Pluggable agent adapters: `builtin`, `claude-code`, `custom` (`lasso.config.json`)
+### Visual selection
 
-## Status
+Turn on Lasso Mode and interact with your application normally.
 
-> Product name: **Lasso**.
+- Click any component
+- Lasso-drag across multiple elements
+- Hover to see what will be selected
+- Select empty space to insert new UI
 
-- **0.1.0** — early, opinionated, not yet stable. Expect breaking changes.
-- V1 is scoped to Vite and Next.js. Webpack-only / CRA / Angular projects are **not supported**
-  yet; the CLI refuses loudly rather than failing silently.
+### Source-aware editing
 
-## Requirements
+Lasso doesn't stop at the DOM.
 
-- Node.js **>= 18**
-- An app using **Vite** or **Next.js**
-- For the built-in agent: an Anthropic API key (or configure another agent — see
-  [Agent configuration](#agent-configuration))
+Selections are resolved back to the component and source code that produced them.
+
+**Vite**
+
+Uses an injected build plugin to resolve source files and JSX/component locations.
+
+**Next.js**
+
+Uses React's source metadata as a fallback without requiring changes to your project configuration.
+
+### AI-powered changes
+
+Give Lasso a natural-language instruction:
+
+> "Make this header sticky and add a subtle blur."
+
+or:
+
+> "Turn this into a two-column pricing section."
+
+or:
+
+> "Add a loading state below this button."
+
+Lasso assembles the relevant source context and sends it to your configured coding agent.
+
+### Diff-first workflow
+
+Lasso never silently rewrites your project.
+
+```text
+AI proposal
+     ↓
+Review diff
+     ↓
+Accept ────────→ Write to source
+     │
+     └──────────→ Reject
+```
+
+Accepted changes are written to the filesystem and your framework's normal development workflow takes over.
+
+### Bring your own agent
+
+Lasso's editing pipeline is agent-agnostic.
+
+Use:
+
+- `builtin`
+- `claude-code`
+- `custom`
+
+Your selection and project context stay inside the Lasso pipeline while the actual coding agent can be swapped independently.
+
+---
+
+## Supported frameworks
+
+| Framework | Status |
+|---|---|
+| React + Vite | ✅ Supported |
+| Vue + Vite | ✅ Supported |
+| Svelte + Vite | ✅ Supported |
+| Solid + Vite | ✅ Supported |
+| Next.js | ✅ Supported |
+| Webpack | 🚧 Not yet |
+| Create React App | 🚧 Not yet |
+| Angular | 🚧 Not yet |
+
+> Lasso currently targets Vite-based applications and Next.js. Unsupported frameworks are detected explicitly rather than failing silently.
+
+---
 
 ## Quickstart
 
-Install the CLI:
+### 1. Install
 
 ```bash
-npm install --save-dev lasso        # or: pnpm add -D lasso / yarn add -D lasso
+npm install --save-dev lasso
 ```
 
-From your app's root, start the dev server with the overlay attached:
+Or:
 
 ```bash
-npx lasso          # equivalent to: npx lasso dev
+pnpm add -D lasso
 ```
 
-Lasso detects the framework from your `vite.config.*` / `next.config.*` / `package.json`,
-starts the dev server with its build plugin injected in memory (your config files are never
-modified), and opens the overlay. Then:
+```bash
+yarn add -D lasso
+```
 
-1. Toggle **Lasso Mode** in the toolbar.
-2. Click an element (or lasso-select a region).
-3. Type a change in the prompt — e.g. "make the header sticky and darker".
-4. Preview the diff, hit **Accept** to apply it to the source, or **Undo** to revert.
+### 2. Start Lasso
+
+From your application's root:
+
+```bash
+npx lasso
+```
+
+This is equivalent to:
+
+```bash
+npx lasso dev
+```
+
+Lasso detects your framework, starts the development environment with its integration injected in memory, and connects the browser overlay.
+
+Your existing configuration files are **not modified**.
+
+### 3. Select something
+
+Enable **Lasso Mode** from the floating toolbar.
+
+Click a component or drag around a region of your application.
+
+### 4. Describe the change
+
+For example:
+
+```text
+Make this card more compact and add a hover animation.
+```
+
+### 5. Review the diff
+
+Lasso generates a proposed source-code change.
+
+Review it.
+
+```text
+Accept → apply the change
+Reject → discard the proposal
+Undo   → restore the previous snapshot
+```
+
+That's it.
+
+---
 
 ## Agent configuration
 
-Create a `lasso.config.json` in your project root:
+Create `lasso.config.json` in your project root:
 
 ```json
 {
@@ -87,40 +236,199 @@ Create a `lasso.config.json` in your project root:
 }
 ```
 
-- `"builtin"` — default; calls a hosted model (`@anthropic-ai/sdk`) with the assembled
-  context. `ANTHROPIC_API_KEY` must be set.
-- `"claude-code"` — shells out to Claude Code in headless mode, passing the assembled
-  context as the prompt and parsing edits back into the same diff pipeline.
-- `"custom"` — wire in any CLI coding tool via the adapter interface (context in,
-  old/new-string pairs out).
+### Built-in agent
+
+```json
+{
+  "agent": "builtin"
+}
+```
+
+Uses Lasso's built-in agent through the Anthropic SDK.
+
+Requires:
+
+```bash
+export ANTHROPIC_API_KEY=your_key
+```
+
+### Claude Code
+
+```json
+{
+  "agent": "claude-code"
+}
+```
+
+Lasso can delegate the coding task to Claude Code in headless mode while keeping the same selection → context → diff → accept workflow.
+
+### Custom agent
+
+```json
+{
+  "agent": "custom"
+}
+```
+
+Build your own adapter for another coding agent.
+
+The adapter contract is intentionally simple:
+
+```text
+Lasso context
+     ↓
+Your agent
+     ↓
+old string → new string
+     ↓
+Lasso diff preview
+```
+
+---
+
+## How it works
+
+Lasso has three main pieces.
+
+```text
+┌──────────────────────┐
+│      Browser         │
+│                      │
+│  Select UI element   │
+│  Capture screenshot  │
+└──────────┬───────────┘
+           │
+           │ WebSocket
+           ▼
+┌──────────────────────┐
+│     Lasso CLI        │
+│                      │
+│  Resolve source      │
+│  Assemble context    │
+│  Run coding agent    │
+│  Generate diff       │
+└──────────┬───────────┘
+           │
+           │ accepted diff
+           ▼
+┌──────────────────────┐
+│     Source code      │
+│                      │
+│  Your actual files   │
+│  Your framework      │
+└──────────────────────┘
+```
+
+The browser overlay is responsible for **selection and context capture**.
+
+The CLI handles **source resolution, agent orchestration, diffs, and filesystem changes**.
+
+The framework remains responsible for rendering the result.
+
+---
+
+## Local-first by design
+
+Lasso is designed around your local development environment.
+
+The browser communicates with a local Lasso CLI through a dedicated WebSocket bridge.
+
+The CLI:
+
+1. Detects your framework
+2. Resolves the selected component
+3. Reads the relevant source
+4. Collects imports and surrounding context
+5. Captures the selected UI
+6. Sends the assembled context to your configured agent
+7. Receives a proposed change
+8. Shows you the diff
+9. Writes only after you accept
+
+The goal is simple:
+
+**Your development environment stays yours.**
+
+---
+
+## Status
+
+### `0.1.0`
+
+Lasso is early and intentionally opinionated.
+
+The core visual editing pipeline is being built around:
+
+- Vite integration
+- Next.js integration
+- Visual component selection
+- Source-code resolution
+- Local WebSocket communication
+- AI-generated source changes
+- Diff preview
+- Explicit accept/reject
+- Undo
+- Pluggable coding agents
+
+Expect breaking changes before `1.0`.
+
+---
 
 ## Documentation
 
-| Doc | Description |
-| --- | --- |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Capture, bridge, source resolution, agent adapters, v1 design decisions |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup and pull requests |
-| [SUPPORT.md](SUPPORT.md) | Questions, bugs, and community |
-| [SECURITY.md](SECURITY.md) | Vulnerability reporting |
-| [CHANGELOG.md](CHANGELOG.md) | Release history |
-| [docs/PUBLISHING.md](docs/PUBLISHING.md) | Maintainer guide for npm releases |
+| Document | Description |
+|---|---|
+| [Architecture](ARCHITECTURE.md) | System architecture and design decisions |
+| [Contributing](CONTRIBUTING.md) | Development setup and contribution guide |
+| [Support](SUPPORT.md) | Questions, bugs, and community support |
+| [Security](SECURITY.md) | Vulnerability reporting |
+| [Changelog](CHANGELOG.md) | Release history |
+| [Publishing](docs/PUBLISHING.md) | npm publishing guide |
 
-More guides and examples live on the [Lasso website](https://lasso.byorello.space).
+More examples and guides are available on the [Lasso website](https://lasso.byorello.space).
 
-## Support the project
+---
 
-Lasso is open source (ISC). If it saves you time, consider buying the maintainer a coffee:
+## Contributing
 
-[![Buy me a coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/thecodeguyy)
+Lasso is open source and contributions are welcome.
+
+```bash
+git clone https://github.com/codewithdripzy/lasso.git
+cd lasso
+
+npm install
+npm run build
+```
+
+If you find a bug, have an idea, or want to contribute a framework integration, open an issue or pull request.
+
+---
+
+## Support
+
+If Lasso saves you time and you want to support development:
+
+<a href="https://www.buymeacoffee.com/thecodeguyy">
+  <img src="https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png" alt="Buy me a coffee" height="40">
+</a>
 
 - **Buy Me a Coffee:** [@thecodeguyy](https://www.buymeacoffee.com/thecodeguyy)
-- **X (Twitter):** [@fikayomibanks](https://x.com/fikayomibanks)
+- **X:** [@fikayomibanks](https://x.com/fikayomibanks)
 - **GitHub:** [@codewithdripzy](https://github.com/codewithdripzy)
+
+---
 
 ## License
 
 [ISC](LICENSE) © 2026 Lasso contributors.
 
----
+<div align="center">
 
-*Made for developers who want the AI to change code the way they would — one accepted diff at a time.*
+<br />
+
+**Point at it. Describe it. Ship it.**
+
+Made for developers who want to change their code the way they change their UI.
+
+</div>
