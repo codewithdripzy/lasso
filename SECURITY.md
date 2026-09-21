@@ -19,9 +19,10 @@ issue so we can decide whether a backport is warranted.
 **Please do not open a public issue for security vulnerabilities.** Report them privately
 to the maintainers so we can fix the issue before it is disclosed.
 
-- Email: [security@example.com](mailto:security@example.com) <!-- replace with the real maintainer security address -->
-- If you prefer encrypted channels, request a PGP key from the same address and we will
-  provide one.
+- [GitHub private vulnerability reporting](https://github.com/codewithdripzy/lasso/security/advisories/new)
+  (preferred).
+- Email the maintainer via the contact on [buymeacoffee.com/thecodeguyy](https://www.buymeacoffee.com/thecodeguyy)
+  if you cannot use GitHub.
 
 Please include:
 

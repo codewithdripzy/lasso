@@ -8,7 +8,14 @@
     "lasso": "dist/cli/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "ARCHITECTURE.md",
+    "CHANGELOG.md",
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "SUPPORT.md",
+    "docs/PUBLISHING.md"
   ],
   "engines": {
     "node": ">=18.0.0"
@@ -19,8 +26,8 @@
     "build:cli": "tsc -p config/tsconfig.cli.json",
     "build:overlay": "esbuild src/overlay/index.ts --bundle --outfile=dist/overlay.js",
     "typecheck": "npm run typecheck:cli && npm run typecheck:overlay",
-    "typecheck:cli": "tsc -p tsconfig.cli.json --noEmit",
-    "typecheck:overlay": "tsc -p tsconfig.overlay.json",
+    "typecheck:cli": "tsc -p config/tsconfig.cli.json --noEmit",
+    "typecheck:overlay": "tsc -p config/tsconfig.overlay.json --noEmit",
     "start": "node dist/cli/index.js",
     "prepublishOnly": "npm run build",
     "format": "prettier --write .",
@@ -29,19 +36,46 @@
   },
   "keywords": [
     "ai",
-    "dev-tools",
+    "ai-assisted-development",
+    "anthropic",
+    "claude",
     "cli",
-    "vite",
-    "code-editing"
+    "code-editing",
+    "developer-tools",
+    "dev-tools",
+    "frontend",
+    "hmr",
+    "local-first",
+    "nextjs",
+    "next.js",
+    "overlay",
+    "react",
+    "source-code",
+    "visual-editing",
+    "vite"
   ],
-  "author": "",
+  "homepage": "https://lasso.byorello.space",
+  "bugs": {
+    "url": "https://github.com/codewithdripzy/lasso/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codewithdripzy/lasso.git"
+  },
+  "author": {
+    "name": "Bankole Emmanuel",
+    "url": "https://github.com/codewithdripzy"
+  },
   "license": "ISC",
+  "funding": {
+    "type": "custom",
+    "url": "https://www.buymeacoffee.com/thecodeguyy"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
     "chalk": "^6.0.0",
     "commander": "^15.0.0",
     "http-proxy": "^1.18.1",
-    "lasso": "link:",
     "open": "^11.0.4",
     "vite": "^7.0.0",
     "ws": "^8.21.3"
@@ -50,7 +84,9 @@
     "vite": "^8.3.0"
   },
   "peerDependenciesMeta": {
-    "vite": { "optional": true }
+    "vite": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/http-proxy": "^1.17.17",
@@ -61,6 +97,6 @@
     "prettier": "^3.9.8",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",
-    "vite": "^8.3.0"  
+    "vite": "^8.3.0"
   }
 }

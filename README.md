@@ -1,6 +1,13 @@
 # Lasso
 
+[![npm version](https://img.shields.io/npm/v/lasso.svg)](https://www.npmjs.com/package/lasso)
+[![license: ISC](https://img.shields.io/npm/l/lasso.svg)](https://github.com/codewithdripzy/lasso/blob/main/LICENSE)
+[![Node.js](https://img.shields.io/node/v/lasso.svg)](https://nodejs.org/)
+[![website](https://img.shields.io/badge/website-lasso.byorello.space-6366f1)](https://lasso.byorello.space)
+
 Select any part of your running app, describe a change, and let AI edit the **real source code**.
+
+**Website:** [lasso.byorello.space](https://lasso.byorello.space) · **Repository:** [github.com/codewithdripzy/lasso](https://github.com/codewithdripzy/lasso)
 
 Lasso is a local-first dev tool. You point at a component in the browser, type what you want
 changed, and — after a diff preview and your explicit accept — the change lands in your
@@ -25,10 +32,10 @@ direct manipulation:
 
 ## Features
 
-- Floating overlay in select mode with lasso / click selection (`src/overlay`)
+- Floating overlay in select mode with lasso / click selection
 - Source resolution for **Vite** (native build plugin, exact JSX lines) and **Next.js**
   (React `_debugSource` fiber data)
-- Persistent WebSocket bridge to a local CLI (`src/cli`)
+- Persistent WebSocket bridge to a local CLI
 - Inline prompt box, screenshot-of-selection context, diff preview + accept + undo
 - Pluggable agent adapters: `builtin`, `claude-code`, `custom` (`lasso.config.json`)
 
@@ -89,11 +96,26 @@ Create a `lasso.config.json` in your project root:
 
 ## Documentation
 
-- `ARCHITECTURE.md` — how the pieces fit together (capture, bridge, source resolution,
-  agent adapters) and the v1 design decisions.
-- `CONTRIBUTING.md` — how to set up a dev environment and open a pull request.
-- `SUPPORT.md` — where to ask questions and report bugs.
-- `SECURITY.md` — how to report a security vulnerability.
+| Doc | Description |
+| --- | --- |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Capture, bridge, source resolution, agent adapters, v1 design decisions |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup and pull requests |
+| [SUPPORT.md](SUPPORT.md) | Questions, bugs, and community |
+| [SECURITY.md](SECURITY.md) | Vulnerability reporting |
+| [CHANGELOG.md](CHANGELOG.md) | Release history |
+| [docs/PUBLISHING.md](docs/PUBLISHING.md) | Maintainer guide for npm releases |
+
+More guides and examples live on the [Lasso website](https://lasso.byorello.space).
+
+## Support the project
+
+Lasso is open source (ISC). If it saves you time, consider buying the maintainer a coffee:
+
+[![Buy me a coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/thecodeguyy)
+
+- **Buy Me a Coffee:** [@thecodeguyy](https://www.buymeacoffee.com/thecodeguyy)
+- **X (Twitter):** [@fikayomibanks](https://x.com/fikayomibanks)
+- **GitHub:** [@codewithdripzy](https://github.com/codewithdripzy)
 
 ## License
 

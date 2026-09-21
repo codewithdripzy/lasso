@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Open-source documentation: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
   `SECURITY.md`, `SUPPORT.md`, `LICENSE` (ISC), and this changelog.
 
-## [0.1.0] - 2026-09-?? <!-- set the release date -->
+## [0.1.0] - 2026-09-21
 
 ### Added
 

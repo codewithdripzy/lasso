@@ -23,10 +23,12 @@ src/
 ## Development setup
 
 ```bash
-git clone <your-fork-url> lasso
+git clone https://github.com/codewithdripzy/lasso.git
 cd lasso
 pnpm install
 ```
+
+Fork the repo on GitHub and push to your fork if you are opening a pull request.
 
 We use **pnpm**. There is no test suite yet (see [Tests](#tests)).
 

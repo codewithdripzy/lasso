@@ -5,8 +5,8 @@ best place for each kind of question.
 
 ## Bugs and feature requests
 
-- **Report a bug**: open a GitHub issue (`<your-repo>/issues`) with the framework you're
-  using, your Node version, and a minimal repro.
+- **Report a bug**: open a [GitHub issue](https://github.com/codewithdripzy/lasso/issues) with
+  the framework you're using, your Node version, and a minimal repro.
 - **Request a feature**: open an issue and label it `enhancement`. Existing roadmap items
   and open design questions live at the bottom of [ARCHITECTURE.md](ARCHITECTURE.md).
 - **Security vulnerability**: do **not** open an issue — use the private contact in
@@ -14,9 +14,9 @@ best place for each kind of question.
 
 ## Real-time help
 
-- GitHub Discussions for general questions, "how do I…" help, and show-and-tell
-  (add the link to your repo's Discussions tab).
-- Our Discord/community server — (link coming soon).
+- [GitHub Discussions](https://github.com/codewithdripzy/lasso/discussions) for general
+  questions, "how do I…" help, and show-and-tell.
+- Product docs and guides: [lasso.byorello.space](https://lasso.byorello.space).
 
 ## Getting help faster
 
