@@ -29,6 +29,23 @@ function init() {
   let runtimeErrors: string[] = [];
   type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" };
   let refreshModelMenu = () => {};
+  const modelSessionKey = "lasso:selected-model";
+
+  function storedModelId() {
+    try {
+      return window.sessionStorage.getItem(modelSessionKey);
+    } catch {
+      return null;
+    }
+  }
+
+  function rememberModel(model: ModelOption) {
+    try {
+      window.sessionStorage.setItem(modelSessionKey, model.id);
+    } catch {
+      // Storage can be disabled by browser privacy settings.
+    }
+  }
 
   function setAgentStatus(status: "thinking" | "working" | "review" | "error", message: string) {
     if (!agentStatusElement || !agentStatusMessage) return;
@@ -53,7 +70,8 @@ function init() {
           if (message.type === "config") apiKeyConfigured = Boolean(message.apiKeyConfigured);
           if (message.type === "config" && message.models?.length) {
             MODELS = message.models;
-            selectedModel = MODELS[0];
+            selectedModel = MODELS.find((model) => model.id === storedModelId()) || MODELS[0];
+            rememberModel(selectedModel);
             refreshModelMenu();
           }
           if (message.type === "agent_status" && message.status && message.message) {
@@ -98,7 +116,7 @@ function init() {
   ];
 
   let selectedModel: ModelOption =
-    MODELS[0];
+    MODELS.find((model) => model.id === storedModelId()) || MODELS[0];
 
   // ============================================================
   // ELEMENT GROUPS
@@ -1308,6 +1326,7 @@ function init() {
       if (!found) return;
 
       selectedModel = found;
+      rememberModel(found);
 
       syncModelMenu();
 
