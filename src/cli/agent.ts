@@ -12,7 +12,7 @@ type AgentInput = {
   model: string;
   messages?: Array<{ role: string; content: string; createdAt?: string }>;
   changesHistory?: Array<{ summary: string; changes: SourceChange[]; createdAt?: string }>;
-  context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; screenshots?: { full?: string; element?: string } };
+  context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } };
   element: { tag: string; group: string; label: string; html?: string; sourceHint?: string };
 };
 

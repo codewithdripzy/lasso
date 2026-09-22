@@ -26,19 +26,20 @@ function init() {
   let changesHistory: Array<{ summary: string; changes: PendingChange[]; createdAt: string }> = [];
   let selectionId = "";
   let screenshotPromise: Promise<ScreenshotContext> = Promise.resolve({});
+  let runtimeErrors: string[] = [];
   type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" };
   let refreshModelMenu = () => {};
 
   function setAgentStatus(status: "thinking" | "working" | "review" | "error", message: string) {
     if (!agentStatusElement || !agentStatusMessage) return;
-    agentStatusElement.hidden = false;
+    agentStatusElement.hidden = status === "review" || status === "error";
     agentStatusElement.dataset.status = status;
     agentStatusMessage.textContent = message;
     agentRunning = status === "thinking" || status === "working";
     promptInput.disabled = agentRunning;
     sendButton.disabled = agentRunning;
     sendButton.querySelector("span")!.textContent = status === "review" ? "Review" : status === "error" ? "Retry" : "Send";
-    appendChat(status === "error" ? "error" : "assistant", message);
+    if (status === "review" || status === "error") appendChat(status === "error" ? "error" : "assistant", message);
   }
 
   function connectBridge() {
@@ -775,7 +776,8 @@ function init() {
     .lasso-review-actions button:hover { transform: translateY(-1px); }
 
     .lasso-agent-status {
-      display: none;
+      display: grid;
+      grid-template-columns: 7px auto 1fr;
       align-items: center;
       gap: 8px;
       margin: 0 0 10px;
@@ -788,6 +790,8 @@ function init() {
     }
 
     .lasso-agent-status[hidden] { display: none; }
+    .lasso-agent-status-kicker { color: #94a3b8; font-size: 10px; font-weight: 700; letter-spacing: .02em; white-space: nowrap; }
+    .lasso-agent-status-message { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .lasso-agent-status[data-status="review"] { background: #ecfdf3; color: #188038; }
     .lasso-agent-status[data-status="error"] { background: #fef2f2; color: #b3261e; }
     .lasso-agent-status-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: #6366f1; animation: lasso-agent-pulse 1.2s ease-in-out infinite; }
@@ -1040,18 +1044,19 @@ function init() {
       </button>
     </div>
 
+    <div class="lasso-chat-thread" aria-live="polite"></div>
+
+    <div class="lasso-agent-status" hidden aria-live="polite">
+      <span class="lasso-agent-status-dot"></span>
+      <span class="lasso-agent-status-kicker">Lasso agent</span>
+      <span class="lasso-agent-status-message"></span>
+    </div>
+
     <textarea
       class="lasso-prompt-input"
       placeholder="Ask Anything about your performance"
       rows="1"
     ></textarea>
-
-    <div class="lasso-chat-thread" aria-live="polite"></div>
-
-    <div class="lasso-agent-status" hidden aria-live="polite">
-      <span class="lasso-agent-status-dot"></span>
-      <span class="lasso-agent-status-message"></span>
-    </div>
 
     <div class="lasso-prompt-actions">
 
@@ -1193,6 +1198,23 @@ function init() {
   agentStatusElement = prompt.querySelector<HTMLDivElement>(".lasso-agent-status")!;
   agentStatusMessage = prompt.querySelector<HTMLSpanElement>(".lasso-agent-status-message")!;
   connectBridge();
+
+  function reportRuntimeError(details: string) {
+    const clean = details.slice(0, 1200);
+    if (!clean || runtimeErrors.includes(clean)) return;
+    runtimeErrors = [...runtimeErrors.slice(-4), clean];
+    if (bridgeSocket?.readyState === WebSocket.OPEN) {
+      bridgeSocket.send(JSON.stringify({ type: "runtime_error", selectionId, details: clean }));
+    }
+  }
+
+  window.addEventListener("error", (event) => {
+    reportRuntimeError(`${event.message || "Runtime error"}${event.filename ? ` · ${event.filename}:${event.lineno}` : ""}`);
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = event.reason instanceof Error ? event.reason.message : String(event.reason || "Unhandled promise rejection");
+    reportRuntimeError(reason);
+  });
 
   reviewPanel!.querySelector<HTMLButtonElement>(".lasso-review-close")!.addEventListener("click", closeReview);
   reviewPanel!.querySelector<HTMLButtonElement>(".lasso-review-undo")!.addEventListener("click", () => {
@@ -1872,6 +1894,7 @@ function init() {
             url: window.location.href,
             title: document.title,
           },
+          runtimeErrors,
           styles: {
             display: computed.display,
             position: computed.position,

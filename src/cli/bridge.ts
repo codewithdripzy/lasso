@@ -10,7 +10,8 @@ const BRIDGE_PORT = 3056;
 
 export type BridgeMessage =
   | { type: "hello"; from: "overlay" | "cli" }
-  | { type: "edit"; instruction: string; model: string; provider?: "anthropic" | "openai" | "google" | "ollama"; messages?: Array<{ role: string; content: string; createdAt?: string }>; changesHistory?: Array<{ summary: string; changes: SourceChange[]; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
+  | { type: "edit"; instruction: string; model: string; provider?: "anthropic" | "openai" | "google" | "ollama"; messages?: Array<{ role: string; content: string; createdAt?: string }>; changesHistory?: Array<{ summary: string; changes: SourceChange[]; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
+  | { type: "runtime_error"; selectionId?: string; details: string }
   | { type: "apply"; changes: SourceChange[] }
   | { type: "undo" }
   | { type: "agent_status"; status: "thinking" | "working" | "review" | "error"; message: string };
@@ -117,6 +118,7 @@ export function startBridge(cwd = process.cwd()) {
           return;
         }
         socket.send(JSON.stringify({ type: "agent_status", status: "thinking", message: "Reading the selected component…" }));
+        socket.send(JSON.stringify({ type: "agent_status", status: "working", message: "Inspecting source, conversation, and visual context…" }));
         void proposeChanges(cwd, msg, { ...agentConfig, provider: msg.provider || agentConfig.provider, model: msg.model })
           .then((proposal) => {
             socket.send(JSON.stringify({ type: "agent_status", status: "review", message: proposal.summary, changes: proposal.changes }));
@@ -125,6 +127,8 @@ export function startBridge(cwd = process.cwd()) {
             const message = error instanceof Error ? error.message : "The agent could not prepare a change.";
             socket.send(JSON.stringify({ type: "agent_status", status: "error", message }));
           });
+      } else if (msg.type === "runtime_error") {
+        socket.send(JSON.stringify({ type: "agent_status", status: "error", message: `Runtime error detected${msg.selectionId ? ` for selection ${msg.selectionId}` : ""}: ${msg.details}` }));
       } else if (msg.type === "apply") {
         try {
           lastSnapshot = [];
