@@ -1,3 +1,5 @@
+import html2canvas from "html2canvas";
+
 console.log("[lasso] overlay loaded");
 
 function init() {
@@ -15,6 +17,17 @@ function init() {
   let agentStatusElement: HTMLDivElement | null = null;
   let agentStatusMessage: HTMLSpanElement | null = null;
   let agentRunning = false;
+  type PendingChange = { filePath: string; oldString: string; newString: string };
+  let pendingChanges: PendingChange[] = [];
+  let reviewPanel: HTMLDivElement | null = null;
+  type ChatMessage = { role: "user" | "assistant" | "error"; content: string; createdAt: string; contextId?: string };
+  type ScreenshotContext = { full?: string; element?: string };
+  let chatHistory: ChatMessage[] = [];
+  let changesHistory: Array<{ summary: string; changes: PendingChange[]; createdAt: string }> = [];
+  let selectionId = "";
+  let screenshotPromise: Promise<ScreenshotContext> = Promise.resolve({});
+  type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" };
+  let refreshModelMenu = () => {};
 
   function setAgentStatus(status: "thinking" | "working" | "review" | "error", message: string) {
     if (!agentStatusElement || !agentStatusMessage) return;
@@ -25,6 +38,7 @@ function init() {
     promptInput.disabled = agentRunning;
     sendButton.disabled = agentRunning;
     sendButton.querySelector("span")!.textContent = status === "review" ? "Review" : status === "error" ? "Retry" : "Send";
+    appendChat(status === "error" ? "error" : "assistant", message);
   }
 
   function connectBridge() {
@@ -34,9 +48,36 @@ function init() {
       bridgeSocket.addEventListener("open", () => bridgeSocket?.send(JSON.stringify({ type: "hello", from: "overlay" })));
       bridgeSocket.addEventListener("message", (event) => {
         try {
-          const message = JSON.parse(event.data as string) as { type?: string; apiKeyConfigured?: boolean; status?: "thinking" | "working" | "review" | "error"; message?: string };
+          const message = JSON.parse(event.data as string) as { type?: string; apiKeyConfigured?: boolean; agentConfigured?: boolean; models?: ModelOption[]; status?: "thinking" | "working" | "review" | "error"; message?: string; changes?: PendingChange[] };
           if (message.type === "config") apiKeyConfigured = Boolean(message.apiKeyConfigured);
-          if (message.type === "agent_status" && message.status && message.message) setAgentStatus(message.status, message.message);
+          if (message.type === "config" && message.models?.length) {
+            MODELS = message.models;
+            selectedModel = MODELS[0];
+            refreshModelMenu();
+          }
+          if (message.type === "agent_status" && message.status && message.message) {
+            setAgentStatus(message.status, message.message);
+            if (message.status === "review" && message.changes?.length) {
+              pendingChanges = message.changes;
+              changesHistory.push({ summary: message.message, changes: message.changes, createdAt: new Date().toISOString() });
+              showReview(message.changes, message.message);
+            }
+          }
+          if (message.type === "applied" || message.type === "undone") {
+            appendChat("assistant", message.message || "Done.");
+            if (message.type === "undone") {
+              closeReview();
+              pendingChanges = [];
+            } else if (reviewPanel) {
+              const subtitle = reviewPanel.querySelector<HTMLParagraphElement>(".lasso-review-subtitle");
+              const apply = reviewPanel.querySelector<HTMLButtonElement>(".lasso-review-apply");
+              const keep = reviewPanel.querySelector<HTMLButtonElement>(".lasso-review-undo");
+              if (subtitle) subtitle.textContent = message.message || "The reviewed change was applied.";
+              if (apply) apply.hidden = true;
+              if (keep) { keep.textContent = "Undo change"; keep.classList.add("primary"); }
+              reviewPanel.hidden = false;
+            }
+          }
         } catch {
           console.warn("[lasso] Invalid bridge message");
         }
@@ -50,15 +91,12 @@ function init() {
   // MODELS
   // ============================================================
 
-  const MODELS = [
-    { id: "claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
-    { id: "claude-opus-4-1", label: "Claude Opus 4.1" },
-    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
-    { id: "gpt-4o", label: "GPT-4o" },
-    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-  ] as const;
+  let MODELS: ModelOption[] = [
+    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "google" },
+    { id: "gpt-4.1-mini", label: "GPT-4.1 mini", provider: "openai" },
+  ];
 
-  let selectedModel: { id: string; label: string } =
+  let selectedModel: ModelOption =
     MODELS[0];
 
   // ============================================================
@@ -238,7 +276,7 @@ function init() {
       background: rgba(18, 18, 20, 0.96);
 
       border: 1px solid rgba(255, 255, 255, 0.10);
-      border-radius: 13px;
+      border-radius: 999px;
 
       color: #fff;
 
@@ -295,6 +333,23 @@ function init() {
       background: rgba(99, 102, 241, 0.16);
       color: #a5b4fc;
     }
+
+    .lasso-ask-btn {
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 13px;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 999px;
+      background: #fff;
+      color: #111827;
+      font: 600 12px/1 inherit;
+      cursor: pointer;
+      transition: transform 120ms ease, background 120ms ease;
+    }
+    .lasso-ask-btn:hover { background: #eef2ff; transform: translateY(-1px); }
+    .lasso-ask-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
 
     .lasso-icon {
       width: 16px;
@@ -670,8 +725,57 @@ function init() {
       color: #9ca3af;
     }
 
-    .lasso-agent-status {
+    .lasso-chat-thread {
       display: flex;
+      flex-direction: column;
+      gap: 7px;
+      max-height: 118px;
+      overflow: auto;
+      margin: -2px 0 10px;
+      padding-right: 2px;
+    }
+    .lasso-chat-message {
+      max-width: 92%;
+      padding: 8px 10px;
+      border-radius: 10px;
+      color: #475569;
+      background: #f4f6fa;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .lasso-chat-message.user { align-self: flex-end; color: #fff; background: #111827; }
+    .lasso-chat-message.error { color: #b3261e; background: #fef2f2; }
+    .lasso-review {
+      position: fixed;
+      width: min(520px, calc(100vw - 24px));
+      max-height: min(620px, calc(100vh - 24px));
+      overflow: auto;
+      padding: 18px;
+      border: 1px solid #e2e8f0;
+      border-radius: 18px;
+      background: #fff;
+      color: #0f172a;
+      box-shadow: 0 24px 70px rgba(15, 23, 42, .22), 0 2px 8px rgba(15, 23, 42, .08);
+      pointer-events: auto;
+      font-family: inherit;
+    }
+    .lasso-review[hidden] { display: none; }
+    .lasso-review-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+    .lasso-review-title { margin: 0; font-size: 15px; font-weight: 700; }
+    .lasso-review-subtitle { margin: 4px 0 0; color: #64748b; font-size: 11px; line-height: 1.4; }
+    .lasso-review-file { margin-top: 10px; overflow: hidden; border: 1px solid #e2e8f0; border-radius: 10px; }
+    .lasso-review-file-name { padding: 8px 10px; background: #f8fafc; color: #475569; font: 600 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .lasso-review-code { display: grid; grid-template-columns: 1fr 1fr; min-width: 0; }
+    .lasso-review-code pre { min-width: 0; margin: 0; padding: 10px; overflow: auto; font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
+    .lasso-review-old { color: #991b1b; background: #fff7f7; }
+    .lasso-review-new { color: #166534; background: #f3fff6; }
+    .lasso-review-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    .lasso-review-actions button { min-height: 34px; padding: 0 13px; border: 1px solid #dbe2ea; border-radius: 9px; background: #fff; color: #475569; font: 600 12px/1 inherit; cursor: pointer; }
+    .lasso-review-actions .primary { border-color: #111827; background: #111827; color: #fff; }
+    .lasso-review-actions button:hover { transform: translateY(-1px); }
+
+    .lasso-agent-status {
+      display: none;
       align-items: center;
       gap: 8px;
       margin: 0 0 10px;
@@ -798,6 +902,13 @@ function init() {
       </span>
     </button>
 
+    <button class="lasso-ask-btn" type="button" aria-label="Ask Lasso about the selected element" disabled>
+      <span>Ask Lasso</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>
+      </svg>
+    </button>
+
     <div class="lasso-status">
       <span class="lasso-dot"></span>
       <span>Click an element</span>
@@ -815,6 +926,8 @@ function init() {
     toolbar.querySelector<HTMLSpanElement>(
       ".lasso-select-text"
     )!;
+
+  const askBtn = toolbar.querySelector<HTMLButtonElement>(".lasso-ask-btn")!;
 
   const status =
     toolbar.querySelector<HTMLDivElement>(
@@ -933,6 +1046,8 @@ function init() {
       rows="1"
     ></textarea>
 
+    <div class="lasso-chat-thread" aria-live="polite"></div>
+
     <div class="lasso-agent-status" hidden aria-live="polite">
       <span class="lasso-agent-status-dot"></span>
       <span class="lasso-agent-status-message"></span>
@@ -987,6 +1102,74 @@ function init() {
 
   shadow.appendChild(prompt);
 
+  reviewPanel = document.createElement("div");
+  reviewPanel.className = "lasso-review";
+  reviewPanel.hidden = true;
+  reviewPanel.innerHTML = `
+    <div class="lasso-review-header">
+      <div>
+        <h3 class="lasso-review-title">Review source changes</h3>
+        <p class="lasso-review-subtitle">Nothing has been written yet. Inspect the focused diff before applying it.</p>
+      </div>
+      <button class="lasso-review-close" type="button" aria-label="Close review">×</button>
+    </div>
+    <div class="lasso-review-files"></div>
+    <div class="lasso-review-actions">
+      <button class="lasso-review-undo" type="button">Keep editing</button>
+      <button class="lasso-review-apply primary" type="button">Apply changes</button>
+    </div>
+  `;
+  shadow.appendChild(reviewPanel);
+
+  function appendChat(role: "user" | "assistant" | "error", text: string) {
+    const thread = prompt?.querySelector<HTMLDivElement>(".lasso-chat-thread");
+    if (!thread || !text.trim()) return;
+    const previous = thread.lastElementChild;
+    if (previous?.textContent === text && previous.classList.contains(role)) return;
+    chatHistory.push({ role, content: text, createdAt: new Date().toISOString(), contextId: selectionId || undefined });
+    const item = document.createElement("div");
+    item.className = `lasso-chat-message ${role}`;
+    item.textContent = text;
+    thread.appendChild(item);
+    while (thread.children.length > 6) thread.firstElementChild?.remove();
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  function closeReview() {
+    if (reviewPanel) reviewPanel.hidden = true;
+  }
+
+  function showReview(changes: PendingChange[], summary: string) {
+    if (!reviewPanel) return;
+    const subtitle = reviewPanel.querySelector<HTMLParagraphElement>(".lasso-review-subtitle");
+    const files = reviewPanel.querySelector<HTMLDivElement>(".lasso-review-files");
+    if (!subtitle || !files) return;
+    subtitle.textContent = `${summary} ${changes.length} file${changes.length === 1 ? "" : "s"} proposed.`;
+    files.replaceChildren(...changes.map((change) => {
+      const file = document.createElement("div");
+      file.className = "lasso-review-file";
+      const name = document.createElement("div");
+      name.className = "lasso-review-file-name";
+      name.textContent = change.filePath;
+      const code = document.createElement("div");
+      code.className = "lasso-review-code";
+      const oldCode = document.createElement("pre");
+      oldCode.className = "lasso-review-old";
+      oldCode.textContent = `- ${change.oldString}`;
+      const newCode = document.createElement("pre");
+      newCode.className = "lasso-review-new";
+      newCode.textContent = `+ ${change.newString}`;
+      code.append(oldCode, newCode);
+      file.append(name, code);
+      return file;
+    }));
+    reviewPanel.hidden = false;
+    const left = Math.max(12, (window.innerWidth - Math.min(520, window.innerWidth - 24)) / 2);
+    const top = Math.max(12, (window.innerHeight - Math.min(620, window.innerHeight - 24)) / 2);
+    reviewPanel.style.left = `${left}px`;
+    reviewPanel.style.top = `${top}px`;
+  }
+
   const promptInput =
     prompt.querySelector<HTMLTextAreaElement>(
       ".lasso-prompt-input"
@@ -1011,6 +1194,21 @@ function init() {
   agentStatusMessage = prompt.querySelector<HTMLSpanElement>(".lasso-agent-status-message")!;
   connectBridge();
 
+  reviewPanel!.querySelector<HTMLButtonElement>(".lasso-review-close")!.addEventListener("click", closeReview);
+  reviewPanel!.querySelector<HTMLButtonElement>(".lasso-review-undo")!.addEventListener("click", () => {
+    if (pendingChanges.length && reviewPanel!.querySelector<HTMLButtonElement>(".lasso-review-apply")!.hidden) {
+      if (bridgeSocket?.readyState === WebSocket.OPEN) bridgeSocket.send(JSON.stringify({ type: "undo" }));
+      return;
+    }
+    closeReview();
+    appendChat("assistant", "Kept as a proposal. Nothing was changed.");
+  });
+  reviewPanel!.querySelector<HTMLButtonElement>(".lasso-review-apply")!.addEventListener("click", () => {
+    if (!bridgeSocket || bridgeSocket.readyState !== WebSocket.OPEN || !pendingChanges.length) return;
+    bridgeSocket.send(JSON.stringify({ type: "apply", changes: pendingChanges }));
+    appendChat("assistant", "Applying the reviewed change…");
+  });
+
   const modelBtn =
     prompt.querySelector<HTMLButtonElement>(
       ".lasso-prompt-model"
@@ -1030,34 +1228,18 @@ function init() {
   // MODEL SELECTION
   // ============================================================
 
-  for (const model of MODELS) {
-    const item =
-      document.createElement("button");
-
-    item.type = "button";
-    item.className =
-      "lasso-prompt-model-item";
-    item.dataset.model = model.id;
-
-    item.innerHTML = `
-      <span>${model.label}</span>
-      <svg
-        class="lasso-prompt-model-check"
-        width="12"
-        height="12"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2.5"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="M20 6L9 17l-5-5"/>
-      </svg>
-    `;
-
-    modelMenu.appendChild(item);
-  }
+  refreshModelMenu = () => {
+    modelMenu.replaceChildren(...MODELS.map((model) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "lasso-prompt-model-item";
+      item.dataset.model = model.id;
+      item.innerHTML = `<span>${model.label}</span><svg class="lasso-prompt-model-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`;
+      return item;
+    }));
+    syncModelMenu();
+  };
+  refreshModelMenu();
 
   function syncModelMenu() {
     modelName.textContent =
@@ -1186,6 +1368,41 @@ function init() {
     }
 
     return `<${tag}>`;
+  }
+
+  function getSourceHint(el: Element): string | undefined {
+    for (const key of Object.keys(el)) {
+      if (!key.startsWith("__reactFiber") && !key.startsWith("__reactInternalInstance")) continue;
+      let fiber: any = (el as any)[key];
+      for (let depth = 0; fiber && depth < 12; depth += 1, fiber = fiber.return) {
+        const source = fiber?._debugSource;
+        if (source?.fileName) return `${source.fileName}:${source.lineNumber || 1}`;
+      }
+    }
+    return undefined;
+  }
+
+  async function captureScreenshots(el: Element): Promise<ScreenshotContext> {
+    const options = {
+      backgroundColor: null,
+      useCORS: true,
+      logging: false,
+      scale: Math.min(window.devicePixelRatio || 1, 1),
+      ignoreElements: (node: Element) => node.id === "lasso-root" || Boolean(node.closest?.("#lasso-root")),
+    };
+    try {
+      const [fullCanvas, elementCanvas] = await Promise.all([
+        html2canvas(document.body, options),
+        html2canvas(el as HTMLElement, options),
+      ]);
+      return {
+        full: fullCanvas.toDataURL("image/jpeg", 0.72),
+        element: elementCanvas.toDataURL("image/jpeg", 0.82),
+      };
+    } catch (error) {
+      console.warn("[lasso] screenshot capture unavailable", error);
+      return {};
+    }
   }
 
   function positionBox(
@@ -1446,6 +1663,18 @@ function init() {
     }
   );
 
+  askBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!selected) {
+      setSelectMode(true);
+      return;
+    }
+    prompt.classList.add("visible");
+    positionPrompt(selected);
+    requestAnimationFrame(() => promptInput.focus());
+  });
+
   // ============================================================
   // HOVER DETECTION
   //
@@ -1507,6 +1736,11 @@ function init() {
       event.stopImmediatePropagation();
 
       selected = target;
+      askBtn.disabled = false;
+      selectionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      chatHistory = [];
+      changesHistory = [];
+      screenshotPromise = captureScreenshots(selected);
 
       console.log(
         "[lasso] selected:",
@@ -1586,7 +1820,7 @@ function init() {
 
   sendButton.addEventListener(
     "click",
-    (event) => {
+    async (event) => {
       event.preventDefault();
       event.stopPropagation();
 
@@ -1600,25 +1834,61 @@ function init() {
         return;
       }
 
-      if (!apiKeyConfigured) {
-        setAgentStatus("error", "Set VITE_LASSO_API_KEY or NEXT_LASSO_API_KEY before sending an edit.");
-        return;
-      }
-
       if (!bridgeSocket || bridgeSocket.readyState !== WebSocket.OPEN) {
         setAgentStatus("error", "The Lasso agent bridge is not connected. Start Lasso with your dev server and try again.");
         return;
       }
 
+      appendChat("user", instruction);
       setAgentStatus("thinking", "Starting the Lasso agent…");
+      promptInput.value = "";
+      const rect = selected.getBoundingClientRect();
+      const computed = getComputedStyle(selected);
+      const attributes = Object.fromEntries(Array.from(selected.attributes).map((attribute) => [attribute.name, attribute.value]));
+      const screenshots = await screenshotPromise;
       bridgeSocket.send(JSON.stringify({
         type: "edit",
         instruction,
+        messages: chatHistory,
+        changesHistory,
         model: selectedModel.id,
+        provider: selectedModel.provider,
+        context: {
+          selectionId,
+          position: {
+            top: rect.top,
+            left: rect.left,
+            right: rect.right,
+            bottom: rect.bottom,
+            width: rect.width,
+            height: rect.height,
+            scrollX: window.scrollX,
+            scrollY: window.scrollY,
+          },
+          viewport: {
+            width: window.innerWidth,
+            height: window.innerHeight,
+            devicePixelRatio: window.devicePixelRatio,
+            url: window.location.href,
+            title: document.title,
+          },
+          styles: {
+            display: computed.display,
+            position: computed.position,
+            color: computed.color,
+            backgroundColor: computed.backgroundColor,
+            fontSize: computed.fontSize,
+            lineHeight: computed.lineHeight,
+          },
+          attributes,
+          screenshots,
+        },
         element: {
           tag: selected.tagName.toLowerCase(),
           group: getElementGroup(selected),
           label: getElementLabel(selected),
+          html: selected.outerHTML.slice(0, 6000),
+          sourceHint: selected.getAttribute("data-source") || selected.getAttribute("data-lasso-source") || getSourceHint(selected),
         },
       }));
     }
@@ -1656,7 +1926,8 @@ function init() {
 
     promptInput.value = "";
 
-    selected = null;
+      selected = null;
+    askBtn.disabled = true;
 
     selectedBox.style.display =
       "none";
