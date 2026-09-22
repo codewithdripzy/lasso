@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/lasso-icon.png" alt="Lasso" width="96" />
+<img src="https://lasso.byorello.space/_next/image?url=%2Ficons%2Flogo.png&w=256&q=75" alt="Lasso" width="96" />
 
 # Lasso
 
