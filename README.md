@@ -12,10 +12,16 @@ Select any part of your running app, describe what you want changed, and Lasso t
 
 <br />
 
-[![npm version](https://img.shields.io/npm/v/lasso.svg?color=6366f1)](https://www.npmjs.com/package/lasso)
-[![npm downloads](https://img.shields.io/npm/dm/lasso.svg?color=6366f1)](https://www.npmjs.com/package/lasso)
-[![license](https://img.shields.io/npm/l/lasso.svg?color=6366f1)](LICENSE)
-[![Node.js](https://img.shields.io/node/v/lasso.svg?color=6366f1)](https://nodejs.org/)
+[![npm version](https://img.shields.io/npm/v/lasso?style=flat-square&color=6366f1)](https://www.npmjs.com/package/lasso)
+[![npm downloads](https://img.shields.io/npm/dm/lasso?style=flat-square&color=6366f1)](https://www.npmjs.com/package/lasso)
+[![GitHub stars](https://img.shields.io/github/stars/codewithdripzy/lasso?style=flat-square&color=6366f1)](https://github.com/codewithdripzy/lasso)
+[![GitHub contributors](https://img.shields.io/github/contributors/codewithdripzy/lasso?style=flat-square&color=6366f1)](https://github.com/codewithdripzy/lasso/graphs/contributors)
+[![license](https://img.shields.io/github/license/codewithdripzy/lasso?style=flat-square&color=6366f1)](LICENSE)
+[![Node.js](https://img.shields.io/node/v/lasso?style=flat-square&color=6366f1)](https://nodejs.org/)
+
+<br />
+
+**npm downloads** · **GitHub stars** · **contributors** · **open source**
 
 <br />
 
@@ -44,8 +50,6 @@ Accept
        ↓
 Your source code changes
 ```
-
-The browser is simply the interface for selecting what you want to change.
 
 **Lasso edits your actual source files — not the live DOM.**
 
@@ -119,12 +123,12 @@ Lasso never silently rewrites your project.
 
 ```text
 AI proposal
-     ↓
+    ↓
 Review diff
-     ↓
+    ↓
 Accept ────────→ Write to source
-     │
-     └──────────→ Reject
+    │
+    └──────────→ Reject
 ```
 
 Accepted changes are written to the filesystem and your framework's normal development workflow takes over.
@@ -276,11 +280,11 @@ The adapter contract is intentionally simple:
 
 ```text
 Lasso context
-     ↓
+    ↓
 Your agent
-     ↓
+    ↓
 old string → new string
-     ↓
+    ↓
 Lasso diff preview
 ```
 
@@ -348,6 +352,24 @@ The CLI:
 The goal is simple:
 
 **Your development environment stays yours.**
+
+---
+
+## Project metrics
+
+Lasso is open source and distributed through npm.
+
+The numbers below are pulled from public package and repository activity where available.
+
+| Metric | |
+|---|---:|
+| npm downloads | [![npm downloads](https://img.shields.io/npm/dm/lasso?style=flat-square&color=6366f1)](https://www.npmjs.com/package/lasso) |
+| GitHub stars | [![GitHub stars](https://img.shields.io/github/stars/codewithdripzy/lasso?style=flat-square&color=6366f1)](https://github.com/codewithdripzy/lasso) |
+| Contributors | [![GitHub contributors](https://img.shields.io/github/contributors/codewithdripzy/lasso?style=flat-square&color=6366f1)](https://github.com/codewithdripzy/lasso/graphs/contributors) |
+| Latest release | [![npm version](https://img.shields.io/npm/v/lasso?style=flat-square&color=6366f1)](https://www.npmjs.com/package/lasso) |
+| License | [![license](https://img.shields.io/github/license/codewithdripzy/lasso?style=flat-square&color=6366f1)](LICENSE) |
+
+> npm downloads represent package downloads, not unique users or installations.
 
 ---
 
@@ -427,7 +449,7 @@ If Lasso saves you time and you want to support development:
 
 <br />
 
-**Point at it. Describe it. Ship it.**
+### Point at it. Describe it. Ship it.
 
 Made for developers who want to change their code the way they change their UI.
 
