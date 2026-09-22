@@ -10,6 +10,41 @@ function init() {
   let selectMode = false;
   let hovered: Element | null = null;
   let selected: Element | null = null;
+  let bridgeSocket: WebSocket | null = null;
+  let apiKeyConfigured = false;
+  let agentStatusElement: HTMLDivElement | null = null;
+  let agentStatusMessage: HTMLSpanElement | null = null;
+  let agentRunning = false;
+
+  function setAgentStatus(status: "thinking" | "working" | "review" | "error", message: string) {
+    if (!agentStatusElement || !agentStatusMessage) return;
+    agentStatusElement.hidden = false;
+    agentStatusElement.dataset.status = status;
+    agentStatusMessage.textContent = message;
+    agentRunning = status === "thinking" || status === "working";
+    promptInput.disabled = agentRunning;
+    sendButton.disabled = agentRunning;
+    sendButton.querySelector("span")!.textContent = status === "review" ? "Review" : status === "error" ? "Retry" : "Send";
+  }
+
+  function connectBridge() {
+    try {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      bridgeSocket = new WebSocket(`${protocol}//localhost:3056`);
+      bridgeSocket.addEventListener("open", () => bridgeSocket?.send(JSON.stringify({ type: "hello", from: "overlay" })));
+      bridgeSocket.addEventListener("message", (event) => {
+        try {
+          const message = JSON.parse(event.data as string) as { type?: string; apiKeyConfigured?: boolean; status?: "thinking" | "working" | "review" | "error"; message?: string };
+          if (message.type === "config") apiKeyConfigured = Boolean(message.apiKeyConfigured);
+          if (message.type === "agent_status" && message.status && message.message) setAgentStatus(message.status, message.message);
+        } catch {
+          console.warn("[lasso] Invalid bridge message");
+        }
+      });
+    } catch {
+      bridgeSocket = null;
+    }
+  }
 
   // ============================================================
   // MODELS
@@ -635,6 +670,27 @@ function init() {
       color: #9ca3af;
     }
 
+    .lasso-agent-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 10px;
+      padding: 9px 10px;
+      border-radius: 9px;
+      background: #f5f7fb;
+      color: #64748b;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .lasso-agent-status[hidden] { display: none; }
+    .lasso-agent-status[data-status="review"] { background: #ecfdf3; color: #188038; }
+    .lasso-agent-status[data-status="error"] { background: #fef2f2; color: #b3261e; }
+    .lasso-agent-status-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: #6366f1; animation: lasso-agent-pulse 1.2s ease-in-out infinite; }
+    [data-status="review"] .lasso-agent-status-dot { background: #188038; animation: none; }
+    [data-status="error"] .lasso-agent-status-dot { background: #b3261e; animation: none; }
+    @keyframes lasso-agent-pulse { 50% { opacity: .35; transform: scale(.75); } }
+
     .lasso-prompt-actions {
       display: flex;
       align-items: center;
@@ -877,6 +933,11 @@ function init() {
       rows="1"
     ></textarea>
 
+    <div class="lasso-agent-status" hidden aria-live="polite">
+      <span class="lasso-agent-status-dot"></span>
+      <span class="lasso-agent-status-message"></span>
+    </div>
+
     <div class="lasso-prompt-actions">
 
       <button
@@ -945,6 +1006,10 @@ function init() {
     prompt.querySelector<HTMLButtonElement>(
       ".lasso-prompt-close"
     )!;
+
+  agentStatusElement = prompt.querySelector<HTMLDivElement>(".lasso-agent-status")!;
+  agentStatusMessage = prompt.querySelector<HTMLSpanElement>(".lasso-agent-status-message")!;
+  connectBridge();
 
   const modelBtn =
     prompt.querySelector<HTMLButtonElement>(
@@ -1535,41 +1600,27 @@ function init() {
         return;
       }
 
-      console.log(
-        "[lasso] edit request:",
-        {
-          element: selected,
-          group:
-            getElementGroup(
-              selected
-            ),
-          instruction,
-          model:
-            selectedModel.id,
-        }
-      );
+      if (!apiKeyConfigured) {
+        setAgentStatus("error", "Set VITE_LASSO_API_KEY or NEXT_LASSO_API_KEY before sending an edit.");
+        return;
+      }
 
-      /*
-       * NEXT STEP:
-       *
-       * Resolve the selected element
-       * back to its source file/component.
-       *
-       * Example:
-       *
-       * {
-       *   type: "edit",
-       *   instruction,
-       *   element: {
-       *     tag: selected.tagName,
-       *     group: getElementGroup(selected),
-       *     source: resolveSource(selected)
-       *   }
-       * }
-       */
+      if (!bridgeSocket || bridgeSocket.readyState !== WebSocket.OPEN) {
+        setAgentStatus("error", "The Lasso agent bridge is not connected. Start Lasso with your dev server and try again.");
+        return;
+      }
 
-      // Temporary:
-      promptInput.value = "";
+      setAgentStatus("thinking", "Starting the Lasso agent…");
+      bridgeSocket.send(JSON.stringify({
+        type: "edit",
+        instruction,
+        model: selectedModel.id,
+        element: {
+          tag: selected.tagName.toLowerCase(),
+          group: getElementGroup(selected),
+          label: getElementLabel(selected),
+        },
+      }));
     }
   );
 

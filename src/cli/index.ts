@@ -15,7 +15,7 @@ program.command("dev", { isDefault: true }).description("Start your dev server w
     const cwd = process.cwd();
     const framework = detectFramework(cwd);
 
-    startBridge();
+    startBridge(cwd);
 
     switch (framework) {
       case "vite":
