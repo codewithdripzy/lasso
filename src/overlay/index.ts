@@ -27,6 +27,8 @@ function init() {
   let selectionId = "";
   let screenshotPromise: Promise<ScreenshotContext> = Promise.resolve({});
   let runtimeErrors: string[] = [];
+  let promptDragged = false;
+  let lastInstruction = "";
   type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" };
   let refreshModelMenu = () => {};
   const modelSessionKey = "lasso:selected-model";
@@ -53,9 +55,11 @@ function init() {
     agentStatusElement.dataset.status = status;
     agentStatusMessage.textContent = message;
     agentRunning = status === "thinking" || status === "working";
+    sendButton.classList.toggle("loading", agentRunning);
     promptInput.disabled = agentRunning;
     sendButton.disabled = agentRunning;
-    sendButton.querySelector("span")!.textContent = status === "review" ? "Review" : status === "error" ? "Retry" : "Send";
+    sendButton.querySelector("span")!.textContent = status === "review" ? "Review" : status === "error" ? "Retry" : agentRunning ? "Working" : "Send";
+    sendButton.dataset.state = status === "error" ? "retry" : agentRunning ? "working" : status;
     if (status === "review" || status === "error") appendChat(status === "error" ? "error" : "assistant", message);
   }
 
@@ -558,7 +562,10 @@ function init() {
       gap: 8px;
 
       margin-bottom: 10px;
+      cursor: grab;
+      touch-action: none;
     }
+    .lasso-prompt-top:active { cursor: grabbing; }
 
     .lasso-prompt-ai {
       width: 24px;
@@ -813,9 +820,12 @@ function init() {
     .lasso-agent-status[data-status="review"] { background: #ecfdf3; color: #188038; }
     .lasso-agent-status[data-status="error"] { background: #fef2f2; color: #b3261e; }
     .lasso-agent-status-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: #6366f1; animation: lasso-agent-pulse 1.2s ease-in-out infinite; }
+    .lasso-agent-status[data-status="thinking"] .lasso-agent-status-dot,
+    .lasso-agent-status[data-status="working"] .lasso-agent-status-dot { width: 10px; height: 10px; border: 2px solid #c7d2fe; border-top-color: #6366f1; background: transparent; animation: lasso-agent-spin .8s linear infinite; }
     [data-status="review"] .lasso-agent-status-dot { background: #188038; animation: none; }
     [data-status="error"] .lasso-agent-status-dot { background: #b3261e; animation: none; }
     @keyframes lasso-agent-pulse { 50% { opacity: .35; transform: scale(.75); } }
+    @keyframes lasso-agent-spin { to { transform: rotate(360deg); } }
 
     .lasso-prompt-actions {
       display: flex;
@@ -889,6 +899,9 @@ function init() {
     .lasso-prompt-send:active {
       transform: scale(0.96);
     }
+    .lasso-prompt-send.loading { min-width: 92px; cursor: wait; opacity: .9; }
+    .lasso-prompt-send.loading svg { display: none; }
+    .lasso-prompt-send.loading::before { content: ""; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.45); border-top-color: #fff; border-radius: 50%; animation: lasso-agent-spin .7s linear infinite; }
   `;
 
   shadow.appendChild(style);
@@ -1212,6 +1225,29 @@ function init() {
     prompt.querySelector<HTMLButtonElement>(
       ".lasso-prompt-close"
     )!;
+
+  const promptTop = prompt.querySelector<HTMLDivElement>(".lasso-prompt-top")!;
+  let dragState: { startX: number; startY: number; left: number; top: number } | null = null;
+  promptTop.addEventListener("pointerdown", (event) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("button")) return;
+    const rect = prompt.getBoundingClientRect();
+    dragState = { startX: event.clientX, startY: event.clientY, left: rect.left, top: rect.top };
+    promptDragged = true;
+    promptTop.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  });
+  promptTop.addEventListener("pointermove", (event) => {
+    if (!dragState) return;
+    const rect = prompt.getBoundingClientRect();
+    const left = Math.max(12, Math.min(window.innerWidth - rect.width - 12, dragState.left + event.clientX - dragState.startX));
+    const top = Math.max(12, Math.min(window.innerHeight - rect.height - 12, dragState.top + event.clientY - dragState.startY));
+    prompt.style.left = `${left}px`;
+    prompt.style.top = `${top}px`;
+  });
+  const stopPromptDrag = () => { dragState = null; };
+  promptTop.addEventListener("pointerup", stopPromptDrag);
+  promptTop.addEventListener("pointercancel", stopPromptDrag);
 
   agentStatusElement = prompt.querySelector<HTMLDivElement>(".lasso-agent-status")!;
   agentStatusMessage = prompt.querySelector<HTMLSpanElement>(".lasso-agent-status-message")!;
@@ -1778,6 +1814,8 @@ function init() {
 
       selected = target;
       askBtn.disabled = false;
+      promptDragged = false;
+      lastInstruction = "";
       selectionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       chatHistory = [];
       changesHistory = [];
@@ -1868,7 +1906,7 @@ function init() {
       if (!selected) return;
 
       const instruction =
-        promptInput.value.trim();
+        promptInput.value.trim() || (sendButton.dataset.state === "retry" ? lastInstruction : "");
 
       if (!instruction) {
         promptInput.focus();
@@ -1882,6 +1920,7 @@ function init() {
 
       appendChat("user", instruction);
       setAgentStatus("thinking", "Starting the Lasso agent…");
+      lastInstruction = instruction;
       promptInput.value = "";
       const rect = selected.getBoundingClientRect();
       const computed = getComputedStyle(selected);
@@ -2032,9 +2071,9 @@ function init() {
     if (selected) {
       updateSelectedVisual();
 
-      positionPrompt(
-        selected
-      );
+      if (!promptDragged) {
+        positionPrompt(selected);
+      }
     }
   }
 
