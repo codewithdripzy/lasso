@@ -568,30 +568,57 @@ export function buildStyles(): string {
       display: flex;
       align-items: center;
       justify-content: center;
-      border: 2px solid rgba(255, 255, 255, 0.9);
+      border: 2px solid rgba(255, 255, 255, 0.95);
       border-radius: 999px 999px 999px 4px;
       background: var(--lo-indigo);
       color: #ffffff;
-      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4), 0 0 0 3px rgba(99, 102, 241, 0.25);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(99, 102, 241, 0.3);
       font: 700 11px/1 inherit;
       cursor: pointer;
       pointer-events: auto;
-      transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 160ms ease;
+      transition: transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 200ms ease, filter 200ms ease, opacity 200ms ease;
       overflow: visible;
       padding: 0;
       outline: none;
+      user-select: none;
+      touch-action: none;
+      z-index: 10;
+    }
+
+    .lasso-comment-pin.movable {
+      cursor: grab;
+    }
+
+    .lasso-comment-pin.movable:active,
+    .lasso-comment-pin.dragging {
+      cursor: grabbing !important;
+      transform: scale(1.28) translateY(-4px);
+      transition: none !important;
+      z-index: 1000 !important;
+      box-shadow: 0 18px 36px rgba(0, 0, 0, 0.65), 0 0 0 3px #ffffff, 0 0 0 7px rgba(99, 102, 241, 0.6);
+      filter: brightness(1.12);
+      opacity: 1 !important;
     }
 
     .lasso-comment-pin:hover,
     .lasso-comment-pin.active {
-      transform: scale(1.15) translateY(-2px);
-      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5), 0 0 0 5px rgba(99, 102, 241, 0.35);
+      transform: scale(1.25) translateY(-3px);
+      z-index: 50;
+      box-shadow: 0 14px 30px rgba(0, 0, 0, 0.55), 0 0 0 3px #ffffff, 0 0 0 6px rgba(99, 102, 241, 0.5);
+      filter: brightness(1.1);
+      opacity: 1 !important;
     }
 
     .lasso-comment-pin.resolved {
       background: var(--lo-success);
       box-shadow: 0 5px 14px rgba(0, 0, 0, 0.3), 0 0 0 3px rgba(129, 201, 149, 0.25);
       opacity: 0.8;
+    }
+
+    .lasso-comment-pin.resolved:hover,
+    .lasso-comment-pin.resolved.active {
+      opacity: 1;
+      box-shadow: 0 14px 30px rgba(0, 0, 0, 0.55), 0 0 0 3px #ffffff, 0 0 0 6px rgba(129, 201, 149, 0.5);
     }
 
     .lasso-pin-avatar {
@@ -621,6 +648,74 @@ export function buildStyles(): string {
       background: #ffffff;
       color: var(--lo-indigo);
       font: 700 10px/1 inherit;
+      transition: transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .lasso-comment-pin:hover .lasso-comment-pin-count,
+    .lasso-comment-pin.active .lasso-comment-pin-count {
+      transform: scale(1.08);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    }
+
+    .lasso-pin-tooltip {
+      position: absolute;
+      left: calc(100% + 10px);
+      top: 50%;
+      transform: translateY(-50%) scale(0.92);
+      transform-origin: left center;
+      background: rgba(18, 18, 26, 0.95);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      padding: 6px 10px;
+      color: #ffffff;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
+      pointer-events: none;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 160ms ease, transform 160ms cubic-bezier(0.16, 1, 0.3, 1), visibility 160ms;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      white-space: nowrap;
+      max-width: 220px;
+      z-index: 100;
+    }
+
+    .lasso-pin-tooltip.near-right {
+      left: auto;
+      right: calc(100% + 10px);
+      transform-origin: right center;
+    }
+
+    .lasso-pin-tooltip-author {
+      font-weight: 600;
+      font-size: 11px;
+      color: #ffffff;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: left;
+    }
+
+    .lasso-pin-tooltip-body {
+      font-weight: 400;
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.7);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: left;
+    }
+
+    .lasso-comment-pin:hover .lasso-pin-tooltip {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(-50%) scale(1);
+    }
+
+    .lasso-comment-pin.active .lasso-pin-tooltip,
+    .lasso-comment-pin.dragging .lasso-pin-tooltip {
+      display: none;
     }
 
     /* Pin Compose Popover */

@@ -109,7 +109,13 @@ export function openPinThread(uid: string, anchorX: number, anchorY: number) {
   if (!pinThreadEl) return;
   state.openThreadUid = uid;
   renderPinThread();
+  repositionPinThread(anchorX, anchorY);
+  pinThreadEl.hidden = false;
+  requestAnimationFrame(() => pinThreadEl?.classList.add("visible"));
+}
 
+export function repositionPinThread(anchorX: number, anchorY: number) {
+  if (!pinThreadEl) return;
   const w = 290;
   const gap = 14;
   let left = anchorX + gap;
@@ -120,8 +126,6 @@ export function openPinThread(uid: string, anchorX: number, anchorY: number) {
 
   pinThreadEl.style.left = `${Math.max(12, left)}px`;
   pinThreadEl.style.top = `${top}px`;
-  pinThreadEl.hidden = false;
-  requestAnimationFrame(() => pinThreadEl?.classList.add("visible"));
 }
 
 export function closePinThread() {
