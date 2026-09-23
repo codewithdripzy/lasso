@@ -7,6 +7,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import chalk from "chalk";
 import { proposeChanges, type AgentConfig, type SourceChange } from "./agent";
+import type { CollabConfig } from "./project";
 
 const BRIDGE_PORT = 3056;
 const execFileAsync = promisify(execFile);
@@ -24,6 +25,16 @@ export type BridgeMessage =
   | { type: "git_commit"; message: string }
   | { type: "git_push" }
   | { type: "agent_status"; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string };
+
+type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" };
+
+export type ServerBridgeMessage =
+  | { type: "config"; apiKeyConfigured: boolean; agentConfigured: boolean; models: ModelOption[]; collab?: CollabConfig | null }
+  | { type: "git_state"; git: GitState }
+  | { type: "git_result"; message?: string; error?: string }
+  | { type: "agent_status"; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string; changes?: SourceChange[] }
+  | { type: "applied"; message: string }
+  | { type: "undone"; message: string };
 
 async function gitCommand(cwd: string, args: string[]) {
   const result = await execFileAsync("git", args, { cwd, maxBuffer: 1024 * 1024 });
@@ -58,7 +69,7 @@ function readEnvFile(cwd: string, filename: string) {
   }
 }
 
-export function startBridge(cwd = process.cwd()) {
+export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | null = null) {
   const bridgeServer = http.createServer(); // dedicated, empty HTTP server
   const wss = new WebSocketServer({ server: bridgeServer });
   let overlaySocket: WebSocket | null = null;
@@ -128,9 +139,9 @@ export function startBridge(cwd = process.cwd()) {
   wss.on("connection", (socket) => {
     overlaySocket = socket;
     console.log(chalk.green("✓") + " Overlay connected");
-    socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig), models: [] }));
+    socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig), models: [], collab: collabConfig?.registered ? collabConfig : null }));
     void availableModels().then((models) => {
-      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig), models }));
+      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig), models, collab: collabConfig?.registered ? collabConfig : null }));
     });
     void getGitState(cwd).then((git) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "git_state", git }));
@@ -237,7 +248,7 @@ export function startBridge(cwd = process.cwd()) {
 
   bridgeServer.listen(BRIDGE_PORT);
 
-  function send(msg: BridgeMessage) {
+  function send(msg: ServerBridgeMessage) {
     if (overlaySocket?.readyState === overlaySocket?.OPEN) {
       overlaySocket!.send(JSON.stringify(msg));
     }

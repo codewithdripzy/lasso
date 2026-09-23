@@ -3,6 +3,7 @@ import anthropicIcon from "@iconify-icons/logos/anthropic-icon";
 import googleIcon from "@iconify-icons/logos/google-icon";
 import openaiIcon from "@iconify-icons/logos/openai-icon";
 import terminalIcon from "@iconify-icons/logos/terminal";
+import { io, type Socket } from "socket.io-client";
 
 console.log("[lasso] overlay loaded");
 
@@ -38,6 +39,62 @@ function init() {
   let refreshModelMenu = () => {};
   let modelFilter: "all" | ModelOption["provider"] = "all";
   const modelSessionKey = "lasso:selected-model";
+
+  // ============================================================
+  // REALTIME COLLABORATION STATE
+  // ============================================================
+
+  type CollabConfig = { projectId?: string; realtimeUrl?: string; name?: string; version?: string; registered?: boolean };
+  let collab: CollabConfig | null = null;
+  let collabSocket: Socket | null = null;
+  let collabProjectId = "";
+  let collabJoined = false;
+  let myUser: { id: string; name: string; photo: string } | null = null;
+  type CollabUser = {
+    socketId: string;
+    userId: string;
+    name: string;
+    photo: string;
+    state: "online" | "away";
+    selection?: { elementId?: string; label?: string; sourceHint?: string } | null;
+    cursor?: { x: number; y: number } | null;
+    activity?: string | null;
+    color: string;
+  };
+  let presenceUsers = new Map<string, CollabUser>();
+  type CollabLock = { id: string; sessionId?: string; elementId?: string; elementLabel?: string; sourceHint?: string; action?: string; locker: { id: string; name: string; photo: string } };
+  let lockMap = new Map<string, CollabLock>();
+  type CollabComment = {
+    uid: string;
+    sessionId: string;
+    elementId?: string;
+    selectionId?: string;
+    parentId?: string;
+    body: string;
+    status: "OPEN" | "RESOLVED";
+    author: { id: string; name: string; photo: string };
+    createdAt: string;
+    updatedAt?: string;
+    resolvedAt?: string;
+  };
+  type CommentThread = { root: CollabComment; replies: CollabComment[] };
+  const commentThreads = new Map<string, CommentThread>();
+  const elementRegistry = new Map<string, Element>();
+  let commentsOpen = false;
+  let commentsScope: "element" | "session" = "element";
+  let voiceOn = false;
+  let voiceMuted = false;
+  let myLocalStream: MediaStream | null = null;
+  const rtcPeers = new Map<string, { pc: RTCPeerConnection; audio?: HTMLAudioElement }>();
+  const rtcPendingCandidates = new Map<string, RTCIceCandidateInit[]>();
+  const COLLAB_COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ec4899", "#06b6d4", "#8b5cf6", "#22c55e", "#f43f5e"];
+  let heldLockElement = "";
+
+  function userNameColor(userId: string) {
+    let hash = 0;
+    for (let i = 0; i < userId.length; i += 1) hash = (hash * 31 + userId.charCodeAt(i)) >>> 0;
+    return COLLAB_COLORS[hash % COLLAB_COLORS.length]!;
+  }
 
   function storedModelId() {
     try {
@@ -101,8 +158,13 @@ function init() {
       bridgeSocket.addEventListener("open", () => bridgeSocket?.send(JSON.stringify({ type: "hello", from: "overlay" })));
       bridgeSocket.addEventListener("message", (event) => {
         try {
-          const message = JSON.parse(event.data as string) as { type?: string; apiKeyConfigured?: boolean; agentConfigured?: boolean; models?: ModelOption[]; git?: GitState; error?: string; status?: "thinking" | "working" | "review" | "error" | "stopped"; message?: string; changes?: PendingChange[] };
-          if (message.type === "config") apiKeyConfigured = Boolean(message.apiKeyConfigured);
+          const message = JSON.parse(event.data as string) as { type?: string; apiKeyConfigured?: boolean; agentConfigured?: boolean; models?: ModelOption[]; git?: GitState; error?: string; status?: "thinking" | "working" | "review" | "error" | "stopped"; message?: string; changes?: PendingChange[]; collab?: { projectId?: string; realtimeUrl?: string; name?: string; version?: string } };
+          if (message.type === "config") {
+            apiKeyConfigured = Boolean(message.apiKeyConfigured);
+            if (message.collab?.projectId && message.collab.realtimeUrl && !collabSocket) {
+              connectCollab(message.collab);
+            }
+          }
           if (message.type === "config" && message.models?.length) {
             MODELS = message.models;
             selectedModel = MODELS.find((model) => model.id === storedModelId()) || MODELS[0];
@@ -124,13 +186,12 @@ function init() {
           }
           if (message.type === "applied" || message.type === "undone") {
             appendChat("assistant", message.message || "Done.");
-            if (message.type === "undone") {
-              closeReview();
-              pendingChanges = [];
-            } else {
-              closeReview();
-              pendingChanges = [];
+            releaseHeldLock();
+            if (collabSocket?.connected && collabJoined) {
+              collabEmit("collab:action", { sessionId: collabProjectId, status: "idle", elementId: selected ? elementKey(selected) : undefined, summary: message.message || (message.type === "undone" ? "Undid the last change" : "Applied the change") });
             }
+            closeReview();
+            pendingChanges = [];
           }
         } catch {
           console.warn("[lasso] Invalid bridge message");
@@ -983,6 +1044,341 @@ function init() {
     .lasso-prompt-send.loading { min-width: 92px; cursor: wait; opacity: .9; }
     .lasso-prompt-send.loading svg { display: none; }
     .lasso-prompt-send.loading::before { content: ""; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.45); border-top-color: #fff; border-radius: 50%; animation: lasso-agent-spin .7s linear infinite; }
+
+    /* ==========================================================
+       REAL-TIME COLLABORATION
+       ========================================================== */
+
+    .lasso-collab-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding-left: 2px;
+    }
+
+    .lasso-comments-btn, .lasso-voice-btn {
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: #d1d5db;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 120ms, color 120ms, transform 120ms;
+    }
+
+    .lasso-comments-btn:hover, .lasso-voice-btn:hover { background: rgba(255,255,255,.08); color: #fff; }
+    .lasso-comments-btn:active, .lasso-voice-btn:active { transform: scale(.97); }
+    .lasso-comments-btn.active { background: rgba(99,102,241,.18); color: #a5b4fc; }
+    .lasso-voice-btn.live { background: rgba(16,185,129,.16); color: #6ee7b7; }
+    .lasso-voice-btn.muted { background: rgba(239,68,68,.15); color: #fca5a5; }
+
+    .lasso-comments-badge {
+      display: none;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 5px;
+      border-radius: 999px;
+      background: #ef4444;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+    .lasso-comments-badge.visible { display: inline-flex; }
+
+    .lasso-presence {
+      display: flex;
+      align-items: center;
+      padding-left: 2px;
+    }
+    .lasso-presence-avatars { display: flex; align-items: center; }
+
+    .lasso-avatar {
+      position: relative;
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff;
+      background: #4b5563;
+      border: 2px solid rgba(18,18,20,.96);
+      margin-left: -6px;
+      cursor: pointer;
+      box-shadow: 0 0 0 1px rgba(255,255,255,.06);
+      transition: transform 120ms ease;
+      overflow: hidden;
+    }
+    .lasso-avatar:first-child { margin-left: 0; }
+    .lasso-avatar:hover { transform: translateY(-2px); }
+    .lasso-avatar.away { opacity: .6; }
+    .lasso-avatar.self { box-shadow: 0 0 0 2px rgba(255,255,255,.35); }
+    .lasso-avatar .lasso-avatar-dot {
+      position: absolute;
+      right: -1px;
+      bottom: -1px;
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #22c55e;
+      border: 2px solid rgba(18,18,20,.96);
+    }
+    .lasso-avatar.away .lasso-avatar-dot { background: #9ca3af; }
+    .lasso-avatar.speaking .lasso-avatar-dot { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    .lasso-presence-count { font-size: 11px; color: #8b8f98; margin-left: 4px; }
+
+    .lasso-spotlight {
+      position: fixed;
+      pointer-events: none;
+      box-shadow: 0 0 0 3px #6366f1, 0 0 26px rgba(99,102,241,.45);
+      border-radius: 7px;
+      opacity: 0;
+      transition: opacity 180ms ease;
+      z-index: 5;
+    }
+    .lasso-spotlight.visible { opacity: 1; }
+
+    .lasso-spotlight-chip {
+      position: absolute;
+      left: -3px;
+      top: -24px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #6366f1;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+      box-shadow: 0 4px 12px rgba(0,0,0,.25);
+    }
+
+    .lasso-remote-box {
+      position: fixed;
+      pointer-events: none;
+      box-shadow: 0 0 0 2px var(--lc);
+      border-radius: 6px;
+      opacity: .92;
+      transition: opacity 180ms ease;
+      z-index: 4;
+    }
+    .lasso-remote-box .lasso-remote-tag {
+      position: absolute;
+      left: -2px;
+      top: -20px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: var(--lc);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .lasso-activity {
+      position: fixed;
+      left: 50%;
+      bottom: 76px;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 14px;
+      border-radius: 999px;
+      background: rgba(18,18,20,.95);
+      border: 1px solid rgba(255,255,255,.10);
+      color: #e5e7eb;
+      font-size: 12px;
+      font-weight: 600;
+      opacity: 0;
+      pointer-events: none;
+      white-space: nowrap;
+      transition: opacity 200ms ease;
+      z-index: 6;
+    }
+    .lasso-activity.visible { opacity: 1; }
+    .lasso-activity .lasso-activity-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--lc, #818cf8);
+      flex-shrink: 0;
+    }
+
+    .lasso-lock-chip {
+      position: absolute;
+      top: -24px;
+      right: -3px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff;
+      white-space: nowrap;
+      box-shadow: 0 4px 12px rgba(0,0,0,.25);
+      pointer-events: none;
+    }
+    .lasso-lock-chip.held { background: #f59e0b; }
+    .lasso-lock-chip.blocked { background: rgba(239,68,68,.92); }
+
+    .lasso-comments-panel {
+      position: fixed;
+      right: 20px;
+      top: 20px;
+      width: 320px;
+      max-height: 70vh;
+      display: flex;
+      flex-direction: column;
+      background: rgba(18,18,20,.97);
+      border: 1px solid rgba(255,255,255,.10);
+      border-radius: 14px;
+      color: #fff;
+      box-shadow: 0 16px 40px rgba(0,0,0,.30);
+      backdrop-filter: blur(18px);
+      z-index: 7;
+      overflow: hidden;
+      pointer-events: auto;
+    }
+    .lasso-comments-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+    .lasso-comments-head h3 { margin: 0; font-size: 14px; font-weight: 700; }
+    .lasso-comments-scope {
+      display: flex;
+      gap: 4px;
+      margin-left: auto;
+      background: rgba(255,255,255,.06);
+      padding: 2px;
+      border-radius: 999px;
+    }
+    .lasso-comments-scope button {
+      border: 0;
+      background: transparent;
+      color: #9ca3af;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+    .lasso-comments-scope button.active { background: rgba(99,102,241,.22); color: #a5b4fc; }
+    .lasso-comments-close {
+      border: 0;
+      background: transparent;
+      color: #9ca3af;
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 2px 4px;
+    }
+    .lasso-comments-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 140px;
+    }
+    .lasso-comment {
+      padding: 9px 11px;
+      border-radius: 10px;
+      background: rgba(255,255,255,.05);
+      border: 1px solid transparent;
+    }
+    .lasso-comment.mine { border-color: rgba(99,102,241,.35); }
+    .lasso-comment.tied { border-left: 2px solid #6366f1; }
+    .lasso-comment.reply { margin-left: 20px; border-left: 2px solid rgba(255,255,255,.14); }
+    .lasso-comment-head-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .lasso-comment-avatar {
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .lasso-comment-author { font-size: 12px; font-weight: 700; }
+    .lasso-comment-time { font-size: 11px; color: #8b8f98; margin-left: auto; }
+    .lasso-comment-body { font-size: 12.5px; line-height: 1.5; color: #e5e7eb; white-space: pre-wrap; word-break: break-word; }
+    .lasso-comment-tag { font-size: 10px; font-weight: 700; color: #818cf8; }
+    .lasso-comment-resolved { font-size: 11px; color: #10b981; font-weight: 600; margin-top: 4px; }
+    .lasso-comment-actions { display: flex; gap: 12px; margin-top: 6px; }
+    .lasso-comment-actions button {
+      border: 0;
+      background: transparent;
+      color: #8b8f98;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 0;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .lasso-comment-actions button:hover { color: #fff; }
+    .lasso-comment-actions .resolve { color: #10b981; }
+    .lasso-comment-actions .resolve:hover { color: #34d399; }
+    .lasso-comment-compose {
+      display: flex;
+      gap: 8px;
+      padding: 10px 12px;
+      border-top: 1px solid rgba(255,255,255,.08);
+    }
+    .lasso-comment-compose input {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.06);
+      color: #fff;
+      border-radius: 8px;
+      padding: 7px 10px;
+      font-size: 12.5px;
+      font-family: inherit;
+      outline: none;
+    }
+    .lasso-comment-compose input:focus { border-color: rgba(99,102,241,.6); }
+    .lasso-comment-compose button {
+      border: 0;
+      border-radius: 8px;
+      background: #6366f1;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 0 13px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .lasso-comment-compose button:disabled { opacity: .5; cursor: default; }
+    .lasso-comments-empty { text-align: center; color: #8b8f98; font-size: 12px; padding: 22px 10px; line-height: 1.6; }
+    .lasso-collab-offline { font-size: 11px; color: #fca5a5; white-space: nowrap; }
   `;
 
   shadow.appendChild(style);
@@ -1024,6 +1420,26 @@ function init() {
       </svg>
       <span>Git</span>
     </button>
+
+    <div class="lasso-collab-group">
+      <button class="lasso-comments-btn" type="button" aria-label="Review comments">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span>Comments</span>
+        <i class="lasso-comments-badge"></i>
+      </button>
+      <button class="lasso-voice-btn" type="button" aria-label="Toggle voice chat">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+        <span>Voice</span>
+      </button>
+      <div class="lasso-presence">
+        <div class="lasso-presence-avatars"></div>
+        <span class="lasso-presence-count"></span>
+      </div>
+    </div>
   `;
 
   shadow.appendChild(toolbar);
@@ -1077,6 +1493,866 @@ function init() {
   gitPanel.querySelector<HTMLButtonElement>(".lasso-git-push")!.addEventListener("click", () => bridgeSocket?.send(JSON.stringify({ type: "git_push" })));
 
   // ============================================================
+  // REAL-TIME COLLABORATION UI
+  // ============================================================
+
+  const presenceAvatars = toolbar.querySelector<HTMLDivElement>(".lasso-presence-avatars")!;
+  const presenceCount = toolbar.querySelector<HTMLSpanElement>(".lasso-presence-count")!;
+  const commentsBtn = toolbar.querySelector<HTMLButtonElement>(".lasso-comments-btn")!;
+  const commentsBadge = commentsBtn.querySelector<HTMLElement>(".lasso-comments-badge")!;
+  const voiceBtn = toolbar.querySelector<HTMLButtonElement>(".lasso-voice-btn")!;
+
+  const commentsPanel = document.createElement("div");
+  commentsPanel.className = "lasso-comments-panel";
+  commentsPanel.hidden = true;
+  commentsPanel.innerHTML = `
+    <div class="lasso-comments-head">
+      <h3>Comments</h3>
+      <div class="lasso-comments-scope">
+        <button type="button" data-scope="element" class="active">Element</button>
+        <button type="button" data-scope="session">Session</button>
+      </div>
+      <button class="lasso-comments-close" type="button" aria-label="Close comments">×</button>
+    </div>
+    <div class="lasso-comments-list" aria-live="polite"></div>
+    <div class="lasso-comment-compose">
+      <input type="text" placeholder="Comment on the selected element…" maxlength="1000" />
+      <button type="button">Post</button>
+    </div>
+  `;
+  shadow.appendChild(commentsPanel);
+
+  const commentsList = commentsPanel.querySelector<HTMLDivElement>(".lasso-comments-list")!;
+  const commentsInput = commentsPanel.querySelector<HTMLInputElement>(".lasso-comment-compose input")!;
+  const commentsPost = commentsPanel.querySelector<HTMLButtonElement>(".lasso-comment-compose button")!;
+  const commentsScopeBtns = Array.from(commentsPanel.querySelectorAll<HTMLButtonElement>(".lasso-comments-scope button"));
+
+  const spotlightBox = document.createElement("div");
+  spotlightBox.className = "lasso-spotlight";
+  const spotlightChip = document.createElement("div");
+  spotlightChip.className = "lasso-spotlight-chip";
+  spotlightBox.appendChild(spotlightChip);
+  shadow.appendChild(spotlightBox);
+
+  const remoteLayer = document.createElement("div");
+  remoteLayer.className = "lasso-remote-layer";
+  shadow.appendChild(remoteLayer);
+
+  const activityStrip = document.createElement("div");
+  activityStrip.className = "lasso-activity";
+  shadow.appendChild(activityStrip);
+
+  const heldLockChip = document.createElement("div");
+  heldLockChip.className = "lasso-lock-chip";
+  heldLockChip.hidden = true;
+
+  commentsBtn.addEventListener("click", () => {
+    commentsOpen = !commentsOpen;
+    commentsPanel.hidden = !commentsOpen;
+    commentsBtn.classList.toggle("active", commentsOpen);
+    if (commentsOpen) {
+      commentsScopeBtns.forEach((b) => b.classList.toggle("active", b.dataset.scope === (commentsScope === "element" ? "element" : "session")));
+      renderComments();
+    }
+  });
+  commentsPanel.querySelector<HTMLButtonElement>(".lasso-comments-close")!.addEventListener("click", () => {
+    commentsOpen = false;
+    commentsPanel.hidden = true;
+    commentsBtn.classList.remove("active");
+  });
+  commentsScopeBtns.forEach((btn) =>
+    btn.addEventListener("click", () => {
+      commentsScope = btn.dataset.scope === "session" ? "session" : "element";
+      commentsScopeBtns.forEach((b) => b.classList.toggle("active", b === btn));
+      renderComments();
+    })
+  );
+  commentsPost.addEventListener("click", postComment);
+  commentsInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      postComment();
+    }
+  });
+
+  voiceBtn.addEventListener("click", toggleVoice);
+
+  function updateCommentsBadge() {
+    const open = threadsInScope().filter((t) => t.root.status === "OPEN").length;
+    commentsBadge.classList.toggle("visible", open > 0 && !commentsOpen);
+    commentsBadge.textContent = String(open);
+  }
+
+  // ============================================================
+  // REAL-TIME COLLABORATION ENGINE
+  // ============================================================
+
+  function initials(name: string) {
+    return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() || "").join("") || "?";
+  }
+
+  function readAuthToken(): string {
+    for (const key of ["token", "lasso_token", "auth_token", "jwt"]) {
+      const match = document.cookie.match(new RegExp(`(?:^|;)\\s*${key}\\s*=\\s*([^;]+)`));
+      if (match) return decodeURIComponent(match[1]);
+    }
+    return "";
+  }
+
+  function cssPath(el: Element): string {
+    const parts: string[] = [];
+    let current: Element | null = el;
+    while (current && current !== document.documentElement && parts.length < 8) {
+      const parent: Element | null = current.parentElement;
+      let selector = current.tagName.toLowerCase();
+      if (current.id) {
+        parts.unshift(`#${current.id}`);
+        break;
+      }
+      if (parent) {
+        const index = [...parent.children].indexOf(current as HTMLElement) + 1;
+        if (index > 1) selector += `:nth-child(${index})`;
+      }
+      parts.unshift(selector);
+      current = parent;
+    }
+    return parts.join(" > ").slice(0, 220);
+  }
+
+  function elementKey(el: Element): string {
+    const fromAttr = el.getAttribute("data-source") || el.getAttribute("data-lasso-source") || "";
+    if (fromAttr.trim()) return `attr:${fromAttr.trim()}`;
+    if (el.id) return `id:${el.id}`;
+    return `css:${cssPath(el)}`;
+  }
+
+  function currentSelectionPayload(): { elementId: string; label: string; sourceHint: string } | null {
+    if (!selected) return null;
+    return {
+      elementId: elementKey(selected),
+      label: getElementLabel(selected),
+      sourceHint: selected.getAttribute("data-source") || getSourceHint(selected) || "",
+    };
+  }
+
+  function isVisible(el: Element) {
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== "hidden";
+  }
+
+  function collabEmit(event: string, payload: Record<string, unknown>, ack?: (res: { ok: boolean; error?: string; [key: string]: unknown }) => void) {
+    if (!collabSocket?.connected) return;
+    if (ack) collabSocket.emit(event, payload, ack);
+    else collabSocket.emit(event, payload);
+  }
+
+  function connectCollab(config: CollabConfig) {
+    collab = config;
+    collabProjectId = config.projectId || "";
+    if (!collabProjectId) return;
+    if (collabSocket) collabSocket.disconnect();
+
+    collabSocket = io(config.realtimeUrl, {
+      withCredentials: true,
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: 15,
+      reconnectionDelay: 800,
+      reconnectionDelayMax: 5000,
+      auth: { token: readAuthToken() },
+    });
+
+    collabSocket.on("connect", () => {
+      if (collabProjectId) joinCollabSession();
+    });
+
+    collabSocket.on("connect_error", () => {
+      collabJoined = false;
+      presenceCount.textContent = collabProjectId ? "· offline" : "";
+    });
+
+    collabSocket.on("disconnect", () => {
+      collabJoined = false;
+      presenceUsers.clear();
+      renderPresence();
+      remoteLayer.innerHTML = "";
+      updateLockChip();
+      showActivity("Realtime session disconnected", "#ef4444");
+    });
+
+    collabSocket.on("presence:changed", (payload: { sessionId?: string; users?: unknown[] }) => {
+      if (payload.sessionId !== collabProjectId) return;
+      applyPresence(payload.users || []);
+    });
+
+    collabSocket.on("lock:acquired", (payload: { sessionId?: string; lock?: CollabLock }) => {
+      if (payload.sessionId !== collabProjectId || !payload.lock || !payload.lock.elementId) return;
+      lockMap.set(payload.lock.elementId, payload.lock);
+      updateLockChip();
+    });
+
+    collabSocket.on("lock:released", (payload: { sessionId?: string; elementId?: string }) => {
+      if (payload.sessionId !== collabProjectId || !payload.elementId) return;
+      lockMap.delete(payload.elementId);
+      updateLockChip();
+    });
+
+    collabSocket.on("lock:extended", (payload: { sessionId?: string; lock?: CollabLock }) => {
+      if (payload.sessionId !== collabProjectId || !payload.lock || !payload.lock.elementId) return;
+      lockMap.set(payload.lock.elementId, payload.lock);
+      updateLockChip();
+    });
+
+    collabSocket.on("comments:new", (payload: { sessionId?: string; comment?: CollabComment }) => {
+      if (payload.sessionId !== collabProjectId || !payload.comment) return;
+      upsertComment(payload.comment);
+      renderComments();
+      updateCommentsBadge();
+    });
+
+    collabSocket.on("comments:updated", (payload: { sessionId?: string; comment?: CollabComment }) => {
+      if (payload.sessionId !== collabProjectId || !payload.comment) return;
+      upsertComment(payload.comment);
+      renderComments();
+      updateCommentsBadge();
+    });
+
+    collabSocket.on("comments:removed", (payload: { sessionId?: string; commentId?: string }) => {
+      if (payload.sessionId !== collabProjectId || !payload.commentId) return;
+      removeCommentUid(payload.commentId);
+      renderComments();
+      updateCommentsBadge();
+    });
+
+    collabSocket.on("collab:action", (payload: { sessionId?: string; user?: { id: string; name: string; photo: string }; status?: string; summary?: string }) => {
+      if (payload.sessionId !== collabProjectId) return;
+      const name = payload.user?.name || "A teammate";
+      const status = payload.status || "";
+      const text =
+        payload.summary
+          ? `${name} is ${status === "idle" ? "done" : status.replace(/e?$/, "ing")} — ${payload.summary.slice(0, 90)}`
+          : `${name} ${status === "idle" ? "finished working" : `is ${status}`}`;
+      showActivity(text, userNameColor(payload.user?.id || ""));
+    });
+
+    collabSocket.on("collab:spotlight", (payload: { sessionId?: string; elementId?: string; label?: string; by?: { id: string; name: string; photo: string } }) => {
+      if (payload.sessionId !== collabProjectId || !payload.elementId) return;
+      const el = elementRegistry.get(payload.elementId) || null;
+      const by = payload.by || { id: "", name: "Teammate", photo: "" };
+      spotlightFor(by, el, payload.label || "");
+    });
+
+    collabSocket.on("voice:offer", (payload: { from?: string; description?: unknown }) => handleOffer(payload));
+    collabSocket.on("voice:answer", (payload: { from?: string; description?: unknown }) => handleAnswer(payload));
+    collabSocket.on("voice:candidate", (payload: { from?: string; candidate?: unknown }) => handleCandidate(payload));
+    collabSocket.on("voice:peer_left", (payload: { socketId?: string }) => closePeer(payload.socketId || ""));
+  }
+
+  function joinCollabSession() {
+    if (!collabSocket?.connected || !collabProjectId) return;
+    const selection = currentSelectionPayload();
+    collabEmit(
+      "session:join",
+      { sessionId: collabProjectId, selection },
+      (payload) => {
+        if (!payload.ok) {
+          collabJoined = false;
+          presenceCount.textContent = collabProjectId ? "· closed" : "";
+          showActivity(payload.error || "Could not join the realtime session. Log in to your Lasso workspace and start Lasso to collaborate.", "#f59e0b");
+          return;
+        }
+        collabJoined = true;
+        presenceCount.textContent = "";
+        myUser = (payload.me as { id: string; name: string; photo: string }) || null;
+        const snapshot = (payload.snapshot || {}) as { presence?: unknown[]; locks?: unknown[]; comments?: unknown[] };
+        applyPresence(snapshot.presence || []);
+        indexLocks(snapshot.locks || []);
+        indexComments(snapshot.comments || []);
+        updateLockChip();
+        renderComments();
+        updateCommentsBadge();
+        startCollabHeartbeat();
+      }
+    );
+  }
+
+  function applyPresence(users: unknown[]) {
+    presenceUsers.clear();
+    for (const raw of users) {
+      const user = raw as CollabUser;
+      presenceUsers.set(user.socketId, {
+        socketId: user.socketId,
+        userId: user.userId,
+        name: user.name,
+        photo: user.photo,
+        state: user.state === "away" ? "away" : "online",
+        selection: user.selection || null,
+        cursor: user.cursor || null,
+        activity: user.activity || null,
+        color: userNameColor(user.userId || user.socketId),
+      });
+    }
+    renderPresence();
+    renderRemoteBoxes();
+  }
+
+  function renderPresence() {
+    presenceAvatars.innerHTML = "";
+    const offline = Boolean(collabProjectId && !collabJoined);
+    const others = [...presenceUsers.values()].filter((user) => user.socketId !== collabSocket?.id);
+    for (const user of others.slice(0, 6)) {
+      const av = document.createElement("button");
+      av.type = "button";
+      av.className = "lasso-avatar" + (user.state === "away" ? " away" : "");
+      av.style.background = user.color;
+      av.title = user.state !== "away" && user.activity ? `${user.name} · ${user.activity}` : `${user.name}${user.state === "away" ? " (away)" : ""}`;
+      const dot = document.createElement("i");
+      dot.className = "lasso-avatar-dot";
+      if (user.photo) {
+        const img = new Image();
+        img.src = user.photo;
+        img.alt = "";
+        img.style.cssText = "width:100%;height:100%;object-fit:cover;border-radius:inherit;";
+        av.appendChild(img);
+      } else {
+        av.textContent = initials(user.name);
+      }
+      av.appendChild(dot);
+      av.addEventListener("click", () => {
+        const sel = user.selection;
+        const el = sel?.elementId ? elementRegistry.get(sel.elementId) || null : null;
+        spotlightFor(user, el, sel?.label || "");
+        if (collabSocket?.connected && collabProjectId && sel?.elementId) {
+          collabEmit("collab:spotlight", { sessionId: collabProjectId, elementId: sel.elementId, label: sel.label || "" });
+        }
+      });
+      presenceAvatars.appendChild(av);
+    }
+    if (offline) presenceCount.textContent = "· offline";
+    else if (others.length > 6) presenceCount.textContent = `+${others.length - 6}`;
+    else presenceCount.textContent = "";
+  }
+
+  function renderRemoteBoxes() {
+    remoteLayer.innerHTML = "";
+    for (const user of presenceUsers.values()) {
+      if (user.socketId === collabSocket?.id) continue;
+      const sel = user.selection;
+      if (!sel?.elementId) continue;
+      const el = elementRegistry.get(sel.elementId);
+      if (!el || !isVisible(el)) continue;
+      const rect = el.getBoundingClientRect();
+      const box = document.createElement("div");
+      box.className = "lasso-remote-box";
+      box.style.setProperty("--lc", user.color);
+      box.style.left = `${rect.left}px`;
+      box.style.top = `${rect.top}px`;
+      box.style.width = `${rect.width}px`;
+      box.style.height = `${rect.height}px`;
+      const tag = document.createElement("div");
+      tag.className = "lasso-remote-tag";
+      tag.textContent = `${initials(user.name)}${sel.label ? ` · ${sel.label}` : ""}`;
+      box.appendChild(tag);
+      remoteLayer.appendChild(box);
+    }
+  }
+
+  function indexLocks(locks: unknown[]) {
+    lockMap.clear();
+    for (const raw of locks) {
+      const lock = raw as CollabLock;
+      if (lock?.elementId) lockMap.set(lock.elementId, lock);
+    }
+  }
+
+  function updateLockChip() {
+    if (!selected) {
+      heldLockChip.hidden = true;
+      return;
+    }
+    const key = elementKey(selected);
+    const lock = lockMap.get(key);
+    const mine = heldLockElement === key;
+    if (lock) {
+      heldLockChip.hidden = false;
+      heldLockChip.classList.toggle("held", mine);
+      heldLockChip.classList.toggle("blocked", !mine);
+      heldLockChip.textContent = mine ? "Locked by you" : `Locked by ${lock.locker?.name || "a teammate"}`;
+    } else {
+      heldLockChip.hidden = true;
+    }
+  }
+
+  function registerSelection(el: Element) {
+    elementRegistry.set(elementKey(el), el);
+    updateLockChip();
+    sendPresenceUpdate({});
+  }
+
+  function clearSelectionPresence() {
+    sendPresenceUpdate({ selection: null });
+    if (heldLockElement) releaseHeldLock();
+  }
+
+  function sendPresenceUpdate(patch: { state?: "online" | "away"; selection?: unknown }) {
+    if (!collabSocket?.connected || !collabJoined || !collabProjectId) return;
+    collabEmit("presence:update", {
+      sessionId: collabProjectId,
+      state: patch.state || "online",
+      selection: patch.selection !== undefined ? patch.selection : currentSelectionPayload(),
+    });
+  }
+
+  function acquireOwnership(el: Element): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (!collabSocket?.connected || !collabJoined || !collabProjectId) {
+        resolve(true);
+        return;
+      }
+      const key = elementKey(el);
+      collabEmit(
+        "lock:acquire",
+        {
+          sessionId: collabProjectId,
+          elementId: key,
+          elementLabel: getElementLabel(el),
+          sourceHint: el.getAttribute("data-source") || getSourceHint(el) || "",
+          action: "editing",
+        },
+        (res) => {
+          if (res.ok && res.lock) {
+            heldLockElement = key;
+            lockMap.set(key, res.lock as CollabLock);
+            updateLockChip();
+            resolve(true);
+            return;
+          }
+          if (res.lock) {
+            const lock = res.lock as CollabLock;
+            lockMap.set(key, lock);
+            updateLockChip();
+            showActivity(res.error || `Locked by ${lock.locker?.name || "a teammate"}`, "#ef4444");
+            resolve(false);
+            return;
+          }
+          resolve(true);
+        }
+      );
+    });
+  }
+
+  function releaseHeldLock() {
+    if (!heldLockElement) return;
+    const elementId = heldLockElement;
+    heldLockElement = "";
+    updateLockChip();
+    if (collabSocket?.connected && collabJoined) {
+      collabEmit("lock:release", { sessionId: collabProjectId, elementId });
+    }
+  }
+
+  let spotlightTimer: number | null = null;
+  function spotlightFor(by: { name: string; id?: string }, el: Element | null, label: string) {
+    const target = el || selected || null;
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    spotlightBox.style.left = `${rect.left}px`;
+    spotlightBox.style.top = `${rect.top}px`;
+    spotlightBox.style.width = `${rect.width}px`;
+    spotlightBox.style.height = `${rect.height}px`;
+    spotlightChip.innerHTML = "";
+    const dot = document.createElement("span");
+    dot.style.flexShrink = "0";
+    dot.style.width = "8px";
+    dot.style.height = "8px";
+    dot.style.borderRadius = "50%";
+    dot.style.background = userNameColor(by.id || by.name);
+    const text = document.createElement("span");
+    text.textContent = `${by.name} → ${label || getElementLabel(target)}`;
+    spotlightChip.append(dot, text);
+    spotlightBox.classList.add("visible");
+    if (spotlightTimer) window.clearTimeout(spotlightTimer);
+    spotlightTimer = window.setTimeout(() => spotlightBox.classList.remove("visible"), 2600);
+  }
+
+  let activityTimer: number | null = null;
+  function showActivity(text: string, color = "#818cf8") {
+    activityStrip.innerHTML = "";
+    const dot = document.createElement("span");
+    dot.className = "lasso-activity-dot";
+    dot.style.setProperty("--lc", color);
+    const label = document.createElement("span");
+    label.textContent = text;
+    activityStrip.append(dot, label);
+    activityStrip.classList.add("visible");
+    if (activityTimer) window.clearTimeout(activityTimer);
+    activityTimer = window.setTimeout(() => activityStrip.classList.remove("visible"), 3800);
+  }
+
+  // ---- comments engine ----
+
+  function upsertComment(comment: CollabComment) {
+    if (!comment?.uid) return;
+    if (comment.parentId) {
+      const thread = commentThreads.get(comment.parentId);
+      if (thread) {
+        const index = thread.replies.findIndex((reply) => reply.uid === comment.uid);
+        if (index >= 0) thread.replies[index] = comment;
+        else thread.replies.push(comment);
+      } else {
+        commentThreads.set(comment.parentId, {
+          root: { uid: comment.parentId, sessionId: comment.sessionId, status: "OPEN", body: "", author: { id: "", name: "…", photo: "" }, createdAt: "" },
+          replies: [comment],
+        });
+      }
+    } else {
+      const existing = commentThreads.get(comment.uid)?.replies || [];
+      commentThreads.set(comment.uid, { root: comment, replies: existing });
+    }
+  }
+
+  function removeCommentUid(uid: string) {
+    commentThreads.delete(uid);
+    for (const thread of commentThreads.values()) {
+      thread.replies = thread.replies.filter((reply) => reply.uid !== uid);
+    }
+  }
+
+  function indexComments(comments: unknown[]) {
+    commentThreads.clear();
+    for (const raw of comments) upsertComment(raw as CollabComment);
+  }
+
+  function threadsInScope(): CommentThread[] {
+    const threads = [...commentThreads.values()];
+    if (commentsScope === "element") {
+      const key = selected ? elementKey(selected) : "";
+      return key ? threads.filter((thread) => thread.root.elementId === key) : [];
+    }
+    return threads;
+  }
+
+  function timeAgo(value: string | Date | undefined): string {
+    if (!value) return "";
+    const ms = new Date(value).getTime();
+    if (!Number.isFinite(ms)) return "";
+    const seconds = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+    if (seconds < 60) return "now";
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+    return `${Math.floor(seconds / 86400)}d`;
+  }
+
+  function commentCard(comment: CollabComment, thread: CommentThread): HTMLDivElement {
+    const isMine = myUser ? comment.author?.id === myUser.id : false;
+    const isReply = Boolean(comment.parentId);
+    const card = document.createElement("div");
+    card.className = `lasso-comment${isReply ? " reply" : ""}${isMine ? " mine" : ""}${comment.elementId ? " tied" : ""}`;
+    card.dataset.uid = comment.uid;
+
+    const head = document.createElement("div");
+    head.className = "lasso-comment-head-row";
+    const avatar = document.createElement("div");
+    avatar.className = "lasso-comment-avatar";
+    avatar.style.background = userNameColor(comment.author?.id || "");
+    avatar.textContent = initials(comment.author?.name || "");
+    const author = document.createElement("span");
+    author.className = "lasso-comment-author";
+    author.textContent = comment.author?.name || "Unknown";
+    const time = document.createElement("span");
+    time.className = "lasso-comment-time";
+    time.textContent = timeAgo(comment.createdAt);
+    head.append(avatar, author, time);
+
+    const body = document.createElement("div");
+    body.className = "lasso-comment-body";
+    body.textContent = comment.body || "";
+
+    card.append(head, body);
+
+    const actions = document.createElement("div");
+    actions.className = "lasso-comment-actions";
+    if (!isReply && comment.status === "OPEN") {
+      const resolveBtn = document.createElement("button");
+      resolveBtn.type = "button";
+      resolveBtn.className = "resolve";
+      resolveBtn.textContent = "Resolve";
+      resolveBtn.addEventListener("click", () => collabEmit("comments:resolve", { sessionId: collabProjectId, commentId: comment.uid }));
+      actions.appendChild(resolveBtn);
+    }
+    if (!isReply && comment.status === "RESOLVED") {
+      const tag = document.createElement("div");
+      tag.className = "lasso-comment-resolved";
+      tag.textContent = `Resolved${comment.resolvedAt ? ` · ${timeAgo(comment.resolvedAt)}` : ""}`;
+      card.appendChild(tag);
+      const reopenBtn = document.createElement("button");
+      reopenBtn.type = "button";
+      reopenBtn.textContent = "Reopen";
+      reopenBtn.addEventListener("click", () => collabEmit("comments:reopen", { sessionId: collabProjectId, commentId: comment.uid }));
+      actions.appendChild(reopenBtn);
+    }
+    if (!isReply) {
+      const replyBtn = document.createElement("button");
+      replyBtn.type = "button";
+      replyBtn.textContent = "Reply";
+      replyBtn.addEventListener("click", () => {
+        replyRootUid = replyRootUid === comment.uid ? null : comment.uid;
+        commentsInput.placeholder = replyRootUid ? "Reply to this thread…" : "Comment on the selected element…";
+        updatePostLabel();
+        commentsInput.focus();
+      });
+      actions.appendChild(replyBtn);
+    }
+    if (isMine) {
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.textContent = "Delete";
+      deleteBtn.addEventListener("click", () => collabEmit("comments:remove", { sessionId: collabProjectId, commentId: comment.uid }));
+      actions.appendChild(deleteBtn);
+    }
+    if (actions.childElementCount > 0) card.appendChild(actions);
+
+    void thread;
+    return card;
+  }
+
+  function renderComments() {
+    commentsList.innerHTML = "";
+    const threads = threadsInScope();
+    if (threads.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "lasso-comments-empty";
+      empty.textContent =
+        commentsScope === "element"
+          ? selected
+            ? "No comments on this element yet. Post the first one below."
+            : "Select an element to comment on it."
+          : "No session comments yet.";
+      commentsList.appendChild(empty);
+      return;
+    }
+    for (const thread of threads) {
+      commentsList.append(commentCard(thread.root, thread));
+      for (const reply of thread.replies) commentsList.append(commentCard(reply, thread));
+    }
+  }
+
+  let replyRootUid: string | null = null;
+
+  function updatePostLabel() {
+    commentsPost.textContent = replyRootUid ? "Reply" : "Post";
+  }
+
+  function postComment() {
+    const body = commentsInput.value.trim();
+    if (!body) return;
+    if (!collabJoined) {
+      showActivity("Realtime session not connected — start Lasso and log in to comment.", "#f59e0b");
+      return;
+    }
+    const payload: Record<string, unknown> = { sessionId: collabProjectId, body };
+    if (replyRootUid) {
+      payload.parentId = replyRootUid;
+    } else if (selected) {
+      const key = elementKey(selected);
+      payload.elementId = key;
+      payload.selectionId = selectionId;
+      const rect = selected.getBoundingClientRect();
+      payload.meta = {
+        sourceHint: selected.getAttribute("data-source") || getSourceHint(selected) || "",
+        label: getElementLabel(selected),
+        position: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      };
+    } else {
+      showActivity("Select an element to comment on it.", "#f59e0b");
+      return;
+    }
+    collabEmit("comments:add", payload, (res) => {
+      if (!res.ok) showActivity(res.error || "Could not post the comment.", "#ef4444");
+    });
+    commentsInput.value = "";
+    replyRootUid = null;
+    commentsInput.placeholder = "Comment on the selected element…";
+    updatePostLabel();
+  }
+
+  // ---- voice engine (P2P mesh) ----
+
+  async function toggleVoice() {
+    if (!collabJoined || !collabProjectId) {
+      showActivity("Join the realtime session first — start Lasso and log in to collaborate.", "#f59e0b");
+      return;
+    }
+    if (voiceOn) {
+      leaveVoice();
+      return;
+    }
+    try {
+      myLocalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      showActivity("Microphone access was denied.", "#ef4444");
+      return;
+    }
+    collabEmit("voice:join", { sessionId: collabProjectId }, (res) => {
+      if (!res.ok) {
+        stopLocalTracks();
+        showActivity(res.error || "Could not join the voice room.", "#ef4444");
+        return;
+      }
+      voiceOn = true;
+      voiceBtn.classList.add("live");
+      const voiceLabel = voiceBtn.querySelector("span");
+      if (voiceLabel) voiceLabel.textContent = "Mic on";
+      const peers = (res.peers || []) as Array<{ socketId: string }>;
+      for (const peer of peers) ensurePeer(peer.socketId, true);
+      showActivity(`Voice chat on — ${myUser?.name || "you"} are connected.`, "#10b981");
+    });
+  }
+
+  function leaveVoice() {
+    collabEmit("voice:leave", { sessionId: collabProjectId });
+    closeAllPeers();
+    stopLocalTracks();
+    voiceOn = false;
+    voiceBtn.classList.remove("live", "muted");
+    const voiceLabel = voiceBtn.querySelector("span");
+    if (voiceLabel) voiceLabel.textContent = "Voice";
+  }
+
+  function setVoiceMuted(muted: boolean) {
+    voiceMuted = muted;
+    voiceBtn.classList.toggle("muted", muted);
+    const voiceLabel = voiceBtn.querySelector("span");
+    if (voiceLabel) voiceLabel.textContent = muted ? "Mic off" : "Mic on";
+    if (collabSocket?.connected) collabEmit("voice:mute", { sessionId: collabProjectId, muted });
+  }
+
+  voiceBtn.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    if (voiceOn) setVoiceMuted(!voiceMuted);
+  });
+
+  function ensurePeer(socketId: string, initiator: boolean) {
+    if (rtcPeers.has(socketId) || socketId === collabSocket?.id) return;
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+    const entry: { pc: RTCPeerConnection; audio?: HTMLAudioElement } = { pc };
+    rtcPeers.set(socketId, entry);
+    myLocalStream?.getTracks().forEach((track) => pc.addTrack(track, myLocalStream!));
+    pc.onicecandidate = (event) => {
+      if (event.candidate) collabEmit("voice:candidate", { to: socketId, candidate: event.candidate.toJSON() });
+    };
+    pc.ontrack = (event) => {
+      if (entry.audio) return;
+      const audio = document.createElement("audio");
+      audio.autoplay = true;
+      audio.srcObject = event.streams[0];
+      document.body.appendChild(audio);
+      entry.audio = audio;
+    };
+    pc.onconnectionstatechange = () => {
+      if (["failed", "closed", "disconnected"].includes(pc.connectionState)) closePeer(socketId);
+    };
+    if (initiator && myLocalStream) {
+      pc.createOffer()
+        .then((offer) => {
+          pc.setLocalDescription(offer);
+          collabEmit("voice:offer", { to: socketId, description: offer });
+        })
+        .catch(() => closePeer(socketId));
+    }
+  }
+
+  function handleOffer(payload: { from?: string; description?: unknown }) {
+    const from = payload.from;
+    if (!from || !payload.description) return;
+    ensurePeer(from, false);
+    const entry = rtcPeers.get(from);
+    if (!entry) return;
+    entry.pc
+      .setRemoteDescription(payload.description as RTCSessionDescriptionInit)
+      .then(() => entry.pc.createAnswer())
+      .then((answer) => {
+        entry.pc.setLocalDescription(answer);
+        collabEmit("voice:answer", { to: from, description: answer });
+      })
+      .catch(() => closePeer(from));
+    flushCandidates(from);
+  }
+
+  function handleAnswer(payload: { from?: string; description?: unknown }) {
+    const from = payload.from;
+    if (!from) return;
+    const entry = rtcPeers.get(from);
+    if (!entry || !payload.description) return;
+    entry.pc.setRemoteDescription(payload.description as RTCSessionDescriptionInit).catch(() => closePeer(from));
+    flushCandidates(from);
+  }
+
+  function handleCandidate(payload: { from?: string; candidate?: unknown }) {
+    const from = payload.from;
+    if (!from) return;
+    const entry = rtcPeers.get(from);
+    if (!entry || !payload.candidate) return;
+    if (entry.pc.remoteDescription) {
+      entry.pc.addIceCandidate(payload.candidate as RTCIceCandidateInit).catch(() => {});
+    } else {
+      const pending = rtcPendingCandidates.get(from) || [];
+      pending.push(payload.candidate as RTCIceCandidateInit);
+      rtcPendingCandidates.set(from, pending);
+    }
+  }
+
+  function flushCandidates(socketId: string) {
+    const pending = rtcPendingCandidates.get(socketId);
+    if (!pending) return;
+    rtcPendingCandidates.delete(socketId);
+    const entry = rtcPeers.get(socketId);
+    if (!entry) return;
+    for (const candidate of pending) entry.pc.addIceCandidate(candidate).catch(() => {});
+  }
+
+  function closePeer(socketId: string) {
+    const entry = rtcPeers.get(socketId);
+    if (!entry) return;
+    rtcPeers.delete(socketId);
+    rtcPendingCandidates.delete(socketId);
+    entry.audio?.remove();
+    try {
+      entry.pc.close();
+    } catch {
+      // already closed
+    }
+  }
+
+  function closeAllPeers() {
+    for (const socketId of [...rtcPeers.keys()]) closePeer(socketId);
+  }
+
+  function stopLocalTracks() {
+    myLocalStream?.getTracks().forEach((track) => track.stop());
+    myLocalStream = null;
+  }
+
+  let collabHeartbeat: number | null = null;
+  function startCollabHeartbeat() {
+    if (collabHeartbeat) return;
+    collabHeartbeat = window.setInterval(() => {
+      if (!collabSocket?.connected || !collabJoined) return;
+      collabEmit("presence:update", { sessionId: collabProjectId, state: "online", selection: currentSelectionPayload() });
+      if (heldLockElement) collabEmit("lock:extend", { sessionId: collabProjectId, elementId: heldLockElement });
+    }, 30_000);
+  }
+
+  window.addEventListener("pagehide", () => {
+    if (collabHeartbeat) window.clearInterval(collabHeartbeat);
+    if (collabSocket) {
+      releaseHeldLock();
+      collabSocket.disconnect();
+    }
+  });
+
+  // ============================================================
   // VISUAL OVERLAYS
   // ============================================================
 
@@ -1095,6 +2371,7 @@ function init() {
   shadow.appendChild(hoverBox);
   shadow.appendChild(selectedBox);
   shadow.appendChild(label);
+  selectedBox.appendChild(heldLockChip);
 
   // ============================================================
   // PROMPT
@@ -1960,6 +3237,7 @@ function init() {
       event.stopImmediatePropagation();
 
       selected = target;
+      registerSelection(selected);
       promptDragged = false;
       lastInstruction = "";
       selectionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -2064,6 +3342,18 @@ function init() {
         return;
       }
 
+      const ownershipGranted = await acquireOwnership(selected);
+      if (!ownershipGranted) return;
+
+      if (collabSocket?.connected && collabJoined) {
+        collabEmit("collab:action", {
+          sessionId: collabProjectId,
+          status: "preparing",
+          elementId: elementKey(selected),
+          summary: `Edits for ${instruction.slice(0, 80)}`,
+        });
+      }
+
       appendChat("user", instruction);
       setAgentStatus("thinking", "Starting the Lasso agent…");
       lastInstruction = instruction;
@@ -2153,6 +3443,11 @@ function init() {
 
     promptInput.value = "";
 
+    clearSelectionPresence();
+    updateLockChip();
+    renderRemoteBoxes();
+    if (commentsOpen) renderComments();
+
       selected = null;
 
     selectedBox.style.display =
@@ -2212,6 +3507,8 @@ function init() {
         hovered
       );
     }
+
+    renderRemoteBoxes();
 
     if (selected) {
       updateSelectedVisual();

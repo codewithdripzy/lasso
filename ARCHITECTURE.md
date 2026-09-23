@@ -14,6 +14,8 @@ below — it's what separates a real dev tool from a demo that only works on sta
 src/
   cli/                    # the Node CLI (the coordinator)
     index.ts              # entry point: `lasso` / `lasso dev`, framework detection dispatch
+    project.ts            # project identity: `lasso init` registration (writes `lasso.config.json`), `lasso dev` session resolution
+    auth.ts               # `lasso auth`: browser-OAuth login, credential store (~/.lasso/credentials.json), status, logout
     bridge.ts             # WebSocket bridge the overlay connects to
     server/
       vite.ts             # Vite dev server with the source-mapping plugin injected in-memory
@@ -22,6 +24,7 @@ src/
       framework.ts        # framework/bundler detection
   overlay/
     index.ts              # browser-side overlay (single file, bundled to dist/overlay.js)
+                          # also hosts the realtime client: presence, locks, comments, voice
 ```
 
 Two artifacts ship from `pnpm build`:
@@ -155,13 +158,93 @@ context (source + screenshot + instruction)
 Selection is a config choice, not an either/or product decision:
 
 ```json
-// lasso.config.json
+// lasso.config.json (before `lasso init`)
 {
   "agent": "builtin" // | "claude-code" | "custom"
 }
+
+// lasso.config.json (after `lasso init` — id is the only project field)
+{
+  "agent": "builtin",
+  "id": "proj_3f2a9c…" // workspace-scoped; commit it so teammates share the session
+}
 ```
 
-## 7. Open questions for v1
+## 7. Realtime collaboration (optional)
+
+The overlay also speaks to `collab-server` (a Socket.IO server in the monorepo) so
+teammates can collaborate on the same running app. Identity is split across two
+credentials: the **API key** (`lss_live_…` — who you are + which workspace) and
+the **project id** (which Lasso project you're opening). The API key comes from
+`LASSO_API_KEY`, or — after `lasso auth login` — from `~/.lasso/credentials.json`.
+Startup flows:
+
+```text
+0) lasso auth login (once per machine, device-style OAuth)
+   │  auth.ts POSTs /auth/cli/start → prints + opens the verification URL
+   │  (web /oauth/continue/cli?code=…, cookie auth) → /auth/cli/confirm mints an API key
+   │  in the user's first ACTIVE workspace; auth.ts polls /auth/cli/status
+   ▼
+   the key is delivered exactly once and stored at ~/.lasso/credentials.json (0600)
+
+1) lasso init (once per repo, API-key auth)
+   │  project.ts POSTs the app manifest to /collab/projects/register
+   ▼
+   collab-server hashes the key → api_keys → derives the workspace → creates or
+   reuses the project there (idempotent by git remote/name). CLI writes
+   lasso.config.json = { "id": "proj_…" }. Key never touches disk.
+
+2) lasso dev (every run, API-key auth)
+   │  reads lasso.config.json, POSTs /collab/projects/:projectId/session
+   ▼
+   collab-server resolves key → workspace, verifies the project belongs to it
+   (else 403 → realtime disabled, local editing continues), authenticates the
+   session (uid === projectId).
+   ▼  bridge sends { collab: { projectId, realtimeUrl, name, workspaceId } } with `config`
+   ▼
+   overlay io(realtimeUrl) → session:join { sessionId: projectId }
+   ◀ session joins are gated: the browser user must own the session's workspace
+```
+
+### Element identity
+
+Cross-user locks, comments, and spotlight key off a deterministic `elementKey`:
+
+1. `data-source` / `data-lasso-source` attribute (best — from the build plugin) → `attr:…`
+2. element `id` → `id:…`
+3. stable CSS path (an `nth-child` chain on the ancestors) → `css:…`
+
+This is **not** the random per-click `selectionId`. Two browsers looking at the same
+app derive the same key, so a lock acquired on "the hero heading" in one tab is visible
+and enforceable in the other. The overlay keeps an `elementRegistry` mapping key → local
+Element to re-highlight remote selections.
+
+### Flow pieces
+
+- **Presence**: every joined socket emits `presence:update` (≈ every 30 s) with
+  `selection: { elementId, label, sourceHint }`; the server broadcasts
+  `presence:changed` snapshots. Only the selected element is synced (not raw
+  coordinates), which keeps the wire tiny and the boxes meaningful.
+- **Lock mode**: before running an agent edit, the overlay `lock:acquire`s the
+  element. A `ok:false reason:"LOCKED"` ack means a teammate owns it → the edit is
+  blocked and a chip shows who. The lock is released when the edit is applied or
+  undone, and the client extends its held lock on the heartbeat.
+- **Comments**: `comments:add` with `elementId` + `meta` (source hint, label,
+  position); the panel can filter to the current element or the whole session.
+  Replies nest under a root comment via `parentId`.
+- **Spotlight**: clicking a presence avatar emits `collab:spotlight`; every tab
+  highlights the element (or the sender's own highlight) for ~2.6 s with a
+  "name → element" chip.
+- **Voice**: P2P WebRTC mesh. `voice:join` returns existing peers; the newcomer
+  creates a peer connection per peer and offers; existing members answer. Media
+  never touches the server. Muting is a right-click on the (live) voice button.
+
+Auth uses the app's own auth cookie (`withCredentials: true`) with `auth: { token }`
+read from `document.cookie` as a fallback. That works on `localhost` because
+cookie-origin and realtime-server-origin are same-site; production deployments keep
+both on the same registrable domain (documented in the collab-server README).
+
+## 8. Open questions for v1
 
 - Exact context window budget per request (full file vs. just the referenced function).
 - Whether the diff-preview UI lives in the browser overlay only, or also as a terminal
@@ -170,7 +253,7 @@ Selection is a config choice, not an either/or product decision:
   Claude Code subscription.
 - Extending source resolution beyond Vite and Next.js (Webpack/CRA/Angular).
 
-## 8. Trust model
+## 9. Trust model
 
 - **Telemetry-free by default.** Nothing about a user's source code leaves their machine
   except what's explicitly sent to whichever agent they've configured.

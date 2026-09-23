@@ -10,6 +10,8 @@ making a change, because most "small" fixes touch one of its core invariants.
 src/
   cli/
     index.ts            # CLI entry (`lasso` / `lasso dev`), framework detection dispatch
+    project.ts          # project identity: `lasso init` (register project, write `lasso.config.json`), `lasso dev` session resolution
+    auth.ts             # `lasso auth`: browser-OAuth login, credential store (~/.lasso/credentials.json), status, logout
     bridge.ts           # WebSocket bridge the browser overlay connects to
     server/
       vite.ts           # Vite dev server with the source-mapping plugin injected in-memory
@@ -17,7 +19,8 @@ src/
     utils/
       framework.ts      # framework/bundler detection
   overlay/
-    index.ts            # browser-side overlay: toolbar, selection, prompt, diff/accept UI
+    index.ts            # browser-side overlay: toolbar, selection, prompt, diff/accept UI,
+                        # and the realtime client (presence/spotlight/lock/comments/voice)
 ```
 
 ## Development setup
@@ -71,6 +74,9 @@ From [ARCHITECTURE.md](ARCHITECTURE.md):
 4. **Config files are never modified.** Plugins are injected in memory via the CLI.
 5. **Telemetry-free by default.** User source code leaves the machine only when sent to the
    agent the user configured.
+6. **Realtime identity = element identity.** Cross-user locks/comments/spotlight key off a
+   deterministic `elementKey` (source mapping attribute → `id` → an indexed CSS path),
+   never the per-click random selection id.
 
 ## Making changes
 

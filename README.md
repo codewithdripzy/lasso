@@ -145,6 +145,35 @@ Use:
 
 Your selection and project context stay inside the Lasso pipeline while the actual coding agent can be swapped independently.
 
+### Team collaboration (realtime)
+
+Lasso can be live — teammates watch your selection, lock components so nobody
+edits the same element at once, leave review comments, and talk over the app.
+
+- **Presence avatars** in the toolbar with online/away dots; click an avatar to
+  **spotlight** the element that teammate is looking at.
+- **Lock mode**: taking an AI suggestion locks the selected element for the
+  duration of the edit. A teammate who tries the same component sees a
+  "Locked by …" chip and is blocked until release/expiry.
+- **Comments** anchored to the element you selected (or the whole session),
+  with replies, resolve/reopen, and delete.
+- **Voice chat** over a P2P WebRTC mesh — no media goes through a server.
+
+To share a live session with your team, sign in once with `npx lasso auth login`
+(easy browser OAuth — no manual keys), then run `npx lasso init`: it registers
+your app with your Lasso workspace and writes `lasso.config.json` containing the
+stable project id — commit that file so teammates joining the repo share the
+same session. The API key itself is never stored in config.
+
+The credential from `lasso auth login` is kept in `~/.lasso/credentials.json`
+(chmod 600) and is used automatically by `init` and `dev`. To override it, or to
+use a dashboard-created key instead, set `LASSO_API_KEY` — the environment
+always wins over the stored credential.
+
+Point the overlay at a different realtime server with any of
+`LASSO_REALTIME_URL`, `REALTIME_URL`, or `NEXT_PUBLIC_REALTIME_URL`
+(default: `http://localhost:3006`).
+
 ---
 
 ## Supported frameworks
@@ -197,6 +226,9 @@ npx lasso dev
 ```
 
 Lasso detects your framework, starts the development environment with its integration injected in memory, and connects the browser overlay.
+
+To enable team realtime collaboration, first run `npx lasso init` (once per repo)
+and set `LASSO_API_KEY` — see [Team collaboration](#team-collaboration-realtime) above.
 
 Your existing configuration files are **not modified**.
 
@@ -300,18 +332,20 @@ Lasso has three main pieces.
 │                      │
 │  Select UI element   │
 │  Capture screenshot  │
+│  Presence, locks,    │
+│  comments, voice     │
 └──────────┬───────────┘
            │
            │ WebSocket
            ▼
-┌──────────────────────┐
-│     Lasso CLI        │
-│                      │
-│  Resolve source      │
-│  Assemble context    │
-│  Run coding agent    │
-│  Generate diff       │
-└──────────┬───────────┘
+┌──────────────────────┐      ┌──────────────────────┐
+│     Lasso CLI        │      │  Realtime server     │
+│                      │      │  (collab-server)     │
+│  Resolve source      │      │                      │
+│  Assemble context    │      │  presence · locks    │
+│  Run coding agent    │ ───▶ │  comments · voice    │
+│  Generate diff       │      │  project registry    │
+└──────────┬───────────┘      └──────────────────────┘
            │
            │ accepted diff
            ▼
@@ -323,9 +357,12 @@ Lasso has three main pieces.
 └──────────────────────┘
 ```
 
-The browser overlay is responsible for **selection and context capture**.
+The browser overlay is responsible for **selection, context capture, and the
+realtime client** (presence, locks, comments, voice).
 
-The CLI handles **source resolution, agent orchestration, diffs, and filesystem changes**.
+The CLI handles **source resolution, agent orchestration, diffs, and filesystem
+changes**; on startup it authenticates the project session (`lasso.config.json`
++ `LASSO_API_KEY`) with the realtime server for realtime collaboration.
 
 The framework remains responsible for rendering the result.
 

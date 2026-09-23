@@ -80,6 +80,7 @@
     "commander": "^15.0.0",
     "http-proxy": "^1.18.1",
     "open": "^11.0.4",
+    "socket.io-client": "^4.8.3",
     "vite": "^7.0.0",
     "ws": "^8.21.3"
   },

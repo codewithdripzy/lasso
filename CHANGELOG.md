@@ -11,6 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Open-source documentation: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
   `SECURITY.md`, `SUPPORT.md`, `LICENSE` (ISC), and this changelog.
+- **`lasso auth` command group**: `lasso auth login` (browser OAuth — the CLI
+  prints/opens a verification URL, the logged-in dashboard user confirms, and the
+  CLI stores the minted API key in `~/.lasso/credentials.json` at `0600`),
+  `lasso auth status` (who's signed in + workspace + masked key), and
+  `lasso auth logout`. All credits feed `init`/`dev` automatically; `LASSO_API_KEY`
+  still overrides the stored credential.
+- **`lasso init`**: registers the app with your Lasso workspace (API-key
+  authenticated) and writes `lasso.config.json` containing only the project id
+  (`{ "id": "proj_…" }`). Idempotent — re-running reuses the id; commit the file
+  so teammates share the same project. The API key is **not** stored in config.
+- **`lasso dev` project session**: reads `lasso.config.json`, authenticates with
+  the API key (`LASSO_API_KEY` env / prompt), lets the realtime server resolve
+  the key → workspace → project and authenticate the project session. Renders
+  realtime collaboration unavailable (local editing unaffected) when there is no
+  config, no key, or the project belongs to another workspace.
+- **Realtime collaboration in the overlay**: presence avatars with online/away
+  dots, click-an-avatar spotlight, remote selection rings, and a live
+  "teammate is working …" activity strip.
+- **Component lock mode in the UI**: taking a suggestion acquires a lock on the
+  selected element; teammates see a "Locked by …" chip and the edit is blocked
+  until release/expiry.
+- **Comments panel**: thread comments anchored to the selected element (or whole
+  session), reply/resolve/reopen/delete, with a badge on the toolbar button.
+- **Voice chat**: P2P WebRTC mesh — join from the toolbar, mute with a right-click
+  while live.
+- CLI → overlay `config` message carries `collab: { projectId, realtimeUrl,
+  name, version, workspaceId }` so the overlay can join the right (workspace-
+  gated) session. The bridge only forwards a config it successfully authenticated.
 
 ## [0.1.0] - 2026-09-21
 
