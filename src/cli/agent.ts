@@ -70,7 +70,7 @@ function jsonFrom(text: string): { summary: string; changes: SourceChange[] } {
   return { summary: parsed.summary || "The proposed source changes are ready for review.", changes: parsed.changes };
 }
 
-export async function proposeChanges(cwd: string, input: AgentInput, config: AgentConfig) {
+export async function proposeChanges(cwd: string, input: AgentInput, config: AgentConfig, signal?: AbortSignal) {
   const context = await contextFor(cwd, input.element);
   const visualContext = input.context ? { ...input.context, screenshots: undefined } : undefined;
   const history = input.messages?.map((message) => `${message.role}: ${message.content}`).join("\n") || input.instruction;
@@ -87,6 +87,7 @@ export async function proposeChanges(cwd: string, input: AgentInput, config: Age
     const content = image ? [{ type: "text", text: instruction }, { type: "image_url", image_url: { url: image } }] : instruction;
     response = await fetch(`${config.baseUrl || "https://api.openai.com/v1"}/chat/completions`, {
       method: "POST",
+      signal,
       headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey}` },
       body: JSON.stringify({ model, temperature: 0.1, messages: [{ role: "system", content: system }, { role: "user", content }] }),
     });
@@ -95,6 +96,7 @@ export async function proposeChanges(cwd: string, input: AgentInput, config: Age
     if (imageData) parts.push({ inlineData: { mimeType: imageMime, data: imageData } });
     response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(config.apiKey)}`, {
       method: "POST",
+      signal,
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts }] }),
     });
@@ -103,6 +105,7 @@ export async function proposeChanges(cwd: string, input: AgentInput, config: Age
     if (imageData) content.push({ type: "image", source: { type: "base64", media_type: imageMime, data: imageData } });
     response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
+      signal,
       headers: { "content-type": "application/json", "x-api-key": config.apiKey, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({ model, max_tokens: 4096, system, messages: [{ role: "user", content }] }),
     });

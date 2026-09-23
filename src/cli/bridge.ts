@@ -3,10 +3,14 @@ import { WebSocketServer, type WebSocket } from "ws";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import chalk from "chalk";
 import { proposeChanges, type AgentConfig, type SourceChange } from "./agent";
 
 const BRIDGE_PORT = 3056;
+const execFileAsync = promisify(execFile);
+type GitState = { isRepo: boolean; branch?: string; status?: string[]; hasChanges?: boolean; hasRemote?: boolean; remote?: string };
 
 export type BridgeMessage =
   | { type: "hello"; from: "overlay" | "cli" }
@@ -14,7 +18,29 @@ export type BridgeMessage =
   | { type: "runtime_error"; selectionId?: string; details: string }
   | { type: "apply"; changes: SourceChange[] }
   | { type: "undo" }
-  | { type: "agent_status"; status: "thinking" | "working" | "review" | "error"; message: string };
+  | { type: "stop" }
+  | { type: "git_status" }
+  | { type: "git_init" }
+  | { type: "git_commit"; message: string }
+  | { type: "git_push" }
+  | { type: "agent_status"; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string };
+
+async function gitCommand(cwd: string, args: string[]) {
+  const result = await execFileAsync("git", args, { cwd, maxBuffer: 1024 * 1024 });
+  return result.stdout.trim();
+}
+
+async function getGitState(cwd: string): Promise<GitState> {
+  try {
+    await gitCommand(cwd, ["rev-parse", "--is-inside-work-tree"]);
+  } catch {
+    return { isRepo: false };
+  }
+  const status = (await gitCommand(cwd, ["status", "--short"])).split("\n").filter(Boolean);
+  const branch = await gitCommand(cwd, ["branch", "--show-current"]).catch(() => "");
+  const remote = await gitCommand(cwd, ["remote", "get-url", "origin"]).catch(() => "");
+  return { isRepo: true, branch, status, hasChanges: status.length > 0, hasRemote: Boolean(remote), remote };
+}
 
 function readEnvFile(cwd: string, filename: string) {
   try {
@@ -63,6 +89,7 @@ export function startBridge(cwd = process.cwd()) {
       baseUrl: process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL ? `${(process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL || "http://localhost:11434/api").replace(/\/api\/?$/, "")}/v1` : undefined,
     };
   })();
+  let activeAgentController: AbortController | null = null;
 
   async function localModels() {
     const base = process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL || "http://localhost:11434/api";
@@ -87,8 +114,13 @@ export function startBridge(cwd = process.cwd()) {
       { id: "claude-opus-4-1-20250805", label: "Claude Opus 4.1", provider: "anthropic" as const },
       { id: "gpt-4.1", label: "GPT-4.1", provider: "openai" as const },
       { id: "gpt-4.1-mini", label: "GPT-4.1 mini", provider: "openai" as const },
+      { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "google" as const },
+      { id: "gemini-3.7-flash", label: "Gemini 3.7 Flash", provider: "google" as const },
+      { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview", provider: "google" as const },
+      { id: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview", provider: "google" as const },
       { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "google" as const },
       { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "google" as const },
+      { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite", provider: "google" as const },
       ...locals,
     ];
   };
@@ -100,8 +132,11 @@ export function startBridge(cwd = process.cwd()) {
     void availableModels().then((models) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig), models }));
     });
+    void getGitState(cwd).then((git) => {
+      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "git_state", git }));
+    });
 
-    socket.on("message", (raw) => {
+    socket.on("message", async (raw) => {
       const msg: BridgeMessage = JSON.parse(raw.toString());
       if (msg.type === "edit") {
         console.log("[lasso] received edit:", { model: msg.model, provider: msg.provider, selectionId: msg.context?.selectionId, messages: msg.messages?.length || 0, changes: msg.changesHistory?.length || 0, screenshots: Boolean(msg.context?.screenshots?.full || msg.context?.screenshots?.element) });
@@ -119,16 +154,56 @@ export function startBridge(cwd = process.cwd()) {
         }
         socket.send(JSON.stringify({ type: "agent_status", status: "thinking", message: "Reading the selected component…" }));
         socket.send(JSON.stringify({ type: "agent_status", status: "working", message: "Inspecting source, conversation, and visual context…" }));
-        void proposeChanges(cwd, msg, { ...agentConfig, provider: msg.provider || agentConfig.provider, model: msg.model })
+        activeAgentController?.abort();
+        const controller = new AbortController();
+        activeAgentController = controller;
+        void proposeChanges(cwd, msg, { ...agentConfig, provider: msg.provider || agentConfig.provider, model: msg.model }, controller.signal)
           .then((proposal) => {
-            socket.send(JSON.stringify({ type: "agent_status", status: "review", message: proposal.summary, changes: proposal.changes }));
+            if (!controller.signal.aborted) socket.send(JSON.stringify({ type: "agent_status", status: "review", message: proposal.summary, changes: proposal.changes }));
           })
           .catch((error: unknown) => {
+            if (controller.signal.aborted) return;
             const message = error instanceof Error ? error.message : "The agent could not prepare a change.";
             socket.send(JSON.stringify({ type: "agent_status", status: "error", message }));
+          })
+          .finally(() => {
+            if (activeAgentController === controller) activeAgentController = null;
           });
+      } else if (msg.type === "stop") {
+        activeAgentController?.abort();
+        activeAgentController = null;
+        socket.send(JSON.stringify({ type: "agent_status", status: "stopped", message: "Agent stopped." }));
       } else if (msg.type === "runtime_error") {
         socket.send(JSON.stringify({ type: "agent_status", status: "error", message: `Runtime error detected${msg.selectionId ? ` for selection ${msg.selectionId}` : ""}: ${msg.details}` }));
+      } else if (msg.type === "git_status") {
+        socket.send(JSON.stringify({ type: "git_state", git: await getGitState(cwd) }));
+      } else if (msg.type === "git_init") {
+        try {
+          await gitCommand(cwd, ["init"]);
+          socket.send(JSON.stringify({ type: "git_result", message: "Git repository initialized." }));
+          socket.send(JSON.stringify({ type: "git_state", git: await getGitState(cwd) }));
+        } catch (error) {
+          socket.send(JSON.stringify({ type: "git_result", error: error instanceof Error ? error.message : "Git could not be initialized." }));
+        }
+      } else if (msg.type === "git_commit") {
+        try {
+          const commitMessage = msg.message.trim().slice(0, 120);
+          if (!commitMessage) throw new Error("Enter a commit message first.");
+          await gitCommand(cwd, ["add", "-A"]);
+          await gitCommand(cwd, ["commit", "-m", commitMessage]);
+          socket.send(JSON.stringify({ type: "git_result", message: "Changes committed." }));
+          socket.send(JSON.stringify({ type: "git_state", git: await getGitState(cwd) }));
+        } catch (error) {
+          socket.send(JSON.stringify({ type: "git_result", error: error instanceof Error ? error.message : "Changes could not be committed." }));
+        }
+      } else if (msg.type === "git_push") {
+        try {
+          await gitCommand(cwd, ["push"]);
+          socket.send(JSON.stringify({ type: "git_result", message: "Changes pushed to the configured remote." }));
+          socket.send(JSON.stringify({ type: "git_state", git: await getGitState(cwd) }));
+        } catch (error) {
+          socket.send(JSON.stringify({ type: "git_result", error: error instanceof Error ? error.message : "Changes could not be pushed." }));
+        }
       } else if (msg.type === "apply") {
         try {
           lastSnapshot = [];

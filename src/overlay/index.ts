@@ -1,4 +1,8 @@
 import html2canvas from "html2canvas";
+import anthropicIcon from "@iconify-icons/logos/anthropic-icon";
+import googleIcon from "@iconify-icons/logos/google-icon";
+import openaiIcon from "@iconify-icons/logos/openai-icon";
+import terminalIcon from "@iconify-icons/logos/terminal";
 
 console.log("[lasso] overlay loaded");
 
@@ -16,6 +20,7 @@ function init() {
   let apiKeyConfigured = false;
   let agentStatusElement: HTMLDivElement | null = null;
   let agentStatusMessage: HTMLSpanElement | null = null;
+  let agentLogElement: HTMLDivElement | null = null;
   let agentRunning = false;
   type PendingChange = { filePath: string; oldString: string; newString: string };
   let pendingChanges: PendingChange[] = [];
@@ -31,6 +36,7 @@ function init() {
   let lastInstruction = "";
   type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" };
   let refreshModelMenu = () => {};
+  let modelFilter: "all" | ModelOption["provider"] = "all";
   const modelSessionKey = "lasso:selected-model";
 
   function storedModelId() {
@@ -49,18 +55,43 @@ function init() {
     }
   }
 
-  function setAgentStatus(status: "thinking" | "working" | "review" | "error", message: string) {
+  function setAgentStatus(status: "thinking" | "working" | "review" | "error" | "stopped", message: string) {
     if (!agentStatusElement || !agentStatusMessage) return;
-    agentStatusElement.hidden = status === "review" || status === "error";
+    agentStatusElement.hidden = status === "review" || status === "error" || status === "stopped";
     agentStatusElement.dataset.status = status;
     agentStatusMessage.textContent = message;
     agentRunning = status === "thinking" || status === "working";
+    if (agentRunning && agentLogElement && agentLogElement.lastElementChild?.textContent !== message) {
+      const line = document.createElement("div");
+      line.textContent = `› ${message}`;
+      agentLogElement.appendChild(line);
+      while (agentLogElement.children.length > 4) agentLogElement.firstElementChild?.remove();
+    }
     sendButton.classList.toggle("loading", agentRunning);
+    if (stopButton) stopButton.hidden = !agentRunning;
     promptInput.disabled = agentRunning;
     sendButton.disabled = agentRunning;
     sendButton.querySelector("span")!.textContent = status === "review" ? "Review" : status === "error" ? "Retry" : agentRunning ? "Working" : "Send";
     sendButton.dataset.state = status === "error" ? "retry" : agentRunning ? "working" : status;
-    if (status === "review" || status === "error") appendChat(status === "error" ? "error" : "assistant", message);
+    if (status === "review" || status === "error" || status === "stopped") appendChat(status === "error" ? "error" : "assistant", message);
+  }
+
+  function resetAgentState() {
+    agentRunning = false;
+    if (agentStatusElement) {
+      agentStatusElement.hidden = true;
+      agentStatusElement.dataset.status = "idle";
+    }
+    if (agentLogElement) agentLogElement.replaceChildren();
+    if (sendButton) {
+      sendButton.classList.remove("loading");
+      sendButton.disabled = false;
+      sendButton.dataset.state = "idle";
+      const label = sendButton.querySelector("span");
+      if (label) label.textContent = "Send";
+    }
+    if (stopButton) stopButton.hidden = true;
+    if (promptInput) promptInput.disabled = false;
   }
 
   function connectBridge() {
@@ -70,13 +101,18 @@ function init() {
       bridgeSocket.addEventListener("open", () => bridgeSocket?.send(JSON.stringify({ type: "hello", from: "overlay" })));
       bridgeSocket.addEventListener("message", (event) => {
         try {
-          const message = JSON.parse(event.data as string) as { type?: string; apiKeyConfigured?: boolean; agentConfigured?: boolean; models?: ModelOption[]; status?: "thinking" | "working" | "review" | "error"; message?: string; changes?: PendingChange[] };
+          const message = JSON.parse(event.data as string) as { type?: string; apiKeyConfigured?: boolean; agentConfigured?: boolean; models?: ModelOption[]; git?: GitState; error?: string; status?: "thinking" | "working" | "review" | "error" | "stopped"; message?: string; changes?: PendingChange[] };
           if (message.type === "config") apiKeyConfigured = Boolean(message.apiKeyConfigured);
           if (message.type === "config" && message.models?.length) {
             MODELS = message.models;
             selectedModel = MODELS.find((model) => model.id === storedModelId()) || MODELS[0];
             rememberModel(selectedModel);
             refreshModelMenu();
+          }
+          if (message.type === "git_state" && message.git) renderGitState(message.git);
+          if (message.type === "git_result") {
+            gitMessage.textContent = message.error || message.message || "Git action complete.";
+            if (!message.error && bridgeSocket?.readyState === WebSocket.OPEN) bridgeSocket.send(JSON.stringify({ type: "git_status" }));
           }
           if (message.type === "agent_status" && message.status && message.message) {
             setAgentStatus(message.status, message.message);
@@ -91,14 +127,9 @@ function init() {
             if (message.type === "undone") {
               closeReview();
               pendingChanges = [];
-            } else if (reviewPanel) {
-              const subtitle = reviewPanel.querySelector<HTMLParagraphElement>(".lasso-review-subtitle");
-              const apply = reviewPanel.querySelector<HTMLButtonElement>(".lasso-review-apply");
-              const keep = reviewPanel.querySelector<HTMLButtonElement>(".lasso-review-undo");
-              if (subtitle) subtitle.textContent = message.message || "The reviewed change was applied.";
-              if (apply) apply.hidden = true;
-              if (keep) { keep.textContent = "Undo change"; keep.classList.add("primary"); }
-              reviewPanel.hidden = false;
+            } else {
+              closeReview();
+              pendingChanges = [];
             }
           }
         } catch {
@@ -115,6 +146,8 @@ function init() {
   // ============================================================
 
   let MODELS: ModelOption[] = [
+    { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "google" },
+    { id: "gemini-3.7-flash", label: "Gemini 3.7 Flash", provider: "google" },
     { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "google" },
     { id: "gpt-4.1-mini", label: "GPT-4.1 mini", provider: "openai" },
   ];
@@ -326,7 +359,7 @@ function init() {
       padding: 0 11px;
 
       border: 0;
-      border-radius: 8px;
+      border-radius: 999px;
 
       background: transparent;
       color: #d1d5db;
@@ -371,8 +404,34 @@ function init() {
       cursor: pointer;
       transition: transform 120ms ease, background 120ms ease;
     }
-    .lasso-ask-btn:hover { background: #eef2ff; transform: translateY(-1px); }
-    .lasso-ask-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+    .lasso-git-btn {
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 12px;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      color: #dbeafe;
+      font: 600 12px/1 inherit;
+      cursor: pointer;
+      transition: background 120ms ease, transform 120ms ease;
+    }
+    .lasso-git-btn:hover { background: rgba(255,255,255,.15); transform: translateY(-1px); }
+    .lasso-git-panel { position: fixed; right: 20px; bottom: 76px; width: 310px; padding: 14px; border: 1px solid rgba(15,23,42,.1); border-radius: 16px; background: #fff; color: #0f172a; box-shadow: 0 20px 50px rgba(15,23,42,.2); pointer-events: auto; }
+    .lasso-git-panel[hidden] { display: none; }
+    .lasso-git-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .lasso-git-title { margin: 0; font-size: 13px; font-weight: 700; }
+    .lasso-git-state { margin: 4px 0 0; color: #64748b; font-size: 11px; line-height: 1.4; }
+    .lasso-git-close { border: 0; background: transparent; color: #94a3b8; font-size: 18px; cursor: pointer; }
+    .lasso-git-branch { margin-bottom: 10px; padding: 8px 9px; border-radius: 8px; background: #f8fafc; color: #475569; font: 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .lasso-git-actions { display: grid; gap: 7px; }
+    .lasso-git-actions button { min-height: 32px; border: 1px solid #dbe2ea; border-radius: 8px; background: #fff; color: #334155; font: 600 11px/1 inherit; cursor: pointer; }
+    .lasso-git-actions button.primary { border-color: #111827; background: #111827; color: #fff; }
+    .lasso-git-actions button:disabled { cursor: not-allowed; opacity: .45; }
+    .lasso-git-commit { width: 100%; min-height: 34px; margin-bottom: 7px; padding: 0 9px; border: 1px solid #dbe2ea; border-radius: 8px; outline: none; font: 12px/1 inherit; }
+    .lasso-git-message { margin: 9px 0 0; color: #64748b; font-size: 10px; line-height: 1.4; }
 
     .lasso-icon {
       width: 16px;
@@ -531,6 +590,8 @@ function init() {
 
       padding: 18px 18px 14px;
 
+      font-family: "Google Sans", "Google Sans Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
       background: #ffffff;
 
       border-radius: 22.5px;
@@ -638,6 +699,17 @@ function init() {
     .lasso-prompt-model-menu[hidden] {
       display: none;
     }
+    .lasso-model-filters { display: flex; gap: 4px; padding: 4px; border-bottom: 1px solid #eef2f7; }
+    .lasso-model-filter { border: 0; border-radius: 7px; padding: 5px 7px; background: transparent; color: #64748b; font: 600 10px/1 inherit; cursor: pointer; }
+    .lasso-model-filter:hover, .lasso-model-filter.active { background: #eef2ff; color: #4f46e5; }
+    .lasso-model-group { padding: 7px 9px 3px; color: #94a3b8; font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+    .lasso-model-item-icon, .lasso-model-active-icon { display: inline-flex; width: 16px; height: 16px; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 5px; overflow: hidden; }
+    .lasso-model-item-icon svg, .lasso-model-active-icon svg { display: block; width: 100%; height: 100%; }
+    .lasso-model-active-icon { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
+    .provider-google { background: #e8f0fe; color: #4285f4; }
+    .provider-openai { background: #e7f8f0; color: #16835b; }
+    .provider-anthropic { background: #fff0e6; color: #c2410c; }
+    .provider-ollama { background: #eef2f7; color: #475569; }
 
     .lasso-prompt-model-item {
       width: 100%;
@@ -697,6 +769,8 @@ function init() {
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .lasso-prompt-element { display: inline-flex; align-items: center; gap: 5px; }
+    .lasso-prompt-element svg { width: 13px; height: 13px; flex-shrink: 0; color: #6366f1; }
 
     .lasso-prompt-close {
       width: 26px;
@@ -817,6 +891,8 @@ function init() {
     .lasso-agent-status[hidden] { display: none; }
     .lasso-agent-status-kicker { color: #94a3b8; font-size: 10px; font-weight: 700; letter-spacing: .02em; white-space: nowrap; }
     .lasso-agent-status-message { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lasso-agent-log { grid-column: 1 / -1; display: grid; gap: 3px; margin: 2px 0 0 17px; color: #64748b; font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .lasso-agent-log div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .lasso-agent-status[data-status="review"] { background: #ecfdf3; color: #188038; }
     .lasso-agent-status[data-status="error"] { background: #fef2f2; color: #b3261e; }
     .lasso-agent-status-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: #6366f1; animation: lasso-agent-pulse 1.2s ease-in-out infinite; }
@@ -864,6 +940,11 @@ function init() {
       border-color: rgba(15, 23, 42, 0.18);
       color: #334155;
     }
+    .lasso-prompt-voice { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(15,23,42,.1); border-radius: 10px; background: #f8fafc; color: #94a3b8; cursor: not-allowed; opacity: .72; }
+    .lasso-prompt-voice:hover::after { content: "Coming soon"; position: absolute; transform: translateY(-38px); padding: 5px 7px; border-radius: 6px; background: #0f172a; color: #fff; font-size: 10px; white-space: nowrap; }
+    .lasso-prompt-stop { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border: 1px solid #fecaca; border-radius: 10px; background: #fff5f5; color: #b91c1c; cursor: pointer; }
+    .lasso-prompt-stop[hidden] { display: none; }
+    .lasso-prompt-stop:hover { background: #fee2e2; }
 
     .lasso-prompt-send {
       height: 34px;
@@ -937,20 +1018,29 @@ function init() {
       </span>
     </button>
 
-    <button class="lasso-ask-btn" type="button" aria-label="Ask Lasso about the selected element" disabled>
-      <span>Ask Lasso</span>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>
+    <button class="lasso-git-btn" type="button" aria-label="Git project actions">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m9 7-5 5 5 5"/><path d="m15 7 5 5-5 5"/><path d="m14 4-4 16"/>
       </svg>
+      <span>Git</span>
     </button>
-
-    <div class="lasso-status">
-      <span class="lasso-dot"></span>
-      <span>Click an element</span>
-    </div>
   `;
 
   shadow.appendChild(toolbar);
+
+  type GitState = { isRepo: boolean; branch?: string; status?: string[]; hasChanges?: boolean; hasRemote?: boolean; remote?: string };
+  let gitState: GitState = { isRepo: false };
+  const gitPanel = document.createElement("div");
+  gitPanel.className = "lasso-git-panel";
+  gitPanel.hidden = true;
+  gitPanel.innerHTML = `
+    <div class="lasso-git-head"><div><p class="lasso-git-title">Git workspace</p><p class="lasso-git-state"></p></div><button class="lasso-git-close" type="button" aria-label="Close Git actions">×</button></div>
+    <div class="lasso-git-branch"></div>
+    <input class="lasso-git-commit" type="text" placeholder="Commit message" />
+    <div class="lasso-git-actions"><button class="lasso-git-init" type="button">Initialize repository</button><button class="lasso-git-commit-btn primary" type="button">Commit changes</button><button class="lasso-git-push" type="button">Push changes</button></div>
+    <p class="lasso-git-message" aria-live="polite"></p>
+  `;
+  shadow.appendChild(gitPanel);
 
   const selectBtn =
     toolbar.querySelector<HTMLButtonElement>(
@@ -962,12 +1052,29 @@ function init() {
       ".lasso-select-text"
     )!;
 
-  const askBtn = toolbar.querySelector<HTMLButtonElement>(".lasso-ask-btn")!;
+  const gitBtn = toolbar.querySelector<HTMLButtonElement>(".lasso-git-btn")!;
+  const gitStateText = gitPanel.querySelector<HTMLParagraphElement>(".lasso-git-state")!;
+  const gitBranchText = gitPanel.querySelector<HTMLDivElement>(".lasso-git-branch")!;
+  const gitCommitInput = gitPanel.querySelector<HTMLInputElement>(".lasso-git-commit")!;
+  const gitMessage = gitPanel.querySelector<HTMLParagraphElement>(".lasso-git-message")!;
 
-  const status =
-    toolbar.querySelector<HTMLDivElement>(
-      ".lasso-status"
-    )!;
+  function renderGitState(next: GitState) {
+    gitState = next;
+    gitStateText.textContent = !next.isRepo ? "This project is not initialized yet." : next.hasChanges ? `${next.status?.length || 0} change${next.status?.length === 1 ? "" : "s"} ready to commit.` : "Working tree clean.";
+    gitBranchText.textContent = next.isRepo ? `Branch: ${next.branch || "detached HEAD"}${next.hasRemote ? " · remote connected" : " · no remote"}` : "No Git repository";
+    gitPanel.querySelector<HTMLButtonElement>(".lasso-git-init")!.hidden = next.isRepo;
+    gitPanel.querySelector<HTMLButtonElement>(".lasso-git-commit-btn")!.disabled = !next.isRepo || !next.hasChanges;
+    gitPanel.querySelector<HTMLButtonElement>(".lasso-git-push")!.disabled = !next.isRepo || !next.hasRemote;
+  }
+
+  gitBtn.addEventListener("click", () => {
+    gitPanel.hidden = !gitPanel.hidden;
+    if (!gitPanel.hidden && bridgeSocket?.readyState === WebSocket.OPEN) bridgeSocket.send(JSON.stringify({ type: "git_status" }));
+  });
+  gitPanel.querySelector<HTMLButtonElement>(".lasso-git-close")!.addEventListener("click", () => { gitPanel.hidden = true; });
+  gitPanel.querySelector<HTMLButtonElement>(".lasso-git-init")!.addEventListener("click", () => bridgeSocket?.send(JSON.stringify({ type: "git_init" })));
+  gitPanel.querySelector<HTMLButtonElement>(".lasso-git-commit-btn")!.addEventListener("click", () => bridgeSocket?.send(JSON.stringify({ type: "git_commit", message: gitCommitInput.value })));
+  gitPanel.querySelector<HTMLButtonElement>(".lasso-git-push")!.addEventListener("click", () => bridgeSocket?.send(JSON.stringify({ type: "git_push" })));
 
   // ============================================================
   // VISUAL OVERLAYS
@@ -1052,7 +1159,10 @@ function init() {
         <div class="lasso-prompt-model-menu" hidden></div>
       </div>
 
-      <span class="lasso-prompt-element"></span>
+      <span class="lasso-prompt-element">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5"/></svg>
+        <span class="lasso-prompt-element-name"></span>
+      </span>
 
       <button
         class="lasso-prompt-close"
@@ -1081,6 +1191,7 @@ function init() {
       <span class="lasso-agent-status-dot"></span>
       <span class="lasso-agent-status-kicker">Lasso agent</span>
       <span class="lasso-agent-status-message"></span>
+      <div class="lasso-agent-log" aria-label="Agent activity"></div>
     </div>
 
     <textarea
@@ -1110,6 +1221,14 @@ function init() {
           <path d="M17 8l-5-5-5 5"/>
           <path d="M12 3v12"/>
         </svg>
+      </button>
+
+      <button class="lasso-prompt-voice" type="button" disabled aria-label="Voice mode coming soon" title="Voice mode coming soon">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></svg>
+      </button>
+
+      <button class="lasso-prompt-stop" type="button" hidden aria-label="Stop agent">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
       </button>
 
       <button
@@ -1173,6 +1292,7 @@ function init() {
 
   function closeReview() {
     if (reviewPanel) reviewPanel.hidden = true;
+    resetAgentState();
   }
 
   function showReview(changes: PendingChange[], summary: string) {
@@ -1213,13 +1333,15 @@ function init() {
 
   const promptElement =
     prompt.querySelector<HTMLSpanElement>(
-      ".lasso-prompt-element"
+      ".lasso-prompt-element-name"
     )!;
 
   const sendButton =
     prompt.querySelector<HTMLButtonElement>(
       ".lasso-prompt-send"
     )!;
+
+  const stopButton = prompt.querySelector<HTMLButtonElement>(".lasso-prompt-stop")!;
 
   const promptClose =
     prompt.querySelector<HTMLButtonElement>(
@@ -1251,6 +1373,14 @@ function init() {
 
   agentStatusElement = prompt.querySelector<HTMLDivElement>(".lasso-agent-status")!;
   agentStatusMessage = prompt.querySelector<HTMLSpanElement>(".lasso-agent-status-message")!;
+  agentLogElement = prompt.querySelector<HTMLDivElement>(".lasso-agent-log")!;
+  stopButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (bridgeSocket?.readyState === WebSocket.OPEN) bridgeSocket.send(JSON.stringify({ type: "stop" }));
+    appendChat("assistant", "Agent stopped.");
+    resetAgentState();
+  });
   connectBridge();
 
   function reportRuntimeError(details: string) {
@@ -1304,22 +1434,50 @@ function init() {
   // MODEL SELECTION
   // ============================================================
 
+  const providerLabels: Record<ModelOption["provider"], string> = { google: "Google", openai: "OpenAI", anthropic: "Anthropic", ollama: "Local" };
+  const providerIcons = { google: googleIcon, openai: openaiIcon, anthropic: anthropicIcon, ollama: terminalIcon };
+  const providerIcon = (provider: ModelOption["provider"], active = false) => {
+    const icon = providerIcons[provider];
+    return `<span class="${active ? "lasso-model-active-icon" : "lasso-model-item-icon"} provider-${provider}" aria-hidden="true"><svg viewBox="0 0 ${icon.width} ${icon.height}" xmlns="http://www.w3.org/2000/svg" focusable="false">${icon.body}</svg></span>`;
+  };
+
   refreshModelMenu = () => {
-    modelMenu.replaceChildren(...MODELS.map((model) => {
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = "lasso-prompt-model-item";
-      item.dataset.model = model.id;
-      item.innerHTML = `<span>${model.label}</span><svg class="lasso-prompt-model-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`;
-      return item;
-    }));
+    const filters = document.createElement("div");
+    filters.className = "lasso-model-filters";
+    const providers = ["all", ...Array.from(new Set(MODELS.map((model) => model.provider)))];
+    for (const provider of providers) {
+      const filter = document.createElement("button");
+      filter.type = "button";
+      filter.className = `lasso-model-filter${modelFilter === provider ? " active" : ""}`;
+      filter.dataset.providerFilter = provider;
+      filter.textContent = provider === "all" ? "All" : providerLabels[provider as ModelOption["provider"]];
+      filters.appendChild(filter);
+    }
+    const children: Node[] = [filters];
+    const visibleProviders = modelFilter === "all" ? providers.slice(1) : [modelFilter];
+    for (const provider of visibleProviders) {
+      const models = MODELS.filter((model) => model.provider === provider);
+      if (!models.length) continue;
+      const group = document.createElement("div");
+      group.className = "lasso-model-group";
+      group.textContent = providerLabels[provider as ModelOption["provider"]];
+      children.push(group);
+      for (const model of models) {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "lasso-prompt-model-item";
+        item.dataset.model = model.id;
+        item.innerHTML = `${providerIcon(model.provider)}<span>${model.label}</span><svg class="lasso-prompt-model-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`;
+        children.push(item);
+      }
+    }
+    modelMenu.replaceChildren(...children);
     syncModelMenu();
   };
   refreshModelMenu();
 
   function syncModelMenu() {
-    modelName.textContent =
-      selectedModel.label;
+    modelName.innerHTML = `${providerIcon(selectedModel.provider, true)}${selectedModel.label}`;
 
     for (const item of modelMenu.querySelectorAll<
       HTMLButtonElement
@@ -1345,6 +1503,12 @@ function init() {
   modelMenu.addEventListener(
     "click",
     (event) => {
+      const filter = (event.target as HTMLElement).closest<HTMLButtonElement>(".lasso-model-filter");
+      if (filter?.dataset.providerFilter) {
+        modelFilter = filter.dataset.providerFilter as typeof modelFilter;
+        refreshModelMenu();
+        return;
+      }
       const item = (
         event.target as HTMLElement
       ).closest<HTMLButtonElement>(
@@ -1697,11 +1861,6 @@ function init() {
       active
     );
 
-    status.classList.toggle(
-      "visible",
-      active
-    );
-
     selectText.textContent =
       active
         ? "Lasso Mode ✓"
@@ -1739,18 +1898,6 @@ function init() {
       setSelectMode(false);
     }
   );
-
-  askBtn.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!selected) {
-      setSelectMode(true);
-      return;
-    }
-    prompt.classList.add("visible");
-    positionPrompt(selected);
-    requestAnimationFrame(() => promptInput.focus());
-  });
 
   // ============================================================
   // HOVER DETECTION
@@ -1813,7 +1960,6 @@ function init() {
       event.stopImmediatePropagation();
 
       selected = target;
-      askBtn.disabled = false;
       promptDragged = false;
       lastInstruction = "";
       selectionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -2008,7 +2154,6 @@ function init() {
     promptInput.value = "";
 
       selected = null;
-    askBtn.disabled = true;
 
     selectedBox.style.display =
       "none";
