@@ -130,6 +130,19 @@ export function buildStyles(): string {
       margin-left: 6px;
     }
 
+    /* Drag tool active (Sky / Cyan pill) */
+    .lasso-tool-btn.drag-tool.active {
+      background: #0ea5e9;
+      color: #ffffff;
+      box-shadow: 0 2px 10px rgba(14, 165, 233, 0.4);
+    }
+
+    .lasso-tool-btn.drag-tool.active .lasso-tool-label {
+      max-width: 80px;
+      opacity: 1;
+      margin-left: 6px;
+    }
+
     /* Comment tool active (Amber pill) */
     .lasso-tool-btn.comment-tool.active {
       background: var(--lo-amber);
@@ -3283,5 +3296,426 @@ export function buildStyles(): string {
       padding: 32px 12px; color: var(--lo-text-3); font-size: 11px; text-align: center; line-height: 1.6;
     }
     @media (max-width: 600px) { .lasso-clipboard-panel { right: 10px; bottom: 72px; left: 10px; width: auto; } }
+
+    /* ==========================================================================
+       Drag-to-Reposition Tool Styles
+       ========================================================================== */
+    .lasso-drag-layer {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 2147483640;
+    }
+
+    .lasso-drag-hover-box {
+      position: fixed;
+      pointer-events: none;
+      border: 2px dashed #0ea5e9;
+      background: rgba(14, 165, 233, 0.08);
+      border-radius: 6px;
+      box-shadow: 0 0 16px rgba(14, 165, 233, 0.25);
+      z-index: 2147483641;
+      transition: all 80ms ease;
+    }
+
+    .lasso-drag-hover-label {
+      position: fixed;
+      pointer-events: none;
+      z-index: 2147483642;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: #0ea5e9;
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      box-shadow: 0 3px 10px rgba(14, 165, 233, 0.4);
+      white-space: nowrap;
+    }
+
+    .lasso-drag-hover-alt-hint {
+      font-size: 9.5px;
+      font-weight: 500;
+      opacity: 0.85;
+      background: rgba(0, 0, 0, 0.25);
+      padding: 1px 5px;
+      border-radius: 3px;
+      margin-left: 2px;
+    }
+
+    .lasso-drag-proxy-clone {
+      box-sizing: border-box !important;
+      will-change: transform !important;
+    }
+
+    .lasso-drag-ghost-box {
+      position: fixed;
+      pointer-events: none;
+      border: 2px dashed rgba(14, 165, 233, 0.55);
+      background: rgba(14, 165, 233, 0.04);
+      border-radius: 6px;
+      z-index: 2147483639;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .lasso-drag-ghost-chip {
+      padding: 3px 8px;
+      border-radius: 5px;
+      background: rgba(15, 23, 42, 0.82);
+      border: 1px solid rgba(14, 165, 233, 0.3);
+      color: #7dd3fc;
+      font-size: 10px;
+      font-weight: 550;
+      letter-spacing: 0.02em;
+    }
+
+    .lasso-drag-hud {
+      position: fixed;
+      pointer-events: none;
+      z-index: 2147483647;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(15, 23, 42, 0.94);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(14, 165, 233, 0.4);
+      border-radius: 8px;
+      padding: 5px 9px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      color: #f8fafc;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+      white-space: nowrap;
+    }
+
+    .lasso-drag-hud strong {
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .lasso-hud-delta {
+      color: #38bdf8;
+      font-weight: 600;
+    }
+
+    .lasso-drag-guide-svg {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      width: 100vw;
+      height: 100vh;
+      z-index: 2147483638;
+    }
+
+    /* Reposition Card */
+    .lasso-drag-card {
+      position: fixed;
+      pointer-events: auto;
+      z-index: 2147483645;
+      width: 380px;
+      max-width: calc(100vw - 24px);
+      background: rgba(22, 24, 29, 0.96);
+      backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 16px;
+      box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(14, 165, 233, 0.3);
+      padding: 15px 16px 16px;
+      font-family: inherit;
+      color: #f8f9fc;
+      animation: lasso-card-pop 200ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes lasso-card-pop {
+      from {
+        opacity: 0;
+        transform: scale(0.96) translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+
+    .lasso-drag-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .lasso-drag-card-brand {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .lasso-drag-card-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: rgba(14, 165, 233, 0.18);
+      color: #38bdf8;
+    }
+
+    .lasso-drag-card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #f8f9fc;
+    }
+
+    .lasso-drag-card-target-wrap {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .lasso-drag-card-element-chip {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 10.5px;
+      font-weight: 500;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #cbd5e1;
+      max-width: 130px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .lasso-drag-parent-switch-btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 7px;
+      border-radius: 4px;
+      border: 1px solid rgba(14, 165, 233, 0.35);
+      background: rgba(14, 165, 233, 0.12);
+      color: #38bdf8;
+      font-family: inherit;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 110ms, border-color 110ms, color 110ms;
+      white-space: nowrap;
+    }
+
+    .lasso-drag-parent-switch-btn:hover {
+      background: rgba(14, 165, 233, 0.28);
+      border-color: #38bdf8;
+      color: #ffffff;
+    }
+
+    .lasso-drag-card-close {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.5);
+      cursor: pointer;
+      transition: background 120ms, color 120ms;
+    }
+
+    .lasso-drag-card-close:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #ffffff;
+    }
+
+    .lasso-drag-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .lasso-drag-stat-box {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      padding: 7px 9px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .lasso-drag-stat-box.accent {
+      background: rgba(14, 165, 233, 0.08);
+      border-color: rgba(14, 165, 233, 0.25);
+    }
+
+    .lasso-drag-stat-label {
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: rgba(255, 255, 255, 0.5);
+      font-weight: 600;
+    }
+
+    .lasso-drag-stat-val {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      font-weight: 600;
+      color: #f1f5f9;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .lasso-drag-stat-box.accent .lasso-drag-stat-val {
+      color: #38bdf8;
+    }
+
+    .lasso-drag-context-hint {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 9px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.65);
+      margin-bottom: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .lasso-drag-context-icon {
+      color: #38bdf8;
+    }
+
+    .lasso-drag-status-wrap {
+      margin-bottom: 12px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: #090a0f;
+    }
+
+    .lasso-drag-status-wrap .lasso-agent-terminal-header {
+      padding: 6px 10px;
+    }
+
+    .lasso-drag-status-wrap .lasso-agent-status-line {
+      padding: 7px 10px 9px;
+      font-size: 11px;
+    }
+
+    .lasso-drag-input-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-bottom: 13px;
+    }
+
+    .lasso-drag-input-label {
+      font-size: 10.5px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    .lasso-drag-textarea {
+      width: 100%;
+      box-sizing: border-box;
+      resize: vertical;
+      min-height: 52px;
+      max-height: 140px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.25);
+      color: #f8fafc;
+      font-family: inherit;
+      font-size: 11.5px;
+      line-height: 1.45;
+      outline: none;
+      transition: border-color 140ms ease, box-shadow 140ms ease;
+    }
+
+    .lasso-drag-textarea:focus {
+      border-color: #0ea5e9;
+      box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.25);
+    }
+
+    .lasso-drag-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .lasso-drag-btn-revert {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 12px;
+      border-radius: 7px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: transparent;
+      color: rgba(255, 255, 255, 0.75);
+      font-family: inherit;
+      font-size: 11.5px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 120ms, color 120ms;
+    }
+
+    .lasso-drag-btn-revert:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #ffffff;
+    }
+
+    .lasso-drag-btn-apply {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 7px;
+      border: 0;
+      background: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 100%);
+      color: #ffffff;
+      font-family: inherit;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 2px 10px rgba(14, 165, 233, 0.35);
+      transition: opacity 120ms, transform 120ms;
+    }
+
+    .lasso-drag-btn-apply:hover {
+      opacity: 0.94;
+      transform: translateY(-1px);
+    }
+
+    .lasso-drag-btn-apply:active {
+      transform: scale(0.97);
+    }
+
+    .lasso-drag-btn-apply.loading {
+      pointer-events: none;
+      opacity: 0.65;
+    }
+
+    .lasso-drag-btn-apply .lasso-btn-sparkle {
+      width: 14px;
+      height: 14px;
+    }
   `;
 }

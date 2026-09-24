@@ -2,6 +2,7 @@ import { state } from "../state";
 import { getDOM } from "../dom";
 import type { ElementGroup, GroupConfig } from "../types";
 import { setCommentMode } from "./toolbar";
+import { setDragMode } from "../drag/drag";
 
 export const GROUPS: Record<ElementGroup, GroupConfig> = {
   layout: {
@@ -185,12 +186,18 @@ export function updateSelectedVisual() {
 
 export function setSelectMode(active: boolean) {
   state.selectMode = active;
-  if (active) state.previewMode = false;
-  const selectBtn = getDOM().shadow.querySelector<HTMLButtonElement>(".select-tool");
-  const previewBtn = getDOM().shadow.querySelector<HTMLButtonElement>(".preview-tool");
+  if (active) {
+    state.previewMode = false;
+    setDragMode(false);
+  }
+  const dom = getDOM();
+  const selectBtn = dom.shadow.querySelector<HTMLButtonElement>(".select-tool");
+  const dragBtn = dom.shadow.querySelector<HTMLButtonElement>(".drag-tool");
+  const previewBtn = dom.shadow.querySelector<HTMLButtonElement>(".preview-tool");
   if (selectBtn) {
     selectBtn.classList.toggle("active", active);
   }
+  if (dragBtn) dragBtn.classList.toggle("active", state.dragMode);
   if (previewBtn) previewBtn.classList.toggle("active", state.previewMode);
 
   if (active) {
@@ -214,12 +221,14 @@ export function setPreviewMode(active: boolean) {
   if (active) {
     state.selectMode = false;
     state.commentMode = false;
+    setDragMode(false);
     setHovered(null);
   }
 
   const dom = getDOM();
   dom.shadow.querySelector<HTMLButtonElement>(".preview-tool")?.classList.toggle("active", active);
   dom.shadow.querySelector<HTMLButtonElement>(".select-tool")?.classList.toggle("active", state.selectMode);
+  dom.shadow.querySelector<HTMLButtonElement>(".drag-tool")?.classList.toggle("active", state.dragMode);
   dom.shadow.querySelector<HTMLButtonElement>(".comment-tool")?.classList.toggle("active", state.commentMode);
   document.documentElement.style.cursor = "";
 }

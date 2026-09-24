@@ -16,6 +16,7 @@ import { buildGitPanel } from "./git/git";
 import { buildTodoPanel } from "./todo/todo";
 import { buildNotepadPanel } from "./notepad/notepad";
 import { buildClipboardPanel } from "./clipboard/clipboard";
+import { buildDrag, resetDrag, setDragMode } from "./drag/drag";
 import {
   buildPrompt,
   openPromptForSelected,
@@ -49,6 +50,7 @@ export function init() {
   buildNotepadPanel();
   buildClipboardPanel();
   buildPrompt();
+  buildDrag();
 
   // Connect local bridge & collab
   initErrorListeners();
@@ -152,6 +154,12 @@ export function init() {
 
     if (isPromptOpen()) {
       cancelPrompt(true);
+      return;
+    }
+
+    if (state.dragMode) {
+      resetDrag(true);
+      setDragMode(false);
       return;
     }
 

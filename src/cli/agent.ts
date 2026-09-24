@@ -16,7 +16,7 @@ type AgentInput = {
   model: string;
   messages?: Array<{ role: string; content: string; createdAt?: string }>;
   changesHistory?: Array<{ summary: string; changes: SourceChange[]; createdAt?: string }>;
-  context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } };
+  context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string }; drag?: Record<string, any> };
   element: { tag: string; group: string; label: string; html?: string; sourceHint?: string };
 };
 
@@ -292,7 +292,10 @@ export async function proposeChanges(cwd: string, input: AgentInput, config: Age
   const visualContext = input.context ? { ...input.context, screenshots: undefined } : undefined;
   const history = input.messages?.map((message) => `${message.role}: ${message.content}`).join("\n") || input.instruction;
   const priorChanges = input.changesHistory?.length ? JSON.stringify(input.changesHistory, null, 2) : "None";
-  const instruction = `Selection context:\n${JSON.stringify(input.element, null, 2)}\n${JSON.stringify(visualContext, null, 2)}\n\nConversation history:\n${history}\n\nPrevious change history for this selection:\n${priorChanges}\n\nRelevant source context:\n${context || "No matching source context was found. Ask for a more specific selection rather than inventing a file."}\n\nReturn ONLY JSON: {"summary":"short explanation","changes":[{"filePath":"relative/path","oldString":"exact text","newString":"replacement text"}]}`;
+  const dragHint = input.context?.drag
+    ? `\n\nDRAG REPOSITIONING TASK:\nThe user dragged this element by dx: ${input.context.drag.delta?.dx ?? 0}px, dy: ${input.context.drag.delta?.dy ?? 0}px to target coordinates (left: ${input.context.drag.targetRect?.left ?? 0}px, top: ${input.context.drag.targetRect?.top ?? 0}px). Modify the source code (CSS classes, Tailwind classes, flex/grid alignment, margin offsets, or positioning properties) so the element is accurately rendered at this target position.`
+    : "";
+  const instruction = `Selection context:\n${JSON.stringify(input.element, null, 2)}\n${JSON.stringify(visualContext, null, 2)}\n\nConversation history:\n${history}\n\nPrevious change history for this selection:\n${priorChanges}\n\nRelevant source context:\n${context || "No matching source context was found. Ask for a more specific selection rather than inventing a file."}${dragHint}\n\nReturn ONLY JSON: {"summary":"short explanation","changes":[{"filePath":"relative/path","oldString":"exact text","newString":"replacement text"}]}`;
   if (config.provider === "claude-code" || config.provider === "codex" || config.provider === "opencode") {
     return proposeWithLocalAgent(cwd, instruction, context, config, signal, onProgress);
   }

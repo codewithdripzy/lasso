@@ -19,6 +19,9 @@ export class OverlayDOM {
   // Comment pins container
   commentPins: HTMLDivElement;
 
+  // Drag-and-drop layer container
+  dragLayer: HTMLDivElement;
+
   constructor() {
     this.root = document.createElement("div");
     this.root.id = "lasso-root";
@@ -87,6 +90,9 @@ export class OverlayDOM {
     this.commentPins = document.createElement("div");
     this.commentPins.className = "lasso-comment-pins";
 
+    this.dragLayer = document.createElement("div");
+    this.dragLayer.className = "lasso-drag-layer";
+
     this.shadow.append(
       this.remoteLayer,
       this.spotlightBox,
@@ -94,7 +100,8 @@ export class OverlayDOM {
       this.selectedBox,
       this.label,
       this.activityStrip,
-      this.commentPins
+      this.commentPins,
+      this.dragLayer
     );
   }
 

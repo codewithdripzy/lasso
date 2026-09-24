@@ -1,6 +1,7 @@
 import { state } from "../state";
 import { getDOM } from "../dom";
 import { setPreviewMode, setSelectMode } from "./select";
+import { setDragMode } from "../drag/drag";
 import { closePinCompose } from "../comments/compose";
 import { closePinThread } from "../comments/thread";
 import { toggleVoice, leaveVoice, setVoiceMuted } from "../collab/voice";
@@ -12,6 +13,27 @@ import { toggleClipboardPanel } from "../clipboard/clipboard";
 // SVG comment-pin cursor — a crosshair with a speech bubble tip
 const COMMENT_CURSOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="32" viewBox="0 0 28 32"><defs><filter id="s" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="rgba(0,0,0,0.5)"/></filter></defs><g filter="url(#s)"><path d="M4 2h16a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H10l-6 6V5a3 3 0 0 1 3-3z" fill="#7C3AED"/><path d="M4 2h16a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H10l-6 6V5a3 3 0 0 1 3-3z" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="0.8"/><line x1="12" y1="7" x2="12" y2="15" stroke="white" stroke-width="1.8" stroke-linecap="round"/><line x1="8" y1="11" x2="16" y2="11" stroke="white" stroke-width="1.8" stroke-linecap="round"/></g></svg>`;
 const COMMENT_CURSOR_URL = `url("data:image/svg+xml,${encodeURIComponent(COMMENT_CURSOR_SVG)}") 4 2, crosshair`;
+const COMMENT_CURSOR_STYLE_ID = "lasso-comment-cursor-style";
+
+function setCommentCursor(active: boolean) {
+  let style = document.getElementById(COMMENT_CURSOR_STYLE_ID) as HTMLStyleElement | null;
+  if (active) {
+    if (!style) {
+      style = document.createElement("style");
+      style.id = COMMENT_CURSOR_STYLE_ID;
+      document.head.appendChild(style);
+    }
+    style.textContent = `html.lasso-comment-mode, html.lasso-comment-mode * { cursor: ${COMMENT_CURSOR_URL} !important; }`;
+    document.documentElement.classList.add("lasso-comment-mode");
+    document.documentElement.style.setProperty("cursor", COMMENT_CURSOR_URL, "important");
+    document.body.style.setProperty("cursor", COMMENT_CURSOR_URL, "important");
+    return;
+  }
+  document.documentElement.classList.remove("lasso-comment-mode");
+  document.documentElement.style.removeProperty("cursor");
+  document.body.style.removeProperty("cursor");
+  style?.remove();
+}
 
 export function setCommentMode(active: boolean) {
   state.commentMode = active;
@@ -24,12 +46,10 @@ export function setCommentMode(active: boolean) {
 
   if (active) {
     setSelectMode(false);
-    // Apply custom comment-pin cursor across the whole page
-    document.documentElement.style.setProperty("cursor", COMMENT_CURSOR_URL, "important");
-    document.body.style.setProperty("cursor", COMMENT_CURSOR_URL, "important");
+    setDragMode(false);
+    setCommentCursor(true);
   } else {
-    document.documentElement.style.removeProperty("cursor");
-    document.body.style.removeProperty("cursor");
+    setCommentCursor(false);
     if (state.selectMode) {
       document.documentElement.style.cursor = "default";
     }
@@ -48,6 +68,13 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
         <path d="M4 4l7.07 17 2.51-7.39L21 11.07 4 4z"/>
       </svg>
       <span class="lasso-tool-label">Select</span>
+    </button>
+
+    <button class="lasso-tool-btn drag-tool" type="button" aria-label="Drag element to reposition" title="Drag to Reposition">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/>
+      </svg>
+      <span class="lasso-tool-label">Drag</span>
     </button>
 
     <button class="lasso-tool-btn preview-tool" type="button" aria-label="Preview app" title="Preview app">
@@ -164,6 +191,7 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
 
   // Wire buttons
   const selectBtn = toolbar.querySelector<HTMLButtonElement>(".select-tool")!;
+  const dragBtn = toolbar.querySelector<HTMLButtonElement>(".drag-tool")!;
   const previewBtn = toolbar.querySelector<HTMLButtonElement>(".preview-tool")!;
   const commentBtn = toolbar.querySelector<HTMLButtonElement>(".comment-tool")!;
   const gitBtn = toolbar.querySelector<HTMLButtonElement>(".git-tool")!;
@@ -177,6 +205,12 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
     e.preventDefault();
     e.stopPropagation();
     setSelectMode(!state.selectMode);
+  });
+
+  dragBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragMode(!state.dragMode);
   });
 
   previewBtn.addEventListener("click", (e) => {

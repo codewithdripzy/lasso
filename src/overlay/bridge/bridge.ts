@@ -11,6 +11,7 @@ import {
   refreshModelMenu,
   syncModelMenu,
 } from "../prompt/prompt";
+import { setDragCardStatus, resetDrag } from "../drag/drag";
 import { elementKey } from "../toolbar/select";
 import type { GitState, ModelOption, PendingChange } from "../types";
 
@@ -98,6 +99,7 @@ export function connectBridge() {
 
         if (message.type === "agent_status" && message.status && message.message) {
           setAgentStatus(message.status, message.message);
+          setDragCardStatus(message.status, message.message);
           if (message.status === "review" && message.changes?.length) {
             state.pendingChanges = message.changes;
             state.changesHistory.push({
@@ -128,6 +130,7 @@ export function connectBridge() {
             });
           }
           closeReview();
+          resetDrag(false);
           state.pendingChanges = [];
         }
       } catch {
