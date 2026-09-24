@@ -1,11 +1,30 @@
 import path from "node:path";
+import fs from "node:fs";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
+import { startBridge } from "../bridge";
 
 const [cwd, portArg] = process.argv.slice(2);
 const port = Number(portArg) || 5173;
 
+function lassoOverlayPlugin() {
+  const bundlePath = path.resolve(__dirname, "../../overlay.js");
+  return {
+    name: "lasso-inject",
+    transformIndexHtml(html: string) {
+      return html.replace("</head>", `<script src="/__lasso/overlay.js"></script></head>`);
+    },
+    configureServer(server: any) {
+      server.middlewares.use("/__lasso/overlay.js", (_req: any, res: any) => {
+        res.setHeader("Content-Type", "application/javascript");
+        res.end(fs.readFileSync(bundlePath, "utf8"));
+      });
+    },
+  };
+}
+
 void (async () => {
+  startBridge(cwd);
   const require = createRequire(path.join(cwd, "package.json"));
   const viteEntry = require.resolve("vite");
   const { createServer } = await import(pathToFileURL(viteEntry).href);
@@ -24,6 +43,7 @@ void (async () => {
         ...(process.env.LASSO_HOST_ALLOWED_HOSTS ? process.env.LASSO_HOST_ALLOWED_HOSTS.split(",") : []),
       ],
     },
+    plugins: [lassoOverlayPlugin()],
   });
 
   await server.listen();

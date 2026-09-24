@@ -148,6 +148,9 @@ export class MacOSResolver implements DomainResolver {
     try {
       // Writing to /etc/resolver needs the admin password (macOS maps it from
       // the foreground terminal when sudo prompts).
+      // The resolver directory is not present on every macOS installation.
+      // Create it first so the subsequent sudo tee does not fail with ENOENT.
+      await execFileAsync("sudo", ["mkdir", "-p", path.dirname(MAC_RESOLVER_FILE)]);
       await sudoWrite(MAC_RESOLVER_FILE, macResolverContent(dnsPort));
       return { ok: true, message: `Installed /etc/resolver/lasso → 127.0.0.1:${dnsPort}` };
     } catch (error) {
