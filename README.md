@@ -252,7 +252,7 @@ You can also install the CLI globally and use `lasso` directly from any
 project:
 
 ```bash
-npm install --global @lasso-ai/cli
+npm i -g @lasso-ai/cli
 # or
 pnpm add --global @lasso-ai/cli
 # or
