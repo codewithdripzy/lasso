@@ -82,8 +82,13 @@ function realtimeUrlFrom(fileEnv: Record<string, string>): string {
     const fromEnv = envFrom(fileEnv);
     if (fromEnv) return fromEnv;
     const all = { ...process.env, ...fileEnv };
-    const port = all[`COLLAB_PORT`] || all[`REALTIME_PORT`] || "3007";
-    return `http://localhost:${port}`;
+    // If a local port override is explicitly set, prefer localhost.
+    if (all[`COLLAB_PORT`] || all[`REALTIME_PORT`]) {
+        const port = all[`COLLAB_PORT`] || all[`REALTIME_PORT`];
+        return `http://localhost:${port}`;
+    }
+    // Default to the hosted collab server; fall back to local dev server.
+    return `https://collab.lasso.byorello.space`;
 }
 
 /**
