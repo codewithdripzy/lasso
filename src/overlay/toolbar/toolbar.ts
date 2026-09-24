@@ -86,6 +86,13 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
       </svg>
     </button>
 
+    <button class="lasso-tool-btn clipboard-tool" type="button" aria-label="Copy page" title="Copy selected text or page content">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="8" y="8" width="12" height="12" rx="2"/>
+        <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>
+      </svg>
+    </button>
+
     <button class="lasso-tool-btn voice-tool" type="button" aria-label="Voice chat" title="Voice chat">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect x="9" y="2" width="6" height="12" rx="3"/>
@@ -153,6 +160,7 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
   const gitBtn = toolbar.querySelector<HTMLButtonElement>(".git-tool")!;
   const todoBtn = toolbar.querySelector<HTMLButtonElement>(".todo-tool")!;
   const notepadBtn = toolbar.querySelector<HTMLButtonElement>(".notepad-tool")!;
+  const clipboardBtn = toolbar.querySelector<HTMLButtonElement>(".clipboard-tool")!;
   const voiceBtn = toolbar.querySelector<HTMLButtonElement>(".voice-tool")!;
   const dismissBtn = toolbar.querySelector<HTMLButtonElement>(".lasso-toolbar-dismiss")!;
 
@@ -192,6 +200,23 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
     e.preventDefault();
     e.stopPropagation();
     toggleNotepadPanel();
+  });
+
+  clipboardBtn.addEventListener("click", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const text = window.getSelection()?.toString() || document.body.innerText;
+    try {
+      await navigator.clipboard.writeText(text);
+      clipboardBtn.classList.add("active");
+      clipboardBtn.title = "Copied";
+      window.setTimeout(() => {
+        clipboardBtn.classList.remove("active");
+        clipboardBtn.title = "Copy selected text or page content";
+      }, 1200);
+    } catch {
+      clipboardBtn.title = "Clipboard permission denied";
+    }
   });
 
   voiceBtn.addEventListener("click", (e) => {

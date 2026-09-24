@@ -332,7 +332,7 @@ export function refreshModelMenu() {
 
 export function syncModelMenu() {
   if (!modelName || !modelMenu) return;
-  modelName.innerHTML = `${providerIcon(state.selectedModel.provider, true)}${state.selectedModel.label}`;
+  modelName.innerHTML = `${providerIcon(state.selectedModel.provider, true)}<span class="lasso-prompt-model-name-text">${state.selectedModel.label}</span>`;
   for (const item of modelMenu.querySelectorAll<HTMLButtonElement>(".lasso-prompt-model-item")) {
     item.classList.toggle("selected", item.dataset.model === state.selectedModel.id);
   }
@@ -547,6 +547,10 @@ export async function handleSend(event: MouseEvent) {
     return;
   }
 
+  const isQuestion = /^(hi|hello|hey|thanks|thank you|what|why|how|when|where|who|which|is|are|does|do|can|could|would|should|tell me|explain|describe)\b/i.test(instruction) || /\?$/.test(instruction);
+  const isExplicitEdit = /\b(change|edit|update|make|add|remove|delete|fix|replace|turn|convert|style|restyle|move|rename|implement|build|create|increase|decrease|hide|show|align|resize|set|enable|disable)\b/i.test(instruction);
+  const wantsAnswer = isQuestion && !(/\b(can|could|would|please)\s+you\s+(change|edit|update|add|fix|make)\b/i.test(instruction)) || (!isExplicitEdit && !isQuestion);
+
   if (!state.bridgeSocket || state.bridgeSocket.readyState !== WebSocket.OPEN) {
     setAgentStatus(
       "error",
@@ -555,10 +559,12 @@ export async function handleSend(event: MouseEvent) {
     return;
   }
 
-  const ownershipGranted = await acquireOwnership(state.selected);
-  if (!ownershipGranted) return;
+  if (!wantsAnswer) {
+    const ownershipGranted = await acquireOwnership(state.selected);
+    if (!ownershipGranted) return;
+  }
 
-  if (state.collabSocket?.connected && state.collabJoined) {
+  if (!wantsAnswer && state.collabSocket?.connected && state.collabJoined) {
     collabEmit("collab:action", {
       sessionId: state.collabProjectId,
       status: "preparing",
@@ -581,7 +587,8 @@ export async function handleSend(event: MouseEvent) {
 
   state.bridgeSocket.send(
     JSON.stringify({
-      type: "edit",
+      type: wantsAnswer ? "ask" : "edit",
+      question: wantsAnswer ? instruction : undefined,
       instruction,
       messages: state.chatHistory,
       changesHistory: state.changesHistory,

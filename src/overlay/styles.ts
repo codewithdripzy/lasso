@@ -1428,6 +1428,7 @@ export function buildStyles(): string {
 
     .lasso-prompt-model {
       height: 28px;
+      max-width: 190px;
       display: flex;
       align-items: center;
       gap: 6px;
@@ -1507,6 +1508,7 @@ export function buildStyles(): string {
       display: inline-flex;
       width: 22px;
       height: 22px;
+      flex: 0 0 22px;
       padding: 4px;
       box-sizing: border-box;
       align-items: center;
@@ -1526,6 +1528,7 @@ export function buildStyles(): string {
       display: inline-flex;
       width: 16px;
       height: 16px;
+      flex: 0 0 16px;
       padding: 2px;
       box-sizing: border-box;
       align-items: center;
@@ -1546,6 +1549,27 @@ export function buildStyles(): string {
     .provider-openai { background: rgba(22, 131, 91, 0.16); color: #10b981; }
     .provider-anthropic { background: rgba(245, 158, 11, 0.16); color: #f59e0b; }
     .provider-ollama { background: rgba(255, 255, 255, 0.1); color: var(--lo-text-2); }
+    .provider-claude-code { background: rgba(245, 158, 11, 0.16); color: #f59e0b; }
+    .provider-codex { background: rgba(129, 201, 149, 0.16); color: var(--lo-success); }
+
+    .lasso-prompt-model-name,
+    .lasso-prompt-model-name-text,
+    .lasso-prompt-model-item > span:not(.lasso-model-item-icon) {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .lasso-prompt-model-name {
+      display: flex;
+      align-items: center;
+      flex: 1;
+    }
+
+    .lasso-prompt-model-name-text {
+      display: block;
+    }
 
     .lasso-prompt-model-item {
       width: 100%;
@@ -1571,6 +1595,10 @@ export function buildStyles(): string {
       text-align: left;
       font-weight: 450;
       color: var(--lo-text);
+    }
+
+    .lasso-prompt-model-item > span.lasso-model-item-icon {
+      flex: 0 0 22px;
     }
 
     .lasso-prompt-model-item:hover {
@@ -1765,6 +1793,7 @@ export function buildStyles(): string {
       gap: 6px;
       color: #e2e8f0;
       font-weight: 500;
+      animation: lasso-agent-line-pulse 1.8s ease-in-out infinite;
     }
 
     .lasso-agent-terminal-prompt {
@@ -1809,10 +1838,21 @@ export function buildStyles(): string {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      animation: lasso-agent-log-in 180ms ease-out both;
     }
 
     .lasso-agent-log-prefix {
       color: #475569;
+    }
+
+    @keyframes lasso-agent-line-pulse {
+      0%, 100% { opacity: .72; }
+      50% { opacity: 1; }
+    }
+
+    @keyframes lasso-agent-log-in {
+      from { opacity: 0; transform: translateY(3px); }
+      to { opacity: 1; transform: translateY(0); }
     }
 
     .lasso-prompt-actions {
@@ -2489,6 +2529,10 @@ export function buildStyles(): string {
       align-items: center;
       justify-content: space-between;
       gap: 8px;
+    }
+
+    .lasso-git-message-box[hidden] {
+      display: none !important;
     }
 
     .lasso-git-message-box.success {

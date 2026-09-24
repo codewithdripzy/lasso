@@ -50,17 +50,17 @@ function log(directory: string, message: string): void {
   }
 }
 
-function spawnCommand(directory: string, port: number): { command: string; args: string[]; framework: string } | null {
+function spawnCommand(directory: string, port: number, bridgePort: number): { command: string; args: string[]; framework: string } | null {
   const framework = detectFramework(directory);
   if (framework === "vite") {
     // Launch Vite programmatically with .lasso allowlisted (Vite rejects unknown
     // Host headers by default) while keeping it isolated in its own process.
     const entry = path.join(__dirname, "vite-host-entry.js");
-    if (fs.existsSync(entry)) return { command: process.execPath, args: [entry, directory, String(port)], framework };
+    if (fs.existsSync(entry)) return { command: process.execPath, args: [entry, directory, String(port), String(bridgePort)], framework };
   }
   if (framework === "next") {
-    const bin = localBin(directory, "next");
-    if (bin) return { command: bin, args: ["dev", "--port", String(port)], framework };
+    const entry = path.join(__dirname, "next-host-entry.js");
+    if (fs.existsSync(entry)) return { command: process.execPath, args: [entry, directory, String(port), String(bridgePort)], framework };
   }
 
   // No explicit NPM script should be invoked blindly; only framework dev bins
@@ -110,7 +110,8 @@ export interface StartRuntimeResult {
  */
 export async function startProjectRuntime(directory: string): Promise<StartRuntimeResult> {
   const port = await pickFreePort();
-  const plan = spawnCommand(directory, port);
+  const bridgePort = await pickFreePort();
+  const plan = spawnCommand(directory, port, bridgePort);
   if (!plan) {
     return { ok: false, error: `${path.basename(directory)} is not a Vite or Next.js project, so Lasso Host can't start it automatically. Run its dev server yourself.` };
   }

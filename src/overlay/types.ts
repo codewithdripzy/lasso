@@ -101,6 +101,17 @@ export type CollabComment = {
   };
 };
 
+export type CollabTodo = {
+  uid: string;
+  sessionId: string;
+  text: string;
+  status: "todo" | "in-progress" | "done";
+  priority: "none" | "low" | "medium" | "high" | "critical";
+  assignee: string;
+  createdAt: string;
+  updatedAt?: string;
+};
+
 export type CommentThread = {
   root: CollabComment;
   replies: CollabComment[];

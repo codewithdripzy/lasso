@@ -6,7 +6,8 @@ import { applyPresence, renderPresence, renderRemoteBoxes, showActivity, spotlig
 import { indexLocks, updateLockChip, releaseHeldLock } from "./locks";
 import { handleOffer, handleAnswer, handleCandidate, closePeer } from "./voice";
 import { upsertComment, removeCommentUid, renderComments, updateCommentsBadge } from "../comments/pins";
-import type { CollabConfig, CollabLock, CollabComment } from "../types";
+import type { CollabConfig, CollabLock, CollabComment, CollabTodo } from "../types";
+import { replaceTodos, upsertTodo, removeTodo } from "../todo/todo";
 
 export function readAuthToken(): string {
   for (const key of ["token", "lasso_token", "auth_token", "jwt"]) {
@@ -121,6 +122,21 @@ export function connectCollab(config: CollabConfig) {
     updateCommentsBadge();
   });
 
+  state.collabSocket.on("todos:new", (payload: { sessionId?: string; todo?: CollabTodo }) => {
+    if (payload.sessionId !== state.collabProjectId || !payload.todo) return;
+    upsertTodo(payload.todo);
+  });
+
+  state.collabSocket.on("todos:updated", (payload: { sessionId?: string; todo?: CollabTodo }) => {
+    if (payload.sessionId !== state.collabProjectId || !payload.todo) return;
+    upsertTodo(payload.todo);
+  });
+
+  state.collabSocket.on("todos:removed", (payload: { sessionId?: string; todoId?: string }) => {
+    if (payload.sessionId !== state.collabProjectId || !payload.todoId) return;
+    removeTodo(payload.todoId);
+  });
+
   state.collabSocket.on(
     "collab:action",
     (payload: {
@@ -195,6 +211,7 @@ export function joinCollabSession() {
         presence?: unknown[];
         locks?: unknown[];
         comments?: unknown[];
+        todos?: unknown[];
       };
       applyPresence(snapshot.presence || []);
       indexLocks(snapshot.locks || []);
@@ -202,6 +219,7 @@ export function joinCollabSession() {
         upsertComment(c as CollabComment);
       }
       updateLockChip();
+      replaceTodos((snapshot.todos || []) as CollabTodo[]);
       renderComments();
       updateCommentsBadge();
       startCollabHeartbeat();

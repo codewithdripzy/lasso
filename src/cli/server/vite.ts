@@ -11,11 +11,11 @@ import { createRequire } from "node:module";
 // alert("Lasso overlay injected successfully!");
 // `;
 
-function lassoInjectPlugin() {
+function lassoInjectPlugin(bridgePort = 3056) {
   return {
     name: "lasso-inject",
     transformIndexHtml(html: string) {
-      return html.replace("</head>", `<script src="/__lasso/overlay.js"></script></head>`);
+      return html.replace("</head>", `<script src="/__lasso/overlay.js?bridgePort=${bridgePort}"></script></head>`);
     },
     configureServer(server: ViteDevServer) {
       server.middlewares.use("/__lasso/overlay.js", (req, res) => {

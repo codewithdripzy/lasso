@@ -1,12 +1,14 @@
 import { getDOM } from "../dom";
 import { state } from "../state";
+import { collabEmit } from "../collab/socket";
+import type { CollabTodo } from "../types";
 
 const STORAGE_KEY = "lasso:todos";
 
 type TodoStatus = "todo" | "in-progress" | "done";
 type TodoPriority = "none" | "low" | "medium" | "high" | "critical";
 
-interface TodoItem {
+export interface TodoItem {
   id: string;
   text: string;
   status: TodoStatus;
@@ -51,6 +53,7 @@ function loadTodos(): TodoItem[] {
 }
 
 function saveTodos(todos: TodoItem[]): void {
+  if (state.collabJoined) return;
   try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(todos)); } catch {}
 }
 
@@ -121,6 +124,16 @@ export function buildTodoPanel(): HTMLDivElement {
   el.querySelector<HTMLButtonElement>(".lasso-todo-close")!.addEventListener("click", () => toggleTodoPanel(false));
 
   el.querySelector<HTMLButtonElement>(".lasso-todo-add-btn-row")!.addEventListener("click", () => {
+    if (state.collabJoined && state.collabProjectId) {
+      collabEmit("todos:add", { sessionId: state.collabProjectId, text: "", status: "todo", priority: "none", assignee: "" }, (res) => {
+        if (res.ok && res.todo) {
+          upsertTodo(res.todo as CollabTodo);
+          const firstInput = el.querySelector<HTMLInputElement>(".lasso-todo-row-text");
+          firstInput?.focus();
+        }
+      });
+      return;
+    }
     todos.unshift({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       text: "",
@@ -136,6 +149,10 @@ export function buildTodoPanel(): HTMLDivElement {
   });
 
   el.querySelector<HTMLButtonElement>(".lasso-todo-clear-done")!.addEventListener("click", () => {
+    if (state.collabJoined && state.collabProjectId) {
+      collabEmit("todos:clear_done", { sessionId: state.collabProjectId });
+      return;
+    }
     todos = todos.filter((t) => t.status !== "done");
     saveTodos(todos);
     renderTodoTable();
@@ -206,6 +223,7 @@ function renderTodoTable(): void {
       const idx = STATUS_CYCLE.indexOf(item.status);
       item.status = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
       saveTodos(todos);
+      emitTodoUpdate(item);
       renderTodoTable();
     });
 
@@ -214,12 +232,13 @@ function renderTodoTable(): void {
       const idx = PRIORITY_CYCLE.indexOf(item.priority);
       item.priority = PRIORITY_CYCLE[(idx + 1) % PRIORITY_CYCLE.length];
       saveTodos(todos);
+      emitTodoUpdate(item);
       renderTodoTable();
     });
 
     // Text input
     const textInput = row.querySelector<HTMLInputElement>(".lasso-todo-row-text")!;
-    textInput.addEventListener("change", () => { item.text = textInput.value; saveTodos(todos); });
+    textInput.addEventListener("change", () => { item.text = textInput.value; saveTodos(todos); emitTodoUpdate(item); });
     textInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
@@ -230,12 +249,15 @@ function renderTodoTable(): void {
 
     // Assignee input
     const assigneeInput = row.querySelector<HTMLInputElement>(".lasso-todo-assignee")!;
-    assigneeInput.addEventListener("change", () => { item.assignee = assigneeInput.value; saveTodos(todos); });
+    assigneeInput.addEventListener("change", () => { item.assignee = assigneeInput.value; saveTodos(todos); emitTodoUpdate(item); });
 
     // Delete
     row.querySelector<HTMLButtonElement>(".lasso-todo-del-btn")!.addEventListener("click", () => {
       todos = todos.filter((t) => t.id !== item.id);
       saveTodos(todos);
+      if (state.collabJoined && state.collabProjectId) {
+        collabEmit("todos:remove", { sessionId: state.collabProjectId, todoId: item.id });
+      }
       renderTodoTable();
     });
 
@@ -256,6 +278,47 @@ export function toggleTodoPanel(force?: boolean): void {
   } else {
     todoPanelEl.classList.remove("visible");
   }
+}
+
+function emitTodoUpdate(item: TodoItem): void {
+  if (!state.collabJoined || !state.collabProjectId || !item.id || item.id.startsWith("local-")) return;
+  collabEmit("todos:update", {
+    sessionId: state.collabProjectId,
+    todoId: item.id,
+    patch: { text: item.text, status: item.status, priority: item.priority, assignee: item.assignee },
+  });
+}
+
+export function upsertTodo(todo: CollabTodo): void {
+  const item: TodoItem = {
+    id: todo.uid,
+    text: todo.text || "",
+    status: todo.status || "todo",
+    priority: todo.priority || "none",
+    assignee: todo.assignee || "",
+    createdAt: todo.createdAt || new Date().toISOString(),
+  };
+  const index = todos.findIndex((candidate) => candidate.id === item.id);
+  if (index === -1) todos.push(item);
+  else todos[index] = item;
+  renderTodoTable();
+}
+
+export function removeTodo(id: string): void {
+  todos = todos.filter((todo) => todo.id !== id);
+  renderTodoTable();
+}
+
+export function replaceTodos(next: CollabTodo[]): void {
+  todos = next.map((todo) => ({
+    id: todo.uid,
+    text: todo.text || "",
+    status: todo.status || "todo",
+    priority: todo.priority || "none",
+    assignee: todo.assignee || "",
+    createdAt: todo.createdAt || new Date().toISOString(),
+  }));
+  renderTodoTable();
 }
 
 export { renderTodoTable as renderTodoList };

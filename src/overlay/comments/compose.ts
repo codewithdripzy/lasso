@@ -299,19 +299,13 @@ export function handleMentionInput(textarea: HTMLTextAreaElement, tagMenu: HTMLD
 
   const query = atMatch[1].toLowerCase();
 
-  // Get users from presence state
+  // Get users from the live presence map. The menu remains hidden until an
+  // @mention is being composed, so an empty DOM container is expected.
   const presenceUsers: Array<{ label: string; type: "user"; color: string }> = [];
-  try {
-    const presence = (state as any).presence;
-    if (presence?.forEach) {
-      presence.forEach((u: any) => {
-        if (u?.name && (!query || u.name.toLowerCase().startsWith(query))) {
-          presenceUsers.push({ label: u.name, type: "user", color: "#6ea0ff" });
-        }
-      });
+  for (const user of state.presenceUsers.values()) {
+    if (user.name && (!query || user.name.toLowerCase().startsWith(query))) {
+      presenceUsers.push({ label: user.name, type: "user", color: user.color || "#6ea0ff" });
     }
-  } catch {
-    // presence not available
   }
 
   const filteredStatic = (!query ? STATIC_TAGS : STATIC_TAGS.filter((t) => t.startsWith(query))).map(

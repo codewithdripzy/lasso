@@ -7,6 +7,7 @@ import {
   appendChat,
   showReview,
   closeReview,
+  resetAgentState,
   refreshModelMenu,
   syncModelMenu,
 } from "../prompt/prompt";
@@ -42,7 +43,9 @@ export function initErrorListeners() {
 export function connectBridge() {
   try {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    state.bridgeSocket = new WebSocket(`${protocol}//localhost:3056`);
+    const overlayScript = Array.from(document.scripts).find((script) => script.src.includes("/__lasso/overlay.js"));
+    const bridgePort = overlayScript ? new URL(overlayScript.src, window.location.href).searchParams.get("bridgePort") || "3056" : "3056";
+    state.bridgeSocket = new WebSocket(`${protocol}//localhost:${bridgePort}`);
 
     state.bridgeSocket.addEventListener("open", () => {
       state.bridgeSocket?.send(JSON.stringify({ type: "hello", from: "overlay" }));
@@ -100,6 +103,11 @@ export function connectBridge() {
             });
             showReview(message.changes, message.message);
           }
+        }
+
+        if (message.type === "assistant_message" && message.message) {
+          appendChat("assistant", message.message);
+          resetAgentState();
         }
 
         if (message.type === "applied" || message.type === "undone") {

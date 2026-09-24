@@ -46,7 +46,7 @@ export async function startNextServer(
             res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
 
             if (contentType.includes("text/html")) {
-                res.end(body.replace("</head>", `<script src="/__lasso/overlay.js"></script></head>`));
+                res.end(body.replace("</head>", `<script src="/__lasso/overlay.js?bridgePort=3056"></script></head>`));
             } else {
                 res.end(body);
             }
