@@ -2,7 +2,7 @@
 
 <img src="https://lasso.byorello.space/_next/image?url=%2Ficons%2Flogo.png&w=256&q=75" alt="Lasso" width="96" />
 
-# Lasso
+<!-- # Lasso -->
 
 ### Point at it. Describe it. Ship it.
 
