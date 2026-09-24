@@ -171,8 +171,8 @@ edits the same element at once, leave review comments, and talk over the app.
 - **Clipboard**: store and reuse code snippets, design references, and prompt
   templates in private or shared workspaces.
 
-To share a live session with your team, sign in once with `npx lasso auth login`
-(easy browser OAuth — no manual keys), then run `npx lasso init`: it registers
+To share a live session with your team, sign in once with `lasso auth login`
+(easy browser OAuth — no manual keys), then run `lasso init`: it registers
 your app with your Lasso workspace and writes `lasso.config.json` containing the
 stable project id — commit that file so teammates joining the repo share the
 same session. The API key itself is never stored in config.
@@ -248,23 +248,41 @@ pnpm add -D lasso
 yarn add -D lasso
 ```
 
+You can also install the CLI globally and use `lasso` directly from any
+project:
+
+```bash
+npm install --global lasso
+# or
+pnpm add --global lasso
+# or
+yarn global add lasso
+```
+
+Use a project-local install when you want each repository to pin its Lasso
+version; use the global install for a convenient machine-wide CLI.
+
 ### 2. Start Lasso
 
 From your application's root:
 
 ```bash
+lasso
+# or, without a global install
 npx lasso
 ```
 
 This is equivalent to:
 
 ```bash
+lasso dev
+# or, without a global install
 npx lasso dev
 ```
 
 Lasso detects your framework, starts the development environment with its integration injected in memory, and connects the browser overlay.
 
-To enable team realtime collaboration, first run `npx lasso init` (once per repo)
+To enable team realtime collaboration, first run `lasso init` (once per repo)
 and set `LASSO_API_KEY` — see [Team collaboration](#team-collaboration-realtime) above.
 
 Your existing configuration files are **not modified**.
