@@ -14,8 +14,9 @@ import { hostProxyPort, hostHttpsPort, hostDnsPort } from "./host/paths";
 import { spawnDaemon, daemonStatus, stopDaemon, enableAutoStart, disableAutoStart, daemonPortMessage, daemonHttpsPortMessage } from "./host/install";
 import { listHostProjects, registerWithHost } from "./host/client";
 import { loadRegistry, generateUniqueDomain, validateDomain } from "./host/registry";
+import packageJson from "../../package.json";
 
-const VERSION = "0.1.0";
+const VERSION = packageJson.version;
 const program = new Command();
 
 program.name("lasso").description("Select UI in your running app, describe a change, AI edits the real source.").version(VERSION);
