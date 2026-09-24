@@ -22,6 +22,8 @@ export interface CollabConfig {
     registeredAt?: string;
     claimed: boolean;
     workspaceId?: string;
+    token?: string;
+    apiKey?: string;
 }
 
 export interface InitResult {
@@ -73,7 +75,11 @@ function envFrom(fileEnv: Record<string, string>) {
 }
 
 function realtimeUrlFrom(fileEnv: Record<string, string>): string {
-    return envFrom(fileEnv) || "http://localhost:3006";
+    const fromEnv = envFrom(fileEnv);
+    if (fromEnv) return fromEnv;
+    const all = { ...process.env, ...fileEnv };
+    const port = all[`COLLAB_PORT`] || all[`REALTIME_PORT`] || "3007";
+    return `http://localhost:${port}`;
 }
 
 /**
@@ -296,11 +302,14 @@ export async function resolveCollabSession(cwd: string, fileEnv: Record<string, 
         const body = (await response.json()) as {
             project?: { id?: string; name?: string; version?: string; workspaceId?: string };
             session?: { id?: string };
+            token?: string;
         };
 
         config.name = body.project?.name || "";
         config.version = body.project?.version || "";
         config.workspaceId = body.project?.workspaceId || "";
+        config.token = body.token || "";
+        config.apiKey = apiKey;
         config.registered = true;
         config.claimed = Boolean(body.session?.id);
         config.registeredAt = new Date().toISOString();

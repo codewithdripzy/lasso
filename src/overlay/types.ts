@@ -37,6 +37,9 @@ export type CollabConfig = {
   name?: string;
   version?: string;
   registered?: boolean;
+  workspaceId?: string;
+  token?: string;
+  apiKey?: string;
 };
 
 export type CollabUser = {

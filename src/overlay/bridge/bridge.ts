@@ -60,7 +60,7 @@ export function connectBridge() {
           status?: "thinking" | "working" | "review" | "error" | "stopped";
           message?: string;
           changes?: PendingChange[];
-          collab?: { projectId?: string; realtimeUrl?: string; name?: string; version?: string };
+          collab?: { projectId?: string; realtimeUrl?: string; name?: string; version?: string; workspaceId?: string; token?: string; apiKey?: string };
         };
 
         if (message.type === "config") {

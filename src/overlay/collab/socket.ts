@@ -32,6 +32,19 @@ export function connectCollab(config: CollabConfig) {
   if (!state.collabProjectId || !config.realtimeUrl) return;
   if (state.collabSocket) state.collabSocket.disconnect();
 
+  // First prioritize the user's Lasso tool authentication (CLI credentials / session token / API key)
+  const toolToken = config.token || config.apiKey || "";
+  const browserToken = readAuthToken();
+  const token = toolToken || browserToken;
+
+  if (toolToken) {
+    console.log("[Lasso Collab] Authenticating socket via Lasso tool credentials");
+  } else if (browserToken) {
+    console.log("[Lasso Collab] Fallback: authenticating socket via browser cookie token");
+  } else {
+    console.log("[Lasso Collab] Connecting without token (cookie credentials only)");
+  }
+
   state.collabSocket = io(config.realtimeUrl, {
     withCredentials: true,
     transports: ["websocket", "polling"],
@@ -39,20 +52,23 @@ export function connectCollab(config: CollabConfig) {
     reconnectionAttempts: 15,
     reconnectionDelay: 800,
     reconnectionDelayMax: 5000,
-    auth: { token: readAuthToken() },
+    auth: { token },
   });
 
   state.collabSocket.on("connect", () => {
+    console.log("[Lasso Collab] Socket connected to collab server:", config.realtimeUrl, "socketId:", state.collabSocket?.id);
     if (state.collabProjectId) joinCollabSession();
   });
 
-  state.collabSocket.on("connect_error", () => {
+  state.collabSocket.on("connect_error", (error) => {
+    console.warn("[Lasso Collab] Socket connection error to collab server:", error?.message || error);
     state.collabJoined = false;
     const countEl = getDOM().shadow.querySelector<HTMLSpanElement>(".lasso-presence-count");
     if (countEl) countEl.textContent = state.collabProjectId ? "· offline" : "";
   });
 
-  state.collabSocket.on("disconnect", () => {
+  state.collabSocket.on("disconnect", (reason) => {
+    console.log("[Lasso Collab] Socket disconnected from collab server:", reason);
     state.collabJoined = false;
     state.presenceUsers.clear();
     renderPresence();
@@ -161,6 +177,7 @@ export function joinCollabSession() {
     (payload) => {
       const countEl = getDOM().shadow.querySelector<HTMLSpanElement>(".lasso-presence-count");
       if (!payload.ok) {
+        console.warn("[Lasso Collab] Session join failed for", state.collabProjectId, ":", payload.error);
         state.collabJoined = false;
         if (countEl) countEl.textContent = state.collabProjectId ? "· closed" : "";
         showActivity(
@@ -170,6 +187,7 @@ export function joinCollabSession() {
         );
         return;
       }
+      console.log("[Lasso Collab] Joined realtime session:", state.collabProjectId, "as", payload.me);
       state.collabJoined = true;
       if (countEl) countEl.textContent = "";
       state.myUser = (payload.me as { id: string; name: string; photo: string }) || null;

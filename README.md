@@ -172,7 +172,7 @@ always wins over the stored credential.
 
 Point the overlay at a different realtime server with any of
 `LASSO_REALTIME_URL`, `REALTIME_URL`, or `NEXT_PUBLIC_REALTIME_URL`
-(default: `http://localhost:3006`).
+(default: `http://localhost:3007`).
 
 ---
 
