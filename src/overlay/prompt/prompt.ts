@@ -430,6 +430,14 @@ export function appendChat(role: "user" | "assistant" | "error", text: string) {
 
 export function setAgentStatus(status: "thinking" | "working" | "review" | "error" | "stopped", message: string) {
   if (!agentStatusElement || !agentStatusMessage || !sendButton) return;
+
+  // Deduplicate: skip no-op updates when already showing the same status+message
+  if (
+    agentStatusElement.dataset.status === status &&
+    agentStatusMessage.textContent === message &&
+    (status === "thinking" || status === "working")
+  ) return;
+
   agentStatusElement.hidden = status === "review" || status === "error" || status === "stopped";
   agentStatusElement.dataset.status = status;
   agentStatusMessage.textContent = message;

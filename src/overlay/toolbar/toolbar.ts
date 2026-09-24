@@ -9,22 +9,30 @@ import { toggleTodoPanel } from "../todo/todo";
 import { toggleNotepadPanel } from "../notepad/notepad";
 import { toggleClipboardPanel } from "../clipboard/clipboard";
 
+// SVG comment-pin cursor — a crosshair with a speech bubble tip
+const COMMENT_CURSOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="32" viewBox="0 0 28 32"><defs><filter id="s" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="rgba(0,0,0,0.5)"/></filter></defs><g filter="url(#s)"><path d="M4 2h16a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H10l-6 6V5a3 3 0 0 1 3-3z" fill="#7C3AED"/><path d="M4 2h16a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H10l-6 6V5a3 3 0 0 1 3-3z" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="0.8"/><line x1="12" y1="7" x2="12" y2="15" stroke="white" stroke-width="1.8" stroke-linecap="round"/><line x1="8" y1="11" x2="16" y2="11" stroke="white" stroke-width="1.8" stroke-linecap="round"/></g></svg>`;
+const COMMENT_CURSOR_URL = `url("data:image/svg+xml,${encodeURIComponent(COMMENT_CURSOR_SVG)}") 4 2, crosshair`;
+
 export function setCommentMode(active: boolean) {
   state.commentMode = active;
   if (active) state.previewMode = false;
   const dom = getDOM();
   const commentBtn = dom.shadow.querySelector<HTMLButtonElement>(".comment-tool");
   const previewBtn = dom.shadow.querySelector<HTMLButtonElement>(".preview-tool");
-  if (commentBtn) {
-    commentBtn.classList.toggle("active", active);
-  }
+  if (commentBtn) commentBtn.classList.toggle("active", active);
   if (previewBtn) previewBtn.classList.toggle("active", state.previewMode);
 
   if (active) {
     setSelectMode(false);
-    document.documentElement.style.cursor = "default";
+    // Apply custom comment-pin cursor across the whole page
+    document.documentElement.style.setProperty("cursor", COMMENT_CURSOR_URL, "important");
+    document.body.style.setProperty("cursor", COMMENT_CURSOR_URL, "important");
   } else {
-    document.documentElement.style.cursor = state.selectMode ? "default" : "";
+    document.documentElement.style.removeProperty("cursor");
+    document.body.style.removeProperty("cursor");
+    if (state.selectMode) {
+      document.documentElement.style.cursor = "default";
+    }
   }
 }
 

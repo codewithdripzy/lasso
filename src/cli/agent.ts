@@ -132,28 +132,84 @@ function extractLocalAgentText(raw: string, provider: LocalAgent): string {
   return texts.at(-1) || raw;
 }
 
+/** Truncate a detail string to a readable length. */
+function snippet(value: unknown, max = 80): string {
+  const s = String(value ?? "").trim().replace(/\s+/g, " ");
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
 function progressFromLine(raw: string, provider: LocalAgent): string | null {
   try {
     const event = JSON.parse(raw) as Record<string, any>;
     const item = event.item as Record<string, any> | undefined;
+
     if (provider === "claude-code") {
       if (event.type === "system") return "Claude Code connected";
-      const tool = event.tool_name || event.name || event.tool?.name || event.message?.content?.find?.((part: any) => part.type === "tool_use")?.name;
-      if (tool) return `Claude Code · ${String(tool)}`;
+
+      // tool_use blocks inside assistant messages
+      const toolBlock = event.message?.content?.find?.((p: any) => p.type === "tool_use");
+      if (toolBlock) {
+        const toolName: string = toolBlock.name || "tool";
+        const inp = toolBlock.input as Record<string, any> | undefined;
+        const detail =
+          inp?.file_path ?? inp?.path ?? inp?.command ?? inp?.query ?? inp?.url ?? "";
+        return detail
+          ? `Claude Code · ${toolName}  ${snippet(detail)}`
+          : `Claude Code · ${toolName}`;
+      }
+
+      // thinking blocks inside assistant messages
+      const thinkBlock = event.message?.content?.find?.((p: any) => p.type === "thinking");
+      if (thinkBlock?.thinking) {
+        return `Claude Code · ${snippet(thinkBlock.thinking, 100)}`;
+      }
+
+      // top-level tool event fields (stream-json verbose format)
+      const tool: string | undefined = event.tool_name || event.name || event.tool?.name;
+      if (tool) {
+        const inp = event.tool_input as Record<string, any> | undefined;
+        const detail =
+          inp?.file_path ?? inp?.path ?? inp?.command ?? inp?.query ?? inp?.url ?? "";
+        return detail
+          ? `Claude Code · ${tool}  ${snippet(detail)}`
+          : `Claude Code · ${tool}`;
+      }
+
       if (event.type === "result" || event.result) return "Claude Code · preparing the proposal";
       if (event.type === "assistant") return "Claude Code · reasoning about the change";
     } else if (provider === "codex") {
-      const type = item?.type || event.type;
-      if (type === "command_execution" || type === "command_execution_output") return "Codex · inspecting the project";
+      const type: string = item?.type || event.type || "";
+      if (type === "command_execution" || type === "command_execution_output") {
+        const cmd: string = item?.command || event.command || "";
+        return cmd ? `Codex · Bash  ${snippet(cmd)}` : "Codex · running a command";
+      }
+      if (type === "file_read" || type === "read_file") {
+        const fp: string = item?.path || event.path || "";
+        return fp ? `Codex · Read  ${snippet(fp)}` : "Codex · reading a file";
+      }
       if (type === "agent_message" || type === "message") return "Codex · drafting the proposal";
+      if (type === "reasoning") {
+        const text: string = item?.content || event.content || "";
+        return text ? `Codex · ${snippet(text, 100)}` : "Codex · reasoning";
+      }
       if (type === "turn.started" || type === "turn_start") return "Codex · starting a turn";
       if (type === "turn.completed" || type === "turn_complete") return "Codex · preparing the proposal";
-    }
-    if (provider === "opencode") {
+    } else if (provider === "opencode") {
       const part = event.part as Record<string, any> | undefined;
       if (event.type === "step-start") return "OpenCode · starting a step";
-      if (part?.type === "tool") return `OpenCode · ${String(part.tool || "using a tool")}`;
-      if (part?.type === "text") return "OpenCode · drafting the response";
+      if (part?.type === "tool") {
+        const toolName: string = part.tool || "tool";
+        const inp = part.input as Record<string, any> | undefined;
+        const detail =
+          inp?.file_path ?? inp?.path ?? inp?.command ?? inp?.query ?? inp?.url ?? "";
+        return detail
+          ? `OpenCode · ${toolName}  ${snippet(detail)}`
+          : `OpenCode · ${toolName}`;
+      }
+      if (part?.type === "text") {
+        const text: string = part.text || "";
+        return text ? `OpenCode · ${snippet(text, 100)}` : "OpenCode · drafting the response";
+      }
       if (event.type === "step-finish") return "OpenCode · finalizing the response";
     }
   } catch {
@@ -212,9 +268,17 @@ async function proposeWithLocalAgent(cwd: string, instruction: string, context: 
   };
   child.stdout.on("data", consume);
   child.stderr.on("data", (chunk: Buffer | string) => {
-    stderr += String(chunk);
-    const message = String(chunk).trim();
-      if (message) onProgress?.(`${config.provider === "claude-code" ? "Claude Code" : config.provider === "opencode" ? "OpenCode" : "Codex"} · ${message.slice(0, 180)}`);
+    const raw = String(chunk);
+    stderr += raw;
+    // Strip ANSI codes and blank lines; skip version banners and noise
+    const clean = raw.replace(/\x1B\[[0-9;]*[mGKHF]/g, "").trim();
+    if (!clean) return;
+    // Skip very short lines that are just progress spinners or empty banners
+    if (clean.length < 4) return;
+    // Skip lines that look like pure ANSI/control sequences or log prefixes we don't want
+    if (/^(\s*[\-=|>]+\s*)?$/.test(clean)) return;
+    const prefix = config.provider === "claude-code" ? "Claude Code" : config.provider === "opencode" ? "OpenCode" : "Codex";
+    onProgress?.(`${prefix} · ${clean.slice(0, 200)}`);
   });
   if (signal) {
     if (signal.aborted) child.kill("SIGTERM");

@@ -202,7 +202,6 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
           socket.send(JSON.stringify({ type: "agent_status", status: "error", message: "No hosted agent is configured. Select Claude Code/Codex or add a provider key." }));
           return;
         }
-        socket.send(JSON.stringify({ type: "agent_status", status: "thinking", message: "Thinking about your question…" }));
         activeAgentController?.abort();
         const controller = new AbortController();
         activeAgentController = controller;
