@@ -1455,6 +1455,9 @@ export function buildStyles(): string {
       bottom: calc(100% + 8px);
       left: 0;
       min-width: 210px;
+      max-height: min(360px, 55vh);
+      overflow-y: auto;
+      overscroll-behavior: contain;
       padding: 6px;
       background: rgba(24, 25, 29, 0.98);
       backdrop-filter: blur(20px);
@@ -1463,6 +1466,7 @@ export function buildStyles(): string {
       border-radius: var(--lo-radius-lg);
       box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
       z-index: 30;
+      scrollbar-width: thin;
     }
 
     .lasso-prompt-model-menu[hidden] {
