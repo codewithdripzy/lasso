@@ -76,10 +76,13 @@ export function rememberModel(model: ModelOption): void {
 export class OverlayState {
   // Mode & Selection
   selectMode = false;
+  dragMode = false;
   previewMode = false;
   commentMode = false;
   hovered: Element | null = null;
   selected: Element | null = null;
+  activeDragTarget: HTMLElement | null = null;
+  dragContext: DragContext | null = null;
   selectionId = "";
   promptDragged = false;
   lastInstruction = "";
