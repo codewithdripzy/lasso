@@ -9,7 +9,7 @@ import type { CollabComment } from "../types";
 let pinComposeEl: HTMLDivElement | null = null;
 let pendingAttachment: { name: string; dataUrl: string; type: string } | null = null;
 
-const POPULAR_GIFS = [
+export const POPULAR_GIFS = [
   { label: "Ship it", url: "https://media.giphy.com/media/3oKIPnAiaMCws8nOsE/giphy.gif" },
   { label: "LGTM", url: "https://media.giphy.com/media/111ebonMs90YLu/giphy.gif" },
   { label: "Fire", url: "https://media.giphy.com/media/nrXif9YExW9EI/giphy.gif" },
@@ -19,7 +19,7 @@ const POPULAR_GIFS = [
 ];
 
 // Static team tags for @mention
-const STATIC_TAGS = ["team", "design", "frontend", "backend", "product", "everyone"];
+export const STATIC_TAGS = ["team", "design", "frontend", "backend", "product", "everyone"];
 
 export function buildPinCompose(): HTMLDivElement {
   const dom = getDOM();
@@ -36,26 +36,34 @@ export function buildPinCompose(): HTMLDivElement {
     </div>
 
     <div class="lasso-pin-input-wrap">
-      <textarea placeholder="Add a comment… type @ to mention" maxlength="2000" rows="3"></textarea>
+      <textarea placeholder="Add a comment… type @ to mention or pick a tag" maxlength="2000" rows="3"></textarea>
       <div class="lasso-pin-tag-menu" hidden></div>
+
+      <div class="lasso-pin-quick-tags">
+        <button type="button" class="lasso-pin-qtag" data-tag="#bug">#bug</button>
+        <button type="button" class="lasso-pin-qtag" data-tag="#ui">#ui</button>
+        <button type="button" class="lasso-pin-qtag" data-tag="#copy">#copy</button>
+        <button type="button" class="lasso-pin-qtag" data-tag="#design">#design</button>
+        <button type="button" class="lasso-pin-qtag" data-tag="#feature">#feature</button>
+      </div>
 
       <div class="lasso-pin-input-toolbar">
         <label class="lasso-pin-itool-btn" title="Attach file">
           <input type="file" accept="image/*,.gif,.png,.jpg,.jpeg,.svg,.pdf" hidden />
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
           </svg>
         </label>
 
         <button class="lasso-pin-itool-btn gif-picker-toggle" type="button" title="Add GIF" aria-label="Insert GIF">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <rect x="2" y="3" width="20" height="18" rx="3"/>
             <path d="M7 9h2v6H7zM11 9h4M13 12h2M11 15h4"/>
           </svg>
         </button>
 
         <button class="lasso-pin-itool-btn mention-btn" type="button" title="Mention someone" aria-label="@mention">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="4"/>
             <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/>
           </svg>
@@ -254,10 +262,23 @@ export function buildPinCompose(): HTMLDivElement {
     setCommentMode(false);
   });
 
+  // Quick tag chips
+  el.querySelectorAll<HTMLButtonElement>(".lasso-pin-qtag").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tag = btn.dataset.tag;
+      if (!tag) return;
+      if (!textarea.value.includes(tag)) {
+        textarea.value = textarea.value.trim() ? `${textarea.value.trim()} ${tag} ` : `${tag} `;
+      }
+      textarea.focus();
+    });
+  });
+
   return el;
 }
 
-function showAttachmentPreview(att: { name: string; dataUrl: string }, container: HTMLDivElement) {
+
+export function showAttachmentPreview(att: { name: string; dataUrl: string }, container: HTMLDivElement) {
   container.hidden = false;
   const nameEl = container.querySelector<HTMLSpanElement>(".lasso-pin-attachment-name")!;
   const thumbEl = container.querySelector<HTMLDivElement>(".lasso-pin-attachment-thumb")!;
@@ -265,7 +286,7 @@ function showAttachmentPreview(att: { name: string; dataUrl: string }, container
   thumbEl.innerHTML = `<img src="${att.dataUrl}" alt="${att.name}" />`;
 }
 
-function handleMentionInput(textarea: HTMLTextAreaElement, tagMenu: HTMLDivElement) {
+export function handleMentionInput(textarea: HTMLTextAreaElement, tagMenu: HTMLDivElement) {
   const val = textarea.value;
   const pos = textarea.selectionStart ?? val.length;
   const beforeCursor = val.slice(0, pos);
@@ -333,7 +354,7 @@ function handleMentionInput(textarea: HTMLTextAreaElement, tagMenu: HTMLDivEleme
   }
 }
 
-function navigateTagMenu(tagMenu: HTMLDivElement, direction: 1 | -1) {
+export function navigateTagMenu(tagMenu: HTMLDivElement, direction: 1 | -1) {
   const items = Array.from(tagMenu.querySelectorAll<HTMLButtonElement>(".lasso-pin-tag-item"));
   const currentFocused = tagMenu.querySelector<HTMLButtonElement>(".lasso-pin-tag-item.focused");
   const currentIdx = currentFocused ? items.indexOf(currentFocused) : -1;

@@ -1,4 +1,5 @@
 import { getDOM } from "../dom";
+import { state } from "../state";
 
 const STORAGE_KEY = "lasso:todos";
 
@@ -104,6 +105,14 @@ export function buildTodoPanel(): HTMLDivElement {
       </button>
       <button class="lasso-todo-clear-done" type="button">Clear done</button>
     </div>
+
+    <datalist id="lasso-todo-assignees">
+      <option value="You"></option>
+      <option value="Team"></option>
+      <option value="Design"></option>
+      <option value="Frontend"></option>
+      <option value="Backend"></option>
+    </datalist>
   `;
 
   dom.shadow.appendChild(el);
@@ -181,7 +190,7 @@ function renderTodoTable(): void {
         <button class="lasso-todo-priority-chip" type="button" style="color:${pc.color};">${pc.label}</button>
       </div>
       <div class="lasso-todo-col lasso-todo-col-assignee">
-        <input class="lasso-todo-assignee" type="text" value="${escapeAttr(item.assignee)}" placeholder="+" />
+        <input class="lasso-todo-assignee" type="text" list="lasso-todo-assignees" value="${escapeAttr(item.assignee)}" placeholder="+" />
       </div>
       <div class="lasso-todo-col lasso-todo-col-del">
         <button class="lasso-todo-del-btn" type="button" aria-label="Delete">

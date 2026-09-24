@@ -145,6 +145,12 @@ Use:
 
 Your selection and project context stay inside the Lasso pipeline while the actual coding agent can be swapped independently.
 
+When installed, Lasso automatically detects the `claude` and `codex` commands
+on your PATH and adds **Claude Code · Local** and **Codex · Local** to the
+prompt model menu. Local agents run in read-only/planning mode and return a
+reviewable proposal; Lasso remains the only process that writes accepted
+changes to your source files.
+
 ### Team collaboration (realtime)
 
 Lasso can be live — teammates watch your selection, lock components so nobody

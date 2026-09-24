@@ -278,8 +278,8 @@ so `http://app.lasso` maps to that project — no remembering ports, no manual
   NXDOMAIN outside the namespace). Platform config behind a `DomainResolver`
   interface: macOS `/etc/resolver/lasso` (the only `sudo` step; the responder's
   port is otherwise unprivileged), Linux systemd-resolved split-DNS, and Windows
-  hosts entries. The proxy runs on a high port (4377), so registered URLs are
-  shown as `http://app.lasso:4377` unless DNS is installed.
+  hosts entries. The proxy runs on a memorable high port (6767), so registered
+  URLs are shown as `http://app.lasso:6767` unless DNS is installed.
 - **Registry**: `~/.lasso/host/registry.json` (atomic write, `0600`) maps
   domain → `{ projectId, directory, registeredAt }`. `lasso register` reuses an
   existing registration for the same directory, never duplicates, and migrates

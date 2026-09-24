@@ -19,7 +19,7 @@ export type ScreenshotContext = {
 export type ModelOption = {
   id: string;
   label: string;
-  provider: "anthropic" | "openai" | "google" | "ollama";
+  provider: "anthropic" | "openai" | "google" | "ollama" | "claude-code" | "codex";
 };
 
 export type GitState = {

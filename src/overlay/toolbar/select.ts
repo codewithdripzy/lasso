@@ -185,10 +185,13 @@ export function updateSelectedVisual() {
 
 export function setSelectMode(active: boolean) {
   state.selectMode = active;
+  if (active) state.previewMode = false;
   const selectBtn = getDOM().shadow.querySelector<HTMLButtonElement>(".select-tool");
+  const previewBtn = getDOM().shadow.querySelector<HTMLButtonElement>(".preview-tool");
   if (selectBtn) {
     selectBtn.classList.toggle("active", active);
   }
+  if (previewBtn) previewBtn.classList.toggle("active", state.previewMode);
 
   if (active) {
     document.documentElement.style.cursor = "default";
@@ -199,4 +202,24 @@ export function setSelectMode(active: boolean) {
     setHovered(null);
     document.documentElement.style.cursor = state.commentMode ? "default" : "";
   }
+}
+
+/**
+ * Preview lets the application receive clicks normally. The overlay remains
+ * mounted, so a user can exercise a flow and then switch back to Select to
+ * edit the UI it opened (for example, a modal or dropdown).
+ */
+export function setPreviewMode(active: boolean) {
+  state.previewMode = active;
+  if (active) {
+    state.selectMode = false;
+    state.commentMode = false;
+    setHovered(null);
+  }
+
+  const dom = getDOM();
+  dom.shadow.querySelector<HTMLButtonElement>(".preview-tool")?.classList.toggle("active", active);
+  dom.shadow.querySelector<HTMLButtonElement>(".select-tool")?.classList.toggle("active", state.selectMode);
+  dom.shadow.querySelector<HTMLButtonElement>(".comment-tool")?.classList.toggle("active", state.commentMode);
+  document.documentElement.style.cursor = "";
 }

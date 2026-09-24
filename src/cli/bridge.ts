@@ -6,7 +6,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import chalk from "chalk";
-import { proposeChanges, type AgentConfig, type SourceChange } from "./agent";
+import { detectLocalAgents, proposeChanges, type AgentConfig, type SourceChange, type LocalAgent } from "./agent";
 import type { CollabConfig } from "./project";
 
 const BRIDGE_PORT = 3056;
@@ -15,7 +15,7 @@ type GitState = { isRepo: boolean; branch?: string; status?: string[]; hasChange
 
 export type BridgeMessage =
   | { type: "hello"; from: "overlay" | "cli" }
-  | { type: "edit"; instruction: string; model: string; provider?: "anthropic" | "openai" | "google" | "ollama"; messages?: Array<{ role: string; content: string; createdAt?: string }>; changesHistory?: Array<{ summary: string; changes: SourceChange[]; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
+  | { type: "edit"; instruction: string; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "claude-code" | "codex"; messages?: Array<{ role: string; content: string; createdAt?: string }>; changesHistory?: Array<{ summary: string; changes: SourceChange[]; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
   | { type: "runtime_error"; selectionId?: string; details: string }
   | { type: "apply"; changes: SourceChange[] }
   | { type: "undo" }
@@ -26,7 +26,7 @@ export type BridgeMessage =
   | { type: "git_push" }
   | { type: "agent_status"; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string };
 
-type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" };
+type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" | "claude-code" | "codex" };
 
 export type ServerBridgeMessage =
   | { type: "config"; apiKeyConfigured: boolean; agentConfigured: boolean; models: ModelOption[]; collab?: CollabConfig | null }
@@ -101,6 +101,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     };
   })();
   let activeAgentController: AbortController | null = null;
+  let localAgents = new Set<LocalAgent>();
 
   async function localModels() {
     const base = process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL || "http://localhost:11434/api";
@@ -115,6 +116,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
   }
 
   const availableModels = async () => {
+    localAgents = await detectLocalAgents();
     const locals = await localModels();
     if (locals.length && !agentConfig) {
       const base = process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL || "http://localhost:11434/api";
@@ -132,6 +134,8 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "google" as const },
       { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "google" as const },
       { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite", provider: "google" as const },
+      ...(localAgents.has("claude-code") ? [{ id: "claude-code", label: "Claude Code · Local", provider: "claude-code" as const }] : []),
+      ...(localAgents.has("codex") ? [{ id: "codex", label: "Codex · Local", provider: "codex" as const }] : []),
       ...locals,
     ];
   };
@@ -139,9 +143,9 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
   wss.on("connection", (socket) => {
     overlaySocket = socket;
     console.log(chalk.green("✓") + " Overlay connected");
-    socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig), models: [], collab: collabConfig?.registered ? collabConfig : null }));
+    socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig) || localAgents.size > 0, models: [], collab: collabConfig?.registered ? collabConfig : null }));
     void availableModels().then((models) => {
-      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig), models, collab: collabConfig?.registered ? collabConfig : null }));
+      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig) || localAgents.size > 0, models, collab: collabConfig?.registered ? collabConfig : null }));
     });
     void getGitState(cwd).then((git) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "git_state", git }));
@@ -155,11 +159,12 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         console.log("[lasso] received from overlay:", msg);
       }
       if (msg.type === "edit") {
-        if (!lassoKeyConfigured) {
+        const localProvider = msg.provider === "claude-code" || msg.provider === "codex";
+        if (!lassoKeyConfigured && !localProvider) {
           socket.send(JSON.stringify({ type: "agent_status", status: "error", message: "Set VITE_LASSO_API_KEY or NEXT_LASSO_API_KEY in your app environment before sending an edit." }));
           return;
         }
-        if (!agentConfig) {
+        if (!agentConfig && !localProvider) {
           socket.send(JSON.stringify({ type: "agent_status", status: "error", message: "Add a supported agent key: GOOGLE_GENERATIVE_AI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY." }));
           return;
         }
@@ -168,7 +173,10 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         activeAgentController?.abort();
         const controller = new AbortController();
         activeAgentController = controller;
-        void proposeChanges(cwd, msg, { ...agentConfig, provider: msg.provider || agentConfig.provider, model: msg.model }, controller.signal)
+        const selectedConfig: AgentConfig = localProvider
+          ? { provider: msg.provider as "claude-code" | "codex", model: msg.model }
+          : { ...agentConfig!, provider: msg.provider || agentConfig!.provider, model: msg.model };
+        void proposeChanges(cwd, msg, selectedConfig, controller.signal)
           .then((proposal) => {
             if (!controller.signal.aborted) socket.send(JSON.stringify({ type: "agent_status", status: "review", message: proposal.summary, changes: proposal.changes }));
           })
@@ -246,6 +254,17 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     });
   });
 
+  let bridgeListening = false;
+  bridgeServer.on("listening", () => {
+    bridgeListening = true;
+  });
+  bridgeServer.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EADDRINUSE") {
+      console.warn(chalk.yellow("!") + ` Lasso bridge port ${BRIDGE_PORT} is already in use; reusing the existing bridge.`);
+      return;
+    }
+    console.error(chalk.red("Lasso bridge error:"), error.message);
+  });
   bridgeServer.listen(BRIDGE_PORT);
 
   function send(msg: ServerBridgeMessage) {
@@ -254,5 +273,11 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     }
   }
 
-  return { send };
+  return {
+    send,
+    close() {
+      if (bridgeListening) bridgeServer.close();
+      wss.close();
+    },
+  };
 }

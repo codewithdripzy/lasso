@@ -15,6 +15,21 @@ export function updateVoiceBar() {
   if (muteBtn) {
     muteBtn.classList.toggle("muted", state.voiceMuted);
     muteBtn.title = state.voiceMuted ? "Unmute" : "Mute";
+    muteBtn.innerHTML = state.voiceMuted
+      ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="2" y1="2" x2="22" y2="22"/>
+          <path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/>
+          <path d="M5 10v2a7 7 0 0 0 12 5"/>
+          <line x1="12" y1="19" x2="12" y2="22"/>
+          <line x1="8" y1="22" x2="16" y2="22"/>
+          <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V5a3 3 0 0 0-5.94-.6"/>
+        </svg>`
+      : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="2" width="6" height="12" rx="3"/>
+          <path d="M5 10v2a7 7 0 0 0 14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="22"/>
+          <line x1="8" y1="22" x2="16" y2="22"/>
+        </svg>`;
   }
 
   voiceBtn.classList.toggle("live", state.voiceOn && !state.voiceMuted);

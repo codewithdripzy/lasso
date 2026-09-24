@@ -118,7 +118,7 @@ export async function startProjectRuntime(directory: string): Promise<StartRunti
   const child = spawn(plan.command, plan.args, {
     cwd: directory,
     env: { ...process.env, PORT: String(port) },
-    stdio: "ignore",
+    stdio: ["ignore", "pipe", "pipe"],
   });
 
   const runtime: ProjectRuntime = {
@@ -131,6 +131,9 @@ export async function startProjectRuntime(directory: string): Promise<StartRunti
   };
 
   log(directory, `starting ${plan.framework} dev server on ${port} (pid ${child.pid})`);
+
+  child.stdout?.on("data", (chunk: Buffer | string) => log(directory, String(chunk).trimEnd()));
+  child.stderr?.on("data", (chunk: Buffer | string) => log(directory, `stderr: ${String(chunk).trimEnd()}`));
 
   child.on("error", (error) => {
     log(directory, `spawn error: ${error.message}`);

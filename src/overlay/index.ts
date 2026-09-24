@@ -3,6 +3,7 @@ import { getDOM } from "./dom";
 import { buildToolbar, setCommentMode } from "./toolbar/toolbar";
 import {
   setSelectMode,
+  setPreviewMode,
   setHovered,
   updateHoverVisual,
   updateSelectedVisual,
@@ -154,6 +155,11 @@ export function init() {
 
     if (state.selectMode) {
       setSelectMode(false);
+      return;
+    }
+
+    if (state.previewMode) {
+      setPreviewMode(false);
       return;
     }
 

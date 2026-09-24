@@ -34,6 +34,8 @@ const providerLabels: Record<ModelOption["provider"], string> = {
   openai: "OpenAI",
   anthropic: "Anthropic",
   ollama: "Local",
+  "claude-code": "Claude Code",
+  codex: "Codex",
 };
 
 const providerIcons = {
@@ -41,6 +43,8 @@ const providerIcons = {
   openai: openaiIcon,
   anthropic: anthropicIcon,
   ollama: terminalIcon,
+  "claude-code": terminalIcon,
+  codex: terminalIcon,
 };
 
 function providerIcon(provider: ModelOption["provider"], active = false): string {
@@ -227,8 +231,10 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
 
   document.addEventListener("click", (event) => {
     if (!modelMenu || modelMenu.hidden) return;
+    const path = event.composedPath ? event.composedPath() : [];
+    if (path.includes(modelBtn!) || path.includes(modelMenu)) return;
     const target = event.target as Node;
-    if (modelBtn?.contains(target) || modelMenu.contains(target)) return;
+    if (modelBtn?.contains(target) || modelMenu?.contains(target)) return;
     modelMenu.hidden = true;
   });
 
