@@ -10,8 +10,8 @@ import { detectFramework } from "./utils/framework";
 import { initProject, readProjectConfig, resolveCollabSession, readProjectEnv, LASSO_CONFIG_FILE, type CollabConfig } from "./project";
 import { authLogin, authLogout, credentialSummary, loadCredentials } from "./auth";
 import { startHost, waitForShutdown } from "./host/daemon";
-import { hostProxyPort, hostDnsPort } from "./host/paths";
-import { spawnDaemon, daemonStatus, stopDaemon, enableAutoStart, disableAutoStart, daemonPortMessage } from "./host/install";
+import { hostProxyPort, hostHttpsPort, hostDnsPort } from "./host/paths";
+import { spawnDaemon, daemonStatus, stopDaemon, enableAutoStart, disableAutoStart, daemonPortMessage, daemonHttpsPortMessage } from "./host/install";
 import { listHostProjects, registerWithHost } from "./host/client";
 import { loadRegistry, generateUniqueDomain, validateDomain } from "./host/registry";
 
@@ -82,6 +82,7 @@ const daemon = program.command("daemon [action]")
                 }
                 console.log(chalk.green("✓") + " Lasso Host started" + (result.pid ? ` (pid ${result.pid})` : "") + ".");
                 console.log(chalk.dim(`  Projects become available at ${chalk.cyan(`${daemonPortMessage(env)}`)} once you run ${chalk.cyan("lasso init")} in them.`));
+                console.log(chalk.dim(`  Secure URL: ${chalk.cyan(daemonHttpsPortMessage(env))} · microphone/WebRTC compatible.`));
                 console.log(chalk.dim(`  DNS listener: 127.0.0.1:${dnsPort} · Log: ~/.lasso/host/daemon.log`));
                 return;
             }
@@ -91,6 +92,7 @@ const daemon = program.command("daemon [action]")
                 console.log(chalk.bold("Lasso Host"));
                 console.log(chalk.dim(`  Status: ${report.running ? chalk.green("running") + (report.pid ? ` (pid ${report.pid})` : "") : chalk.red("not running")}`));
                 console.log(chalk.dim(`  Proxy port: ${hostProxyPort(env)}`));
+                console.log(chalk.dim(`  HTTPS port: ${hostHttpsPort(env)}${report.health?.https ? chalk.green(" (certificate ready)") : chalk.yellow(" (certificate unavailable)")}`));
                 console.log(chalk.dim(`  DNS port: ${hostDnsPort(env)}`));
                 console.log(chalk.dim(`  Domain resolution: ${report.resolver.installed ? chalk.green("configured") : chalk.yellow("not configured")} — ${report.resolver.detail}`));
                 console.log(chalk.dim(`  Automatic startup: ${report.autoStart ? chalk.green("enabled (LaunchAgent)") : chalk.yellow("disabled")}`));
@@ -139,7 +141,7 @@ const daemon = program.command("daemon [action]")
                     console.error(chalk.yellow("!") + ` ${spawned.error}`);
                 }
 
-                console.log(chalk.dim(`  ${daemonPortMessage(env)} — run ${chalk.cyan("lasso init")} in a project to get a domain.`));
+                console.log(chalk.dim(`  ${daemonPortMessage(env)} (HTTP) · ${daemonHttpsPortMessage(env)} (secure) — run ${chalk.cyan("lasso init")} in a project to get a domain.`));
                 return;
             }
             case "uninstall": {
@@ -167,7 +169,7 @@ program.command("_host", { hidden: true })
     .description("Run Lasso Host in the foreground (internal)")
     .action(async () => {
         const env = projectEnv();
-        const result = await startHost({ proxyPort: hostProxyPort(env), dnsPort: hostDnsPort(env), version: VERSION });
+        const result = await startHost({ proxyPort: hostProxyPort(env), httpsPort: hostHttpsPort(env), dnsPort: hostDnsPort(env), version: VERSION });
         if (result.error) {
             console.error(chalk.red("✗") + ` ${result.error}`);
             process.exit(1);

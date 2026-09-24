@@ -7,9 +7,10 @@ export const REGISTRY_FILE = path.join(HOST_DIR, "registry.json");
 export const PID_FILE = path.join(HOST_DIR, "daemon.pid");
 export const LOG_FILE = path.join(HOST_DIR, "daemon.log");
 
-// Memorable default for local project URLs, e.g. http://app.lasso:6767.
+// Local project URLs use HTTP on 6766 and HTTPS on 6767 by default.
 // LASSO_HOST_PORT remains available for teams that need a custom port.
-export const DEFAULT_PROXY_PORT = Number(process.env.LASSO_HOST_PORT) || 6767;
+export const DEFAULT_PROXY_PORT = Number(process.env.LASSO_HOST_PORT) || 6766;
+export const DEFAULT_HTTPS_PORT = Number(process.env.LASSO_HOST_HTTPS_PORT) || 6767;
 export const DEFAULT_DNS_PORT = Number(process.env.LASSO_DNS_PORT) || 5358;
 
 export const TLD = "lasso";
@@ -20,6 +21,10 @@ export function hostProxyPort(env: Record<string, string>): number {
 
 export function hostDnsPort(env: Record<string, string>): number {
   return Number(process.env.LASSO_DNS_PORT || env.LASSO_DNS_PORT) || DEFAULT_DNS_PORT;
+}
+
+export function hostHttpsPort(env: Record<string, string>): number {
+  return Number(process.env.LASSO_HOST_HTTPS_PORT || env.LASSO_HOST_HTTPS_PORT) || DEFAULT_HTTPS_PORT;
 }
 
 export function domainOf(hostname: string): string {

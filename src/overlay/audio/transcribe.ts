@@ -98,11 +98,14 @@ export async function transcribeAudioBlob(
   }
 
   // Strategy 2: Direct HTTP fetch to server transcribe endpoint
-  const candidateUrls = [
-    "http://localhost:3005/api/v1/transcribe",
-    "/api/v1/transcribe",
-    "https://api.lasso.byorello.space/api/v1/transcribe",
-  ];
+  const isLassoPage = typeof window !== "undefined" && window.location.hostname.endsWith(".lasso");
+  const candidateUrls = isLassoPage
+    ? ["https://api.lasso.byorello.space/api/v1/transcribe"]
+    : [
+        "http://localhost:3005/api/v1/transcribe",
+        "/api/v1/transcribe",
+        "https://api.lasso.byorello.space/api/v1/transcribe",
+      ];
 
   let lastError = new Error("Failed to contact transcription service");
 
@@ -141,10 +144,8 @@ export async function transcribeAudioBlob(
 /**
  * Safely request microphone stream across modern, legacy, and edge contexts.
  *
- * NOTE: The Lasso daemon serves your app on a *.lasso custom domain which
- * browsers do NOT classify as a secure context — even though it resolves to
- * 127.0.0.1. As a result, navigator.mediaDevices is undefined on .lasso
- * domains. The fix: access your app via http://localhost:PORT directly.
+ * Lasso Host supports HTTPS *.lasso domains. Plain HTTP *.lasso pages remain
+ * insecure in browsers and cannot access the microphone.
  */
 export async function getAudioMediaStream(): Promise<MediaStream> {
   // 1. Standard modern API
@@ -188,18 +189,8 @@ export async function getAudioMediaStream(): Promise<MediaStream> {
 
   // 3. Targeted error: detect the .lasso custom domain vs a generic HTTP page
   if (typeof window !== "undefined") {
-    const hostname = window.location.hostname;
-    // .lasso domains resolve to 127.0.0.1 but aren't a secure context
-    if (hostname.endsWith(".lasso") || hostname === "lasso") {
-      const port = window.location.port ? `:${window.location.port}` : "";
-      throw new Error(
-        `Microphone is unavailable on .lasso domains. Open your app directly via http://localhost${port} to enable voice features.`
-      );
-    }
     if (!window.isSecureContext) {
-      throw new Error(
-        "Microphone access requires a secure origin. Open your app via http://localhost:PORT or https://."
-      );
+      throw new Error("Microphone access requires HTTPS or localhost. Open the secure https://<project>.lasso URL or http://localhost:PORT.");
     }
   }
 

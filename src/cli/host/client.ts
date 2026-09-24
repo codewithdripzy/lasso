@@ -11,6 +11,8 @@ export interface HostHealth {
   version?: string;
   pid?: number;
   proxyPort?: number | null;
+  httpsPort?: number | null;
+  https?: boolean;
   dnsPort?: number | null;
   running?: number;
   registered?: number;

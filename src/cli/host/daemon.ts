@@ -1,16 +1,19 @@
 import fs from "node:fs";
 import http from "node:http";
+import https from "node:https";
 import path from "node:path";
 import httpProxy from "http-proxy";
 import { loadRegistry, saveRegistry, registerProject, unregisterDomain, validateDomain, type HostRegistry } from "./registry";
 import { startProjectRuntime, type ProjectRuntime } from "./runtime";
 import { startDnsServer, createDomainResolver, syncResolverAfterRegister, type DomainResolver, type DnsServerHandle } from "./dns";
 import { PID_FILE, LOG_FILE, domainOf, isLassoDomain } from "./paths";
+import { ensureHostCertificate, hostCertificateStatus, TLS_CERT_FILE, TLS_KEY_FILE } from "./certificates";
 
 export const SERVICE_NAME = "lasso-host";
 
 export interface HostRuntimeOptions {
   proxyPort: number;
+  httpsPort: number;
   dnsPort: number;
   version?: string;
 }
@@ -46,6 +49,7 @@ function logline(message: string): void {
 
 export class LassoHost {
   private readonly server: http.Server;
+  private readonly secureServer: https.Server;
   private dnsHandle: DnsServerHandle | null = null;
   private readonly resolver: DomainResolver;
   private readonly registry: HostRegistry;
@@ -56,6 +60,8 @@ export class LassoHost {
   constructor(private readonly opts: HostRuntimeOptions) {
     this.server = http.createServer((req, res) => this.handleRequest(req, res));
     this.server.on("upgrade", (req, socket, head) => this.handleUpgrade(req, socket, head));
+    this.secureServer = https.createServer({}, (req, res) => this.handleRequest(req, res));
+    this.secureServer.on("upgrade", (req, socket, head) => this.handleUpgrade(req, socket, head));
     this.resolver = createDomainResolver();
     this.registry = loadRegistry();
     this.log(`host starting (version ${opts.version || "unknown"})`);
@@ -219,6 +225,8 @@ export class LassoHost {
       pid: process.pid,
       dnsPort: this.dnsHandle?.port ?? null,
       proxyPort: this.opts.proxyPort,
+      httpsPort: this.opts.httpsPort,
+      https: hostCertificateStatus().present,
       running: this.running.size,
       registered: Object.keys(this.registry).length,
       projects: this.projectList(),
@@ -313,6 +321,13 @@ export class LassoHost {
       this.log(`dns server failed to start on ${this.opts.dnsPort}: ${line(error)}`);
     }
 
+    const certificate = ensureHostCertificate();
+    if (!certificate.ok) this.log(`https certificate unavailable: ${certificate.error}`);
+    else {
+      this.secureServer.setSecureContext({ key: fs.readFileSync(TLS_KEY_FILE), cert: fs.readFileSync(TLS_CERT_FILE) });
+      this.log(`https certificate ready${certificate.trusted ? " (trusted by mkcert)" : " (local trust may be required)"}`);
+    }
+
     return await new Promise((resolve) => {
       this.server.once("error", (error) => {
         resolve({ error: (error as NodeJS.ErrnoException).code === "EADDRINUSE" ? `Lasso Host is already running on port ${this.opts.proxyPort}.` : line(error) });
@@ -320,7 +335,12 @@ export class LassoHost {
       this.server.listen(this.opts.proxyPort, "127.0.0.1", () => {
         fs.writeFileSync(PID_FILE, String(process.pid), { encoding: "utf8" });
         this.log(`proxy listening on 127.0.0.1:${this.opts.proxyPort}`);
-        resolve({});
+        if (!certificate.ok) return resolve({});
+        this.secureServer.once("error", (error) => { this.log(`https proxy failed: ${line(error)}`); resolve({}); });
+        this.secureServer.listen(this.opts.httpsPort, "127.0.0.1", () => {
+          this.log(`https proxy listening on 127.0.0.1:${this.opts.httpsPort}`);
+          resolve({});
+        });
       });
     });
   }
@@ -331,6 +351,7 @@ export class LassoHost {
     for (const proxy of this.proxies.values()) proxy.close();
     this.proxies.clear();
     this.server.close();
+    this.secureServer.close();
     this.dnsHandle?.close();
     try {
       fs.unlinkSync(PID_FILE);

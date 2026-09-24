@@ -265,7 +265,7 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
         voiceBtn.classList.remove("recording");
         voiceBtn.classList.add("transcribing");
         voiceBtn.title = "Transcribing speech…";
-        showActivity("Transcribing speech via AI…", "#fdd663");
+        showActivity("Transcribing…", "#fdd663");
 
         try {
           const result = await stopVoiceRecording();

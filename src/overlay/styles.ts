@@ -611,7 +611,7 @@ export function buildStyles(): string {
       border: 1px solid var(--lo-border);
       color: var(--lo-text);
       font-size: 12px;
-      font-weight: 600;
+      font-weight: 500;
       opacity: 0;
       pointer-events: none;
       white-space: nowrap;

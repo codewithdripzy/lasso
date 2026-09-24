@@ -5,7 +5,7 @@ import readline from "node:readline";
 import { spawn } from "node:child_process";
 import { hostAlive, readDaemonPid, isProcessAlive } from "./client";
 import { createDomainResolver, type DomainResolver } from "./dns";
-import { LOG_FILE, hostProxyPort, hostDnsPort } from "./paths";
+import { LOG_FILE, hostProxyPort, hostHttpsPort, hostDnsPort } from "./paths";
 
 const AGENT_LABEL = "com.lasso.host";
 const LAUNCH_AGENT_FILE = path.join(os.homedir(), "Library", "LaunchAgents", `${AGENT_LABEL}.plist`);
@@ -18,6 +18,7 @@ function cliEntry(): string | null {
 export function spawnDaemon(env: Record<string, string>): Promise<{ ok: boolean; alreadyRunning?: boolean; pid?: number; error?: string }> {
   const port = hostProxyPort(env);
   const dnsPort = hostDnsPort(env);
+  const httpsPort = hostHttpsPort(env);
   return hostAlive(port).then(async (health) => {
     if (health) return { ok: true, alreadyRunning: true };
     const entry = cliEntry();
@@ -26,7 +27,7 @@ export function spawnDaemon(env: Record<string, string>): Promise<{ ok: boolean;
       detached: true,
       stdio: "ignore",
       cwd: os.homedir(),
-      env: { ...process.env, LASSO_HOST_PORT: String(port), LASSO_DNS_PORT: String(dnsPort) },
+      env: { ...process.env, LASSO_HOST_PORT: String(port), LASSO_HOST_HTTPS_PORT: String(httpsPort), LASSO_DNS_PORT: String(dnsPort) },
     });
     const pid = child.pid;
     child.unref();
@@ -156,6 +157,10 @@ export async function stopDaemon(env: Record<string, string>): Promise<{ ok: boo
 
 export function daemonPortMessage(env: Record<string, string>): string {
   return `http://<project>.lasso:${hostProxyPort(env)}`;
+}
+
+export function daemonHttpsPortMessage(env: Record<string, string>): string {
+  return `https://<project>.lasso:${hostHttpsPort(env)}`;
 }
 
 export function yesOrNo(promptText: string): Promise<boolean> {
