@@ -181,7 +181,23 @@ export function buildNotepadPanel(): HTMLDivElement {
 
   copyBtn.addEventListener("click", async () => {
     try {
-      await navigator.clipboard.writeText(textarea.value);
+      const text = textarea.value;
+      if (
+        typeof navigator !== "undefined" &&
+        navigator.clipboard &&
+        typeof navigator.clipboard.writeText === "function" &&
+        window.isSecureContext
+      ) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for non-secure contexts
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); } finally { ta.remove(); }
+      }
       statusEl.textContent = "Copied!";
       setTimeout(() => { statusEl.textContent = "Autosaved"; }, 1500);
     } catch {

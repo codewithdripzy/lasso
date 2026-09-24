@@ -2,6 +2,7 @@ import { state } from "../state";
 import { getDOM } from "../dom";
 import { collabEmit } from "./socket";
 import { showActivity } from "./presence";
+import { getAudioMediaStream } from "../audio/transcribe";
 
 export function updateVoiceBar() {
   const dom = getDOM();
@@ -41,14 +42,31 @@ export async function toggleVoice() {
     showActivity("Join the realtime session first — start Lasso and log in to collaborate.", "#fdd663");
     return;
   }
+
   if (state.voiceOn) {
     leaveVoice();
     return;
   }
+
+  // Pre-check: Clipboard/mic APIs require a secure context
+  if (typeof window !== "undefined" && !window.isSecureContext) {
+    showActivity("Voice requires HTTPS or localhost — please open the app via http://localhost or https://.", "#f28b82");
+    return;
+  }
+
+  if (
+    typeof navigator === "undefined" ||
+    !navigator.mediaDevices ||
+    typeof navigator.mediaDevices.getUserMedia !== "function"
+  ) {
+    showActivity("Microphone access is not available in this browser or context.", "#f28b82");
+    return;
+  }
+
   try {
-    state.myLocalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch {
-    showActivity("Microphone access was denied.", "#f28b82");
+    state.myLocalStream = await getAudioMediaStream();
+  } catch (err: any) {
+    showActivity(err?.message || "Microphone access was denied.", "#f28b82");
     return;
   }
 

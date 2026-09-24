@@ -174,9 +174,28 @@ export function buildStyles(): string {
       color: var(--lo-primary);
     }
 
+    .lasso-tool-btn.voice-tool {
+      color: var(--lo-text-2);
+    }
+
+    .lasso-tool-btn.voice-tool:hover {
+      color: var(--lo-text);
+      background: rgba(255, 255, 255, 0.07);
+    }
+
     .lasso-tool-btn.voice-tool.live {
       background: rgba(129, 201, 149, 0.16);
       color: var(--lo-success);
+      box-shadow: 0 0 0 1.5px rgba(129, 201, 149, 0.4);
+    }
+
+    .lasso-tool-btn.voice-tool.live svg {
+      animation: lasso-mic-pulse 1.8s ease-in-out infinite;
+    }
+
+    @keyframes lasso-mic-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.7; transform: scale(0.92); }
     }
 
     .lasso-tool-btn.voice-tool.muted {

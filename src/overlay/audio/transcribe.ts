@@ -139,15 +139,74 @@ export async function transcribeAudioBlob(
 }
 
 /**
+ * Safely request microphone stream across modern, legacy, and edge contexts
+ */
+export async function getAudioMediaStream(): Promise<MediaStream> {
+  // 1. Standard modern API
+  if (
+    typeof navigator !== "undefined" &&
+    navigator.mediaDevices &&
+    typeof navigator.mediaDevices.getUserMedia === "function"
+  ) {
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err: any) {
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        throw new Error("Microphone permission was denied. Please allow microphone access in your browser settings.");
+      }
+      if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        throw new Error("No microphone device found. Please connect a microphone.");
+      }
+      throw err;
+    }
+  }
+
+  // 2. Legacy getUserMedia vendor fallbacks
+  const nav = typeof navigator !== "undefined" ? (navigator as any) : null;
+  const legacyGetUserMedia =
+    nav &&
+    (nav.getUserMedia ||
+      nav.webkitGetUserMedia ||
+      nav.mozGetUserMedia ||
+      nav.msGetUserMedia);
+
+  if (legacyGetUserMedia) {
+    return new Promise<MediaStream>((resolve, reject) => {
+      legacyGetUserMedia.call(
+        nav,
+        { audio: true },
+        resolve,
+        (err: any) => reject(new Error(err?.message || "Microphone access was denied."))
+      );
+    });
+  }
+
+  // 3. Informative error when page is not running in a secure origin
+  if (typeof window !== "undefined" && !window.isSecureContext) {
+    throw new Error(
+      "Microphone access requires a secure origin (HTTPS or localhost). Please open your app via http://localhost:PORT or https://."
+    );
+  }
+
+  throw new Error("Audio recording is not supported in this browser environment.");
+}
+
+/**
  * Start recording audio from the user's microphone
  */
 export async function startVoiceRecording(): Promise<void> {
   if (isRecordingVoice()) return;
 
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await getAudioMediaStream();
     activeStream = stream;
     currentMimeType = getSupportedMimeType() || "audio/webm";
+
+    if (typeof MediaRecorder === "undefined") {
+      stream.getTracks().forEach((track) => track.stop());
+      activeStream = null;
+      throw new Error("MediaRecorder is not supported in this browser.");
+    }
 
     const recorder = new MediaRecorder(
       stream,

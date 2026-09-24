@@ -3,6 +3,52 @@ import { state } from "../state";
 import { collabEmit } from "../collab/socket";
 import type { CollabClipboardItem } from "../types";
 
+/**
+ * Safely read text from the system clipboard.
+ * Falls back to window.prompt() when the Clipboard API is unavailable
+ * (e.g., non-secure HTTP contexts).
+ */
+async function safeClipboardRead(): Promise<string> {
+  if (
+    typeof navigator !== "undefined" &&
+    navigator.clipboard &&
+    typeof navigator.clipboard.readText === "function" &&
+    window.isSecureContext
+  ) {
+    return navigator.clipboard.readText();
+  }
+  // Fallback: prompt the user to paste manually
+  const text = window.prompt("Paste your text here (clipboard access unavailable on non-HTTPS pages):");
+  return text ?? "";
+}
+
+/**
+ * Safely write text to the system clipboard.
+ * Falls back to execCommand('copy') when the Clipboard API is unavailable.
+ */
+async function safeClipboardWrite(text: string): Promise<void> {
+  if (
+    typeof navigator !== "undefined" &&
+    navigator.clipboard &&
+    typeof navigator.clipboard.writeText === "function" &&
+    window.isSecureContext
+  ) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  // Fallback: use a temporary textarea + execCommand
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand("copy");
+  } finally {
+    ta.remove();
+  }
+}
+
 let panel: HTMLDivElement | null = null;
 let items: CollabClipboardItem[] = [];
 let scope: "private" | "shared" = "private";
@@ -78,10 +124,12 @@ export function buildClipboardPanel(): HTMLDivElement {
   });
   el.querySelector<HTMLButtonElement>(".lasso-clipboard-read")!.addEventListener("click", async () => {
     try {
-      const text = await navigator.clipboard.readText();
-      const input = el.querySelector<HTMLTextAreaElement>(".lasso-clipboard-input")!;
-      input.value = text;
-      if (!el.querySelector<HTMLInputElement>(".lasso-clipboard-label")!.value) input.focus();
+      const text = await safeClipboardRead();
+      if (text) {
+        const input = el.querySelector<HTMLTextAreaElement>(".lasso-clipboard-input")!;
+        input.value = text;
+        if (!el.querySelector<HTMLInputElement>(".lasso-clipboard-label")!.value) input.focus();
+      }
     } catch { setStatus("Clipboard permission denied"); }
   });
   el.querySelector<HTMLButtonElement>(".lasso-clipboard-add")!.addEventListener("click", () => {
@@ -210,10 +258,10 @@ function render() {
     const copyBtn = row.querySelector<HTMLButtonElement>(".lasso-clipboard-copy-item")!;
     copyBtn.addEventListener("click", async () => {
       try {
-        await navigator.clipboard.writeText(item.content);
+        await safeClipboardWrite(item.content);
         copyBtn.textContent = "Copied!";
         window.setTimeout(() => { copyBtn.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg> Copy`; }, 1400);
-      } catch { setStatus("Copy failed"); }
+      } catch { setStatus("Copy failed — check clipboard permissions"); }
     });
     row.querySelector<HTMLButtonElement>(".lasso-clipboard-delete-item")!.addEventListener("click", () => {
       row.classList.add("removing");
