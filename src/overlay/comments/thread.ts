@@ -14,14 +14,24 @@ export function buildPinThread(): HTMLDivElement {
   el.hidden = true;
   el.innerHTML = `
     <div class="lasso-pin-thread-head">
-      <span class="lasso-pin-thread-status open">Open</span>
-      <button class="lasso-pin-thread-close" type="button" aria-label="Close">×</button>
+      <button class="lasso-pin-thread-chip open" type="button" aria-label="Toggle status" title="Click to toggle status">
+        <span class="lasso-pin-chip-dot"></span>
+        <span class="lasso-pin-chip-label">In progress</span>
+      </button>
+      <div class="lasso-pin-thread-head-actions">
+        <button class="lasso-pin-resolve" type="button">Resolve</button>
+        <button class="lasso-pin-thread-close" type="button" aria-label="Close">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
     </div>
     <div class="lasso-pin-thread-msgs"></div>
     <div class="lasso-pin-thread-reply-area">
-      <textarea placeholder="Reply…" maxlength="2000" rows="2"></textarea>
+      <textarea placeholder="Write a reply…" maxlength="2000" rows="2"></textarea>
       <div class="lasso-pin-thread-footer">
-        <button class="lasso-pin-resolve" type="button">Resolve</button>
+        <span class="lasso-pin-reply-hint">Cmd+Enter to send</span>
         <button class="lasso-pin-reply-post" type="button">Reply</button>
       </div>
     </div>
@@ -32,12 +42,13 @@ export function buildPinThread(): HTMLDivElement {
 
   const closeBtn = el.querySelector<HTMLButtonElement>(".lasso-pin-thread-close")!;
   const resolveBtn = el.querySelector<HTMLButtonElement>(".lasso-pin-resolve")!;
+  const chipBtn = el.querySelector<HTMLButtonElement>(".lasso-pin-thread-chip")!;
   const replyPostBtn = el.querySelector<HTMLButtonElement>(".lasso-pin-reply-post")!;
   const replyTa = el.querySelector<HTMLTextAreaElement>(".lasso-pin-thread-reply-area textarea")!;
 
   closeBtn.addEventListener("click", closePinThread);
 
-  resolveBtn.addEventListener("click", () => {
+  const toggleStatus = () => {
     if (!state.openThreadUid) return;
     const thread = state.commentThreads.get(state.openThreadUid);
     if (!thread) return;
@@ -51,7 +62,10 @@ export function buildPinThread(): HTMLDivElement {
     thread.root.status = nextStatus;
     renderPinThread();
     renderCommentPins();
-  });
+  };
+
+  resolveBtn.addEventListener("click", toggleStatus);
+  chipBtn.addEventListener("click", toggleStatus);
 
   replyPostBtn.addEventListener("click", () => {
     if (!state.openThreadUid) return;
@@ -116,12 +130,12 @@ export function openPinThread(uid: string, anchorX: number, anchorY: number) {
 
 export function repositionPinThread(anchorX: number, anchorY: number) {
   if (!pinThreadEl) return;
-  const w = 290;
+  const w = 310;
   const gap = 14;
   let left = anchorX + gap;
   if (left + w > window.innerWidth - 12) left = anchorX - w - gap;
   let top = anchorY - 20;
-  if (top + 360 > window.innerHeight - 12) top = window.innerHeight - 372;
+  if (top + 380 > window.innerHeight - 12) top = window.innerHeight - 392;
   if (top < 12) top = 12;
 
   pinThreadEl.style.left = `${Math.max(12, left)}px`;
@@ -137,6 +151,30 @@ export function closePinThread() {
   }, 180);
 }
 
+function renderMessageBody(text: string): string {
+  // Check if body contains markdown image ![alt](url)
+  const imgRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+  let hasImage = false;
+  const replaced = text.replace(imgRegex, (_, alt, url) => {
+    hasImage = true;
+    return `<div class="lasso-pin-msg-image"><img src="${escapeAttr(url)}" alt="${escapeAttr(alt)}" /></div>`;
+  });
+  if (hasImage) {
+    return replaced;
+  }
+  return escapeHtml(text);
+}
+
+function escapeHtml(text: string): string {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function escapeAttr(text: string): string {
+  return text.replace(/"/g, "&quot;");
+}
+
 export function renderPinThread() {
   if (!pinThreadEl || !state.openThreadUid) return;
   const thread = state.commentThreads.get(state.openThreadUid);
@@ -146,14 +184,16 @@ export function renderPinThread() {
   }
 
   const msgs = pinThreadEl.querySelector<HTMLDivElement>(".lasso-pin-thread-msgs");
-  const statusEl = pinThreadEl.querySelector<HTMLSpanElement>(".lasso-pin-thread-status");
+  const chipBtn = pinThreadEl.querySelector<HTMLButtonElement>(".lasso-pin-thread-chip");
+  const chipLabel = pinThreadEl.querySelector<HTMLSpanElement>(".lasso-pin-chip-label");
   const resolveBtn = pinThreadEl.querySelector<HTMLButtonElement>(".lasso-pin-resolve");
-  if (!msgs || !statusEl || !resolveBtn) return;
+  if (!msgs || !chipBtn || !chipLabel || !resolveBtn) return;
 
   msgs.innerHTML = "";
   const isResolved = thread.root.status === "RESOLVED";
-  statusEl.textContent = isResolved ? "Resolved" : "Open";
-  statusEl.className = `lasso-pin-thread-status ${isResolved ? "resolved" : "open"}`;
+
+  chipLabel.textContent = isResolved ? "Completed" : "In progress";
+  chipBtn.className = `lasso-pin-thread-chip ${isResolved ? "resolved" : "open"}`;
   resolveBtn.textContent = isResolved ? "Reopen" : "Resolve";
 
   const allMessages = [thread.root, ...thread.replies];
@@ -181,7 +221,7 @@ export function renderPinThread() {
 
     const body = document.createElement("div");
     body.className = "lasso-pin-thread-body";
-    body.textContent = msg.body;
+    body.innerHTML = renderMessageBody(msg.body);
 
     el.append(row, body);
     msgs.appendChild(el);

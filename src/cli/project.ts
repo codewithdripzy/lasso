@@ -6,6 +6,9 @@ import { promisify } from "node:util";
 import chalk from "chalk";
 import { detectFramework } from "./utils/framework";
 import { loadCredentials, fetchWithTimeout } from "./auth";
+import { loadRegistry, findByDirectory, generateUniqueDomain } from "./host/registry";
+import { registerWithHost } from "./host/client";
+import { hostProxyPort } from "./host/paths";
 
 const execFileAsync = promisify(execFile);
 
@@ -32,6 +35,7 @@ export interface InitResult {
     projectId?: string;
     workspaceId?: string;
     name?: string;
+    domain?: string;
 }
 
 export function readEnvFile(filename: string, cwd: string): Record<string, string> {
@@ -131,13 +135,17 @@ async function detectGitRemote(cwd: string): Promise<string> {
 }
 
 /**
- * The project id that makes collaboration work. `lasso init` writes it;
+ * The project identity that makes collaboration work. `lasso init` writes it;
  * `lasso dev` reads it and validates it server-side against the API key's workspace.
+ * `domain` (the local `.lasso` Host domain) is optional and local-only.
  */
-export function readProjectConfig(cwd: string): { id: string; source: string } | null {
+export function readProjectConfig(cwd: string): { id: string; source: string; domain?: string } | null {
     const direct = readJson(path.join(cwd, LASSO_CONFIG_FILE));
     const directId = direct && typeof direct.id === "string" ? direct.id.trim() : "";
-    if (directId) return { id: directId, source: LASSO_CONFIG_FILE };
+    if (directId) {
+        const domain = direct && typeof direct.domain === "string" ? direct.domain.trim() : undefined;
+        return { id: directId, source: LASSO_CONFIG_FILE, domain: domain || undefined };
+    }
 
     // Transitional: honor the legacy state file until a fresh `lasso init` is run.
     const legacy = readJson(path.join(cwd, PROJECT_STATE_FILE));
@@ -194,9 +202,11 @@ function promptForApiKey(): Promise<string | null> {
 }
 
 /**
- * `lasso init` — creates (or re-registers) the project in the API key's workspace and
- * writes `lasso.config.json` with the project id. Only `{ "id": "proj_…" }` is stored;
- * the API key never touches this file.
+ * `lasso init` — creates (or re-registers) the project in the API key's workspace,
+ * writes `lasso.config.json` with the project id and its local `.lasso` Host domain,
+ * and registers the domain with Lasso Host (or the local registry if Host isn't
+ * running). Only `{ "id": "proj_…", "domain": "….lasso" }` is stored — the API key
+ * never touches this file.
  */
 export async function initProject(cwd: string, fileEnv: Record<string, string>): Promise<InitResult> {
     const realtimeUrl = realtimeUrlFrom(fileEnv).replace(/\/$/, "");
@@ -242,13 +252,19 @@ export async function initProject(cwd: string, fileEnv: Record<string, string>):
             return { ok: false, error: "The server did not return a project id." };
         }
 
-        fs.writeFileSync(path.join(cwd, LASSO_CONFIG_FILE), JSON.stringify({ id: projectId }, null, 2) + "\n");
+        const registry = loadRegistry();
+        const existing = findByDirectory(registry, cwd);
+        const domain = existing ? existing.domain : generateUniqueDomain(cwd, registry);
+        await registerWithHost(domain, cwd, projectId, hostProxyPort(fileEnv));
+
+        fs.writeFileSync(path.join(cwd, LASSO_CONFIG_FILE), JSON.stringify({ id: projectId, domain }, null, 2) + "\n");
 
         return {
             ok: true,
             projectId,
             workspaceId: body.project?.workspaceId,
             name: body.project?.name || name,
+            domain,
         };
     } catch (error) {
         const reason = error instanceof Error ? error.message : "request failed";

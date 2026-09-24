@@ -11,6 +11,7 @@ import { acquireOwnership, releaseHeldLock, updateLockChip } from "../collab/loc
 import { collabEmit, sendPresenceUpdate } from "../collab/socket";
 import { renderRemoteBoxes } from "../collab/presence";
 import { renderComments } from "../comments/pins";
+import { LASSO_ICON_DATA_URL } from "../icons/lasso";
 import type { ModelOption, PendingChange, ScreenshotContext } from "../types";
 
 let promptEl: HTMLDivElement | null = null;
@@ -55,27 +56,9 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
   el.innerHTML = `
     <div class="lasso-prompt-card">
       <div class="lasso-prompt-top">
-        <div class="lasso-prompt-ai">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="url(#lasso-ai-grad)">
-            <defs>
-              <linearGradient id="lasso-ai-grad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0" stop-color="#c084fc"/>
-                <stop offset="0.55" stop-color="#818cf8"/>
-                <stop offset="1" stop-color="#60a5fa"/>
-              </linearGradient>
-            </defs>
-            <path d="M12 2l1.9 5.9 5.9 1.9-5.9 1.9L12 17.6l-1.9-5.9L4.2 9.8l5.9-1.9L12 2z"/>
-          </svg>
-        </div>
-
-        <div class="lasso-prompt-model-wrap">
-          <button class="lasso-prompt-model" type="button" aria-label="Choose model">
-            <span class="lasso-prompt-model-name"></span>
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M6 9l6 6 6-6"/>
-            </svg>
-          </button>
-          <div class="lasso-prompt-model-menu" hidden></div>
+        <div class="lasso-prompt-brand">
+          <img class="lasso-prompt-brand-logo" src="${LASSO_ICON_DATA_URL}" alt="Lasso" />
+          <span class="lasso-prompt-brand-title">Ask Lasso</span>
         </div>
 
         <span class="lasso-prompt-element">
@@ -93,9 +76,20 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
       <div class="lasso-chat-thread" aria-live="polite"></div>
 
       <div class="lasso-agent-status" hidden aria-live="polite">
-        <span class="lasso-agent-status-dot"></span>
-        <span class="lasso-agent-status-kicker">Lasso agent</span>
-        <span class="lasso-agent-status-message"></span>
+        <div class="lasso-agent-terminal-header">
+          <div class="lasso-agent-terminal-dots">
+            <span class="lasso-dot-red"></span>
+            <span class="lasso-dot-yellow"></span>
+            <span class="lasso-dot-green"></span>
+          </div>
+          <span class="lasso-agent-status-kicker">lasso-agent</span>
+          <span class="lasso-agent-status-badge">active</span>
+        </div>
+        <div class="lasso-agent-status-line">
+          <span class="lasso-agent-terminal-prompt">❯</span>
+          <span class="lasso-agent-status-message"></span>
+          <span class="lasso-agent-cursor"></span>
+        </div>
         <div class="lasso-agent-log" aria-label="Agent activity"></div>
       </div>
 
@@ -110,17 +104,29 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
               <path d="M12 3v12"/>
             </svg>
           </button>
+
           <button class="lasso-prompt-voice" type="button" disabled aria-label="Voice mode coming soon" title="Voice mode coming soon">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></svg>
           </button>
+
+          <div class="lasso-prompt-model-wrap">
+            <button class="lasso-prompt-model" type="button" aria-label="Choose model">
+              <span class="lasso-prompt-model-name"></span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </button>
+            <div class="lasso-prompt-model-menu" hidden></div>
+          </div>
         </div>
+
         <div class="lasso-prompt-icon-group">
           <button class="lasso-prompt-stop" type="button" hidden aria-label="Stop agent">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
           </button>
           <button class="lasso-prompt-send" type="button" aria-label="Send edit request">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M7 7h10v10M7 17L17 7"/>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14M12 5l7 7-7 7"/>
             </svg>
             <span>Send</span>
           </button>
@@ -200,6 +206,7 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
   });
 
   modelMenu.addEventListener("click", (event) => {
+    event.stopPropagation();
     const filter = (event.target as HTMLElement).closest<HTMLButtonElement>(".lasso-model-filter");
     if (filter?.dataset.providerFilter) {
       state.modelFilter = filter.dataset.providerFilter as typeof state.modelFilter;
@@ -375,13 +382,21 @@ export function setAgentStatus(status: "thinking" | "working" | "review" | "erro
   agentStatusElement.dataset.status = status;
   agentStatusMessage.textContent = message;
 
+  const badgeEl = agentStatusElement.querySelector<HTMLSpanElement>(".lasso-agent-status-badge");
+  if (badgeEl) {
+    badgeEl.textContent = status === "thinking" ? "thinking" : status === "working" ? "executing" : status;
+    badgeEl.className = `lasso-agent-status-badge ${status}`;
+  }
+
   state.agentRunning = status === "thinking" || status === "working";
 
   if (state.agentRunning && agentLogElement && agentLogElement.lastElementChild?.textContent !== message) {
     const line = document.createElement("div");
-    line.textContent = `› ${message}`;
+    line.className = "lasso-agent-log-line";
+    line.innerHTML = `<span class="lasso-agent-log-prefix">›</span> <span class="lasso-agent-log-text">${escapeHtml(message)}</span>`;
     agentLogElement.appendChild(line);
-    while (agentLogElement.children.length > 4) agentLogElement.firstElementChild?.remove();
+    while (agentLogElement.children.length > 5) agentLogElement.firstElementChild?.remove();
+    agentLogElement.scrollTop = agentLogElement.scrollHeight;
   }
 
   sendButton.classList.toggle("loading", state.agentRunning);
@@ -398,6 +413,12 @@ export function setAgentStatus(status: "thinking" | "working" | "review" | "erro
   if (status === "review" || status === "error" || status === "stopped") {
     appendChat(status === "error" ? "error" : "assistant", message);
   }
+}
+
+function escapeHtml(text: string): string {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 export function resetAgentState() {

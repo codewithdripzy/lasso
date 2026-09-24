@@ -176,6 +176,29 @@ Point the overlay at a different realtime server with any of
 
 ---
 
+## Local domains with Lasso Host
+
+`lasso init` also gives every project a stable local URL. It writes
+`{ "id": "proj_…", "domain": "app.lasso" }` and registers the domain, so the
+project is served at `http://app.lasso:<port>` without manually starting a dev
+server:
+
+- `lasso daemon` — start/stop/restart/status the background host (reverse
+  HTTP **and WebSocket/HMR** proxy to your project's dev server on `*.lasso`
+  domains, loopback-only, single instance).
+- `lasso register [domain]` — register the current directory under a `.lasso`
+  domain (reuse, generate, or change one); never duplicates.
+- `lasso projects` — list registered domains and running state.
+- `lasso daemon install/uninstall` — attach a macOS LaunchAgent (auto-start on
+  login) and configure the system DNS resolver so bare `app.lasso` works.
+
+The Host answers `*.lasso → 127.0.0.1` itself (small local DNS responder),
+starts a stopped project's dev server on first traffic (Vite/Next), proxies it,
+and refuses any non-`.lasso` host. Registration state lives in
+`~/.lasso/host/registry.json`.
+
+---
+
 ## Supported frameworks
 
 | Framework | Status |

@@ -5,6 +5,8 @@ import { closePinCompose } from "../comments/compose";
 import { closePinThread } from "../comments/thread";
 import { toggleVoice, leaveVoice, setVoiceMuted } from "../collab/voice";
 import { toggleGitPanel } from "../git/git";
+import { toggleTodoPanel } from "../todo/todo";
+import { toggleNotepadPanel } from "../notepad/notepad";
 
 export function setCommentMode(active: boolean) {
   state.commentMode = active;
@@ -35,6 +37,7 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
       </svg>
       <span class="lasso-tool-label">Select</span>
     </button>
+
     <button class="lasso-tool-btn comment-tool" type="button" aria-label="Drop a comment pin" title="Comment">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
@@ -42,14 +45,34 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
       <span class="lasso-tool-label">Comment</span>
       <i class="lasso-comments-badge"></i>
     </button>
+
     <div class="lasso-tb-sep"></div>
+
     <button class="lasso-tool-btn git-tool" type="button" aria-label="Git actions" title="Git workspace">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="m9 7-5 5 5 5"/>
-        <path d="m15 7 5 5-5 5"/>
-        <path d="m14 4-4 16"/>
+        <line x1="6" y1="3" x2="6" y2="15"/>
+        <circle cx="18" cy="6" r="3"/>
+        <circle cx="6" cy="18" r="3"/>
+        <path d="M18 9a9 9 0 0 1-9 9"/>
       </svg>
     </button>
+
+    <button class="lasso-tool-btn todo-tool" type="button" aria-label="Todo checklist" title="Tasks & Todo">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M9 11l3 3L22 4"/>
+        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+      </svg>
+    </button>
+
+    <button class="lasso-tool-btn notepad-tool" type="button" aria-label="Notepad" title="Scratchpad & Notes">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+      </svg>
+    </button>
+
     <button class="lasso-tool-btn voice-tool" type="button" aria-label="Voice chat" title="Voice chat">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
@@ -58,11 +81,14 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
         <line x1="8" y1="23" x2="16" y2="23"/>
       </svg>
     </button>
-    <div class="lasso-presence">
+
+    <div class="lasso-presence" style="display: none;">
       <div class="lasso-presence-avatars"></div>
       <span class="lasso-presence-count"></span>
     </div>
+
     <div class="lasso-tb-sep"></div>
+
     <button class="lasso-toolbar-dismiss" type="button" aria-label="Hide Lasso toolbar" title="Hide toolbar">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
         <path d="M18 6L6 18M6 6l12 12"/>
@@ -103,6 +129,8 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
   const selectBtn = toolbar.querySelector<HTMLButtonElement>(".select-tool")!;
   const commentBtn = toolbar.querySelector<HTMLButtonElement>(".comment-tool")!;
   const gitBtn = toolbar.querySelector<HTMLButtonElement>(".git-tool")!;
+  const todoBtn = toolbar.querySelector<HTMLButtonElement>(".todo-tool")!;
+  const notepadBtn = toolbar.querySelector<HTMLButtonElement>(".notepad-tool")!;
   const voiceBtn = toolbar.querySelector<HTMLButtonElement>(".voice-tool")!;
   const dismissBtn = toolbar.querySelector<HTMLButtonElement>(".lasso-toolbar-dismiss")!;
 
@@ -124,6 +152,18 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
     e.preventDefault();
     e.stopPropagation();
     toggleGitPanel();
+  });
+
+  todoBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleTodoPanel();
+  });
+
+  notepadBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleNotepadPanel();
   });
 
   voiceBtn.addEventListener("click", (e) => {

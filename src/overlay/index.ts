@@ -12,6 +12,8 @@ import { buildPinCompose, openPinCompose, closePinCompose, isPinComposeOpen } fr
 import { buildPinThread, closePinThread, isPinThreadOpen } from "./comments/thread";
 import { renderCommentPins } from "./comments/pins";
 import { buildGitPanel } from "./git/git";
+import { buildTodoPanel } from "./todo/todo";
+import { buildNotepadPanel } from "./notepad/notepad";
 import {
   buildPrompt,
   openPromptForSelected,
@@ -41,6 +43,8 @@ export function init() {
   buildPinCompose();
   buildPinThread();
   buildGitPanel();
+  buildTodoPanel();
+  buildNotepadPanel();
   buildPrompt();
 
   // Connect local bridge & collab

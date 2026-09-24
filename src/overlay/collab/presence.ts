@@ -136,6 +136,11 @@ export function renderPresence() {
     avatarsEl.appendChild(av);
   }
 
+  const presenceEl = dom.shadow.querySelector<HTMLDivElement>(".lasso-presence");
+  if (presenceEl) {
+    presenceEl.style.display = (others.length > 0 || offline) ? "flex" : "none";
+  }
+
   if (offline) countEl.textContent = "· offline";
   else if (others.length > 6) countEl.textContent = `+${others.length - 6}`;
   else countEl.textContent = "";

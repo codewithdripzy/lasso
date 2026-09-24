@@ -11,6 +11,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Open-source documentation: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
   `SECURITY.md`, `SUPPORT.md`, `LICENSE` (ISC), and this changelog.
+- **Lasso Host** (`src/cli/host/`) — a user-level local domain server + runtime
+  that serves registered projects through `*.lasso` domains. New commands:
+  - `lasso daemon [start|status|stop|restart|install|uninstall]` — background
+    single-instance daemon (reverse HTTP **and WebSocket/HMR proxy**), persistent
+    project registry at `~/.lasso/host/registry.json`, always-bound `127.0.0.1`.
+    `install` adds a macOS LaunchAgent (auto-start at login) and configures the
+    local DNS resolver (`/etc/resolver/lasso` via `sudo`); `uninstall` reverses it.
+  - `lasso register [domain]` — register the current project under a `.lasso`
+    domain (or reuse/generate one), syncs `lasso.config.json`, and replaces the
+    previous domain when it changes. Re-registering never creates duplicates.
+  - `lasso projects` — list registered domains with running/stopped state.
+  - `lasso init` now also generates a unique local domain (derived from the
+    project directory name), registers it with Lasso Host, and writes
+    `{ "id": "proj_…", "domain": "app.lasso" }`.
+  - Auto-start on traffic: a request to a stopped project starts its dev server
+    (Vite launched programmatically with `.lasso` allow-listed, Next dev via
+    `next dev --port`), waits for readiness, then proxies — no manual
+    `npm run dev`. Crashing projects are guarded (no runaway restarts).
+  - DNS: a tiny UDP responder answers `*.lasso → 127.0.0.1` (NXDOMAIN outside
+    the namespace); the platform resolver abstraction covers macOS
+    (`/etc/resolver/lasso`), Linux (systemd-resolved split-DNS), and Windows
+    (per-domain hosts entries, best-effort). No API keys or arbitrary paths are
+    exposed — only registered domains are proxied.
 - **`lasso auth` command group**: `lasso auth login` (browser OAuth — the CLI
   prints/opens a verification URL, the logged-in dashboard user confirms, and the
   CLI stores the minted API key in `~/.lasso/credentials.json` at `0600`),

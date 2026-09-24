@@ -13,8 +13,8 @@ below — it's what separates a real dev tool from a demo that only works on sta
 ```
 src/
   cli/                    # the Node CLI (the coordinator)
-    index.ts              # entry point: `lasso` / `lasso dev`, framework detection dispatch
-    project.ts            # project identity: `lasso init` registration (writes `lasso.config.json`), `lasso dev` session resolution
+    index.ts              # entry point: `lasso` / `lasso dev`, framework detection dispatch, `daemon`/`projects`/`register`
+    project.ts            # project identity: `lasso init` (writes `{id, domain}`), `lasso dev` session resolution
     auth.ts               # `lasso auth`: browser-OAuth login, credential store (~/.lasso/credentials.json), status, logout
     bridge.ts             # WebSocket bridge the overlay connects to
     server/
@@ -22,6 +22,15 @@ src/
       next.ts             # Next.js dev server integration (React _debugSource)
     utils/
       framework.ts        # framework/bundler detection
+    host/                 # Lasso Host: user-level local domains + app hosting
+      paths.ts            # host dir (~/.lasso/host), registry/pid/log paths, ports, the `.lasso` TLD
+      registry.ts         # domain → {projectId, directory} persistence (atomic, 0600), unique-domain generation
+      runtime.ts          # auto-start dev servers (Vite/Next), readiness polling, port picking
+      dns.ts              # UDP responder (*.lasso → 127.0.0.1, NXDOMAIN outside) + per-OS resolver config
+      daemon.ts           # the background host: HTTP+WS proxy, /_host/* control API, single-instance, crash guard
+      client.ts           # CLI-side helpers: health, registry read/register, stop/restart
+      install.ts          # `lasso daemon install/uninstall`, LaunchAgent, daemon spawn/status
+      vite-host-entry.js  # programmatic Vite with `.lasso` allow-listed (Vite rejects unknown Host headers)
   overlay/
     index.ts              # browser-side overlay (single file, bundled to dist/overlay.js)
                           # also hosts the realtime client: presence, locks, comments, voice
@@ -244,7 +253,41 @@ read from `document.cookie` as a fallback. That works on `localhost` because
 cookie-origin and realtime-server-origin are same-site; production deployments keep
 both on the same registrable domain (documented in the collab-server README).
 
-## 8. Open questions for v1
+## 8. Lasso Host (local domains + app hosting)
+
+Lasso Host turns every project into a first-class local URL. `lasso init` now also
+generates a stable unique domain for the project (`{ "id": "proj_…", "domain": "…" }`),
+so `http://app.lasso` maps to that project — no remembering ports, no manual
+`npm run dev`.
+
+- **Daemon**: `lasso daemon` starts a single-instance background process
+  (pid-guarded by holding the proxy port; extra invocations fail with
+  "already running"). Control endpoints under `/_host/*` (health, registry,
+  register, unregister, stop, restart). Logs to `~/.lasso/host/daemon.log`.
+- **Proxy**: binds `127.0.0.1` only. Any request with a `*.lasso` Host header is
+  resolved through the registry and reverse-proxied to that project's dev server;
+  non-`.lasso` hosts get a 404, so nothing outside the namespace is served.
+  WebSocket upgrades (HMR) pass through the same path.
+- **Auto-start**: a request to a stopped project spawns its dev server and waits
+  for readiness before proxying. Vite is launched programmatically
+  (`vite-host-entry.js`) with `*.lasso` allow-listed because Vite rejects unknown
+  Host headers; Next runs via `next dev --port`. Unknown frameworks report a clear
+  error rather than blindly running `npm run dev`. A crash guard stops restarts
+  after repeated immediate crashes.
+- **DNS**: `*.lasso` resolves to `127.0.0.1` via a tiny UDP responder (A record;
+  NXDOMAIN outside the namespace). Platform config behind a `DomainResolver`
+  interface: macOS `/etc/resolver/lasso` (the only `sudo` step; the responder's
+  port is otherwise unprivileged), Linux systemd-resolved split-DNS, and Windows
+  hosts entries. The proxy runs on a high port (4377), so registered URLs are
+  shown as `http://app.lasso:4377` unless DNS is installed.
+- **Registry**: `~/.lasso/host/registry.json` (atomic write, `0600`) maps
+  domain → `{ projectId, directory, registeredAt }`. `lasso register` reuses an
+  existing registration for the same directory, never duplicates, and migrates
+  the old domain when a new one is given (also rewriting `lasso.config.json`).
+- **Trust**: no API keys or source paths in project config; only registered
+  domains proxy; the daemon listens on loopback by default.
+
+## 9. Open questions for v1
 
 - Exact context window budget per request (full file vs. just the referenced function).
 - Whether the diff-preview UI lives in the browser overlay only, or also as a terminal
@@ -253,7 +296,7 @@ both on the same registrable domain (documented in the collab-server README).
   Claude Code subscription.
 - Extending source resolution beyond Vite and Next.js (Webpack/CRA/Angular).
 
-## 9. Trust model
+## 10. Trust model
 
 - **Telemetry-free by default.** Nothing about a user's source code leaves their machine
   except what's explicitly sent to whichever agent they've configured.

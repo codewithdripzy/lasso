@@ -2,6 +2,8 @@ import { hostTokensCss } from "./tokens";
 
 export function buildStyles(): string {
   return `
+    @import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600&family=Google+Sans+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
     :host {
       all: initial !important;
       display: block !important;
@@ -721,12 +723,14 @@ export function buildStyles(): string {
     /* Pin Compose Popover */
     .lasso-pin-compose {
       position: fixed;
-      width: 260px;
-      padding: 12px;
-      border-radius: var(--lo-radius-lg);
-      background: var(--lo-surface);
+      width: 290px;
+      padding: 14px;
+      border-radius: var(--lo-radius-xl);
+      background: rgba(24, 25, 29, 0.98);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
       border: 1px solid var(--lo-border);
-      box-shadow: var(--lo-shadow-card);
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
       z-index: 12;
       pointer-events: auto;
       opacity: 0;
@@ -747,25 +751,50 @@ export function buildStyles(): string {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
+    }
+
+    .lasso-pin-compose-user {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .lasso-pin-compose-avatar {
+      width: 20px;
+      height: 20px;
+      border-radius: var(--lo-radius-full);
+      background: var(--lo-indigo);
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 600;
     }
 
     .lasso-pin-compose-name {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--lo-text-2);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--lo-text);
+    }
+
+    .lasso-pin-compose-hint {
+      font-size: 10px;
+      color: var(--lo-text-3);
     }
 
     .lasso-pin-compose textarea {
       width: 100%;
-      min-height: 60px;
+      min-height: 64px;
       padding: 8px 10px;
       border-radius: var(--lo-radius-md);
       background: var(--lo-surface-2);
       border: 1px solid var(--lo-border);
       color: var(--lo-text);
+      font-family: inherit;
       font-size: 13px;
-      line-height: 1.4;
+      line-height: 1.45;
       resize: none;
       outline: none;
       transition: border-color 140ms ease;
@@ -779,20 +808,160 @@ export function buildStyles(): string {
       color: var(--lo-text-3);
     }
 
+    /* Attachment preview */
+    .lasso-pin-attachment-preview {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      padding: 6px 8px;
+      border-radius: var(--lo-radius-md);
+      background: var(--lo-surface-hover);
+      border: 1px solid var(--lo-border-subtle);
+    }
+
+    .lasso-pin-attachment-preview[hidden] {
+      display: none;
+    }
+
+    .lasso-pin-attachment-thumb {
+      width: 28px;
+      height: 28px;
+      border-radius: 4px;
+      overflow: hidden;
+      flex-shrink: 0;
+      background: #000;
+    }
+
+    .lasso-pin-attachment-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .lasso-pin-attachment-name {
+      font-size: 11px;
+      color: var(--lo-text-2);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+
+    .lasso-pin-attachment-remove {
+      border: 0;
+      background: transparent;
+      color: var(--lo-text-3);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 2px 4px;
+    }
+
+    .lasso-pin-attachment-remove:hover {
+      color: var(--lo-error);
+    }
+
+    /* Quick GIF picker */
+    .lasso-pin-gif-picker {
+      margin-top: 8px;
+      padding: 8px;
+      border-radius: var(--lo-radius-md);
+      background: var(--lo-surface-2);
+      border: 1px solid var(--lo-border);
+    }
+
+    .lasso-pin-gif-picker[hidden] {
+      display: none;
+    }
+
+    .lasso-pin-gif-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--lo-text-2);
+    }
+
+    .lasso-pin-gif-close {
+      border: 0;
+      background: transparent;
+      color: var(--lo-text-3);
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .lasso-pin-gif-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 5px;
+    }
+
+    .lasso-pin-gif-item {
+      padding: 5px 6px;
+      border: 1px solid var(--lo-border-subtle);
+      border-radius: var(--lo-radius-sm);
+      background: var(--lo-surface);
+      color: var(--lo-text-2);
+      font-size: 10.5px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: center;
+      transition: all 120ms ease;
+    }
+
+    .lasso-pin-gif-item:hover {
+      background: var(--lo-primary-soft);
+      color: var(--lo-primary);
+      border-color: var(--lo-primary);
+    }
+
+    /* Footer actions */
+    .lasso-pin-compose-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 10px;
+    }
+
+    .lasso-pin-compose-tools {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .lasso-pin-tool-btn {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--lo-radius-md);
+      border: 0;
+      background: transparent;
+      color: var(--lo-text-3);
+      cursor: pointer;
+      transition: all 120ms ease;
+    }
+
+    .lasso-pin-tool-btn:hover {
+      background: var(--lo-surface-hover);
+      color: var(--lo-text);
+    }
+
     .lasso-pin-compose-actions {
       display: flex;
-      justify-content: flex-end;
       gap: 6px;
-      margin-top: 8px;
     }
 
     .lasso-pin-compose-actions button {
       min-height: 28px;
       padding: 0 12px;
-      border-radius: var(--lo-radius-md);
+      border-radius: var(--lo-radius-full);
       border: 0;
       font-size: 12px;
-      font-weight: 600;
+      font-weight: 500;
       cursor: pointer;
       transition: background 120ms ease, transform 120ms ease;
     }
@@ -820,15 +989,17 @@ export function buildStyles(): string {
     /* Pin Thread Popover */
     .lasso-pin-thread {
       position: fixed;
-      width: 290px;
-      max-height: 400px;
+      width: 310px;
+      max-height: 440px;
       display: flex;
       flex-direction: column;
-      padding: 12px;
-      border-radius: var(--lo-radius-lg);
-      background: var(--lo-surface);
+      padding: 14px;
+      border-radius: var(--lo-radius-xl);
+      background: rgba(24, 25, 29, 0.98);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
       border: 1px solid var(--lo-border);
-      box-shadow: var(--lo-shadow-card);
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
       z-index: 12;
       pointer-events: auto;
       opacity: 0;
@@ -849,37 +1020,77 @@ export function buildStyles(): string {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--lo-border-subtle);
     }
 
-    .lasso-pin-thread-status {
-      font-size: 11px;
-      font-weight: 700;
-      padding: 2px 8px;
+    .lasso-pin-thread-head-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* PM-style Status Chip */
+    .lasso-pin-thread-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
       border-radius: var(--lo-radius-full);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      border: 1px solid transparent;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      user-select: none;
+      transition: all 140ms ease;
     }
 
-    .lasso-pin-thread-status.open {
-      background: rgba(110, 160, 255, 0.15);
-      color: var(--lo-primary);
+    .lasso-pin-chip-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
     }
 
-    .lasso-pin-thread-status.resolved {
-      background: rgba(129, 201, 149, 0.15);
-      color: var(--lo-success);
+    .lasso-pin-thread-chip.open {
+      background: rgba(99, 102, 241, 0.14);
+      color: #818cf8;
+      border-color: rgba(99, 102, 241, 0.25);
+    }
+
+    .lasso-pin-thread-chip.open .lasso-pin-chip-dot {
+      background: #818cf8;
+      box-shadow: 0 0 6px rgba(129, 140, 248, 0.6);
+    }
+
+    .lasso-pin-thread-chip.resolved {
+      background: rgba(16, 185, 129, 0.14);
+      color: #34d399;
+      border-color: rgba(16, 185, 129, 0.25);
+    }
+
+    .lasso-pin-thread-chip.resolved .lasso-pin-chip-dot {
+      background: #34d399;
+      box-shadow: 0 0 6px rgba(52, 211, 153, 0.6);
+    }
+
+    .lasso-pin-thread-chip:hover {
+      filter: brightness(1.15);
+      transform: translateY(-0.5px);
     }
 
     .lasso-pin-thread-close {
+      width: 24px;
+      height: 24px;
       border: 0;
       background: transparent;
       color: var(--lo-text-3);
-      font-size: 18px;
-      line-height: 1;
       cursor: pointer;
       border-radius: var(--lo-radius-sm);
-      padding: 2px 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .lasso-pin-thread-close:hover {
@@ -890,37 +1101,37 @@ export function buildStyles(): string {
     .lasso-pin-thread-msgs {
       flex: 1;
       overflow-y: auto;
-      max-height: 220px;
+      max-height: 240px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 12px;
       padding-right: 4px;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
 
     .lasso-pin-thread-msg-row {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 7px;
       margin-bottom: 4px;
     }
 
     .lasso-pin-thread-avatar {
-      width: 20px;
-      height: 20px;
+      width: 22px;
+      height: 22px;
       border-radius: var(--lo-radius-full);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 9px;
-      font-weight: 700;
+      font-size: 10px;
+      font-weight: 600;
       color: #ffffff;
       flex-shrink: 0;
     }
 
     .lasso-pin-thread-author {
-      font-size: 11px;
-      font-weight: 600;
+      font-size: 11.5px;
+      font-weight: 500;
       color: var(--lo-text);
     }
 
@@ -931,15 +1142,31 @@ export function buildStyles(): string {
     }
 
     .lasso-pin-thread-body {
-      font-size: 12px;
+      font-size: 12.5px;
       line-height: 1.45;
       color: var(--lo-text-2);
-      padding-left: 26px;
+      padding-left: 29px;
       word-break: break-word;
     }
 
+    .lasso-pin-msg-image {
+      margin-top: 6px;
+      border-radius: 6px;
+      overflow: hidden;
+      max-width: 100%;
+      border: 1px solid var(--lo-border-subtle);
+    }
+
+    .lasso-pin-msg-image img {
+      max-width: 100%;
+      max-height: 160px;
+      display: block;
+      object-fit: cover;
+    }
+
     .lasso-pin-thread-reply-area {
-      padding-top: 4px;
+      padding-top: 6px;
+      border-top: 1px solid var(--lo-border-subtle);
     }
 
     .lasso-pin-thread-reply-area textarea {
@@ -950,6 +1177,7 @@ export function buildStyles(): string {
       background: var(--lo-surface-2);
       border: 1px solid var(--lo-border);
       color: var(--lo-text);
+      font-family: inherit;
       font-size: 12px;
       line-height: 1.4;
       resize: none;
@@ -967,15 +1195,21 @@ export function buildStyles(): string {
       margin-top: 6px;
     }
 
-    .lasso-pin-resolve {
-      border: 0;
-      background: transparent;
+    .lasso-pin-reply-hint {
+      font-size: 10px;
       color: var(--lo-text-3);
+    }
+
+    .lasso-pin-resolve {
+      border: 1px solid var(--lo-border);
+      background: transparent;
+      color: var(--lo-text-2);
       font-size: 11px;
-      font-weight: 600;
+      font-weight: 500;
       cursor: pointer;
-      padding: 4px 6px;
+      padding: 3px 8px;
       border-radius: var(--lo-radius-sm);
+      transition: all 120ms ease;
     }
 
     .lasso-pin-resolve:hover {
@@ -985,13 +1219,14 @@ export function buildStyles(): string {
 
     .lasso-pin-reply-post {
       border: 0;
-      border-radius: var(--lo-radius-md);
+      border-radius: var(--lo-radius-full);
       background: var(--lo-primary);
       color: #111214;
-      font-size: 11px;
-      font-weight: 600;
-      padding: 5px 12px;
+      font-size: 11.5px;
+      font-weight: 550;
+      padding: 5px 14px;
       cursor: pointer;
+      transition: all 140ms ease;
     }
 
     .lasso-pin-reply-post:hover {
@@ -1054,8 +1289,8 @@ export function buildStyles(): string {
     .lasso-prompt-top {
       display: flex;
       align-items: center;
-      gap: 8px;
-      margin-bottom: 10px;
+      gap: 10px;
+      margin-bottom: 12px;
       cursor: grab;
       touch-action: none;
     }
@@ -1064,13 +1299,26 @@ export function buildStyles(): string {
       cursor: grabbing;
     }
 
-    .lasso-prompt-ai {
-      width: 24px;
-      height: 24px;
-      display: flex;
+    .lasso-prompt-brand {
+      display: inline-flex;
       align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
+      gap: 7px;
+      padding: 2px 4px;
+      user-select: none;
+    }
+
+    .lasso-prompt-brand-logo {
+      width: 20px;
+      height: 20px;
+      object-fit: contain;
+      filter: drop-shadow(0 2px 6px rgba(110, 160, 255, 0.4));
+    }
+
+    .lasso-prompt-brand-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--lo-text);
+      letter-spacing: -0.01em;
     }
 
     .lasso-prompt-model-wrap {
@@ -1078,38 +1326,41 @@ export function buildStyles(): string {
     }
 
     .lasso-prompt-model {
-      height: 26px;
+      height: 28px;
       display: flex;
       align-items: center;
-      gap: 5px;
-      padding: 0 9px;
+      gap: 6px;
+      padding: 0 10px;
       border: 1px solid var(--lo-border);
       border-radius: var(--lo-radius-full);
       background: var(--lo-surface-2);
-      color: var(--lo-text);
+      color: var(--lo-text-2);
       font-family: inherit;
       font-size: 11px;
-      font-weight: 600;
+      font-weight: 500;
       cursor: pointer;
-      transition: background 120ms ease, border-color 120ms ease;
+      transition: all 140ms ease;
     }
 
     .lasso-prompt-model:hover {
       background: var(--lo-surface-hover);
-      border-color: var(--lo-primary);
+      color: var(--lo-text);
+      border-color: rgba(255, 255, 255, 0.2);
     }
 
     .lasso-prompt-model-menu {
       position: absolute;
-      top: calc(100% + 6px);
+      bottom: calc(100% + 8px);
       left: 0;
-      min-width: 190px;
-      padding: 4px;
-      background: var(--lo-surface-elevated);
+      min-width: 210px;
+      padding: 6px;
+      background: rgba(24, 25, 29, 0.98);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
       border: 1px solid var(--lo-border);
-      border-radius: var(--lo-radius-md);
-      box-shadow: var(--lo-shadow-card);
-      z-index: 20;
+      border-radius: var(--lo-radius-lg);
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
+      z-index: 30;
     }
 
     .lasso-prompt-model-menu[hidden] {
@@ -1119,18 +1370,21 @@ export function buildStyles(): string {
     .lasso-model-filters {
       display: flex;
       gap: 4px;
-      padding: 4px;
+      padding: 2px 2px 6px;
       border-bottom: 1px solid var(--lo-border-subtle);
+      margin-bottom: 4px;
     }
 
     .lasso-model-filter {
       border: 0;
       border-radius: var(--lo-radius-sm);
-      padding: 4px 7px;
+      padding: 4px 8px;
       background: transparent;
       color: var(--lo-text-3);
-      font: 600 10px/1 inherit;
+      font-size: 11px;
+      font-weight: 500;
       cursor: pointer;
+      transition: all 120ms ease;
     }
 
     .lasso-model-filter:hover,
@@ -1140,12 +1394,12 @@ export function buildStyles(): string {
     }
 
     .lasso-model-group {
-      padding: 7px 9px 3px;
+      padding: 6px 10px 3px;
       color: var(--lo-text-3);
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: .06em;
-      text-transform: uppercase;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: normal;
+      text-transform: none;
     }
 
     .lasso-model-item-icon,
@@ -1156,7 +1410,7 @@ export function buildStyles(): string {
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
-      border-radius: var(--lo-radius-sm);
+      border-radius: 4px;
       overflow: hidden;
     }
 
@@ -1168,15 +1422,15 @@ export function buildStyles(): string {
     }
 
     .lasso-model-active-icon {
-      width: 14px;
-      height: 14px;
+      width: 13px;
+      height: 13px;
       margin-right: 5px;
       vertical-align: -2px;
     }
 
-    .provider-google { background: rgba(110, 160, 255, 0.16); color: #6ea0ff; }
-    .provider-openai { background: rgba(22, 131, 91, 0.16); color: #10b981; }
-    .provider-anthropic { background: rgba(245, 158, 11, 0.16); color: #f59e0b; }
+    .provider-google { background: rgba(110, 160, 255, 0.14); color: #6ea0ff; }
+    .provider-openai { background: rgba(22, 131, 91, 0.14); color: #10b981; }
+    .provider-anthropic { background: rgba(245, 158, 11, 0.14); color: #f59e0b; }
     .provider-ollama { background: rgba(255, 255, 255, 0.08); color: var(--lo-text-2); }
 
     .lasso-prompt-model-item {
@@ -1185,14 +1439,14 @@ export function buildStyles(): string {
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      padding: 7px 9px;
+      padding: 6px 10px;
       border: 0;
-      border-radius: var(--lo-radius-sm);
+      border-radius: var(--lo-radius-md);
       background: transparent;
       color: var(--lo-text);
       font-family: inherit;
       font-size: 12px;
-      font-weight: 500;
+      font-weight: 450;
       text-align: left;
       cursor: pointer;
       transition: background 120ms ease;
@@ -1224,18 +1478,22 @@ export function buildStyles(): string {
       display: inline-flex;
       align-items: center;
       gap: 5px;
+      padding: 2px 7px;
+      background: var(--lo-surface-2);
+      border-radius: var(--lo-radius-sm);
+      border: 1px solid var(--lo-border-subtle);
     }
 
     .lasso-prompt-element svg {
-      width: 13px;
-      height: 13px;
+      width: 12px;
+      height: 12px;
       flex-shrink: 0;
       color: var(--lo-primary);
     }
 
     .lasso-prompt-close {
-      width: 26px;
-      height: 26px;
+      width: 24px;
+      height: 24px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -1255,17 +1513,17 @@ export function buildStyles(): string {
 
     .lasso-prompt-input {
       width: 100%;
-      min-height: 60px;
+      min-height: 56px;
       max-height: 140px;
-      padding: 6px 8px 10px;
+      padding: 6px 8px 8px;
       resize: none;
       border: 0;
       outline: none;
       background: transparent;
       color: var(--lo-text);
       font-family: inherit;
-      font-size: 14px;
-      line-height: 22px;
+      font-size: 13.5px;
+      line-height: 20px;
     }
 
     .lasso-prompt-input::placeholder {
@@ -1276,26 +1534,26 @@ export function buildStyles(): string {
       display: flex;
       flex-direction: column;
       gap: 7px;
-      max-height: 118px;
-      overflow: auto;
-      margin: -2px 0 10px;
+      max-height: 120px;
+      overflow-y: auto;
+      margin: 0 0 10px;
       padding-right: 2px;
     }
 
     .lasso-chat-message {
       max-width: 92%;
-      padding: 8px 10px;
+      padding: 8px 12px;
       border-radius: var(--lo-radius-md);
       color: var(--lo-text-2);
       background: var(--lo-surface-2);
-      font-size: 11px;
+      font-size: 12px;
       line-height: 1.45;
     }
 
     .lasso-chat-message.user {
       align-self: flex-end;
-      color: #111214;
-      background: var(--lo-primary);
+      color: #ffffff;
+      background: var(--lo-indigo);
       font-weight: 500;
     }
 
@@ -1304,30 +1562,93 @@ export function buildStyles(): string {
       background: rgba(242, 139, 130, 0.12);
     }
 
+    /* CLI / Terminal Thinking Mode */
     .lasso-agent-status {
-      display: grid;
-      grid-template-columns: 8px auto 1fr;
-      align-items: center;
-      gap: 8px;
+      display: flex;
+      flex-direction: column;
       margin: 0 0 10px;
-      padding: 8px 10px;
+      padding: 10px 12px;
       border-radius: var(--lo-radius-md);
-      background: var(--lo-surface-2);
-      color: var(--lo-text-2);
+      background: #0d0e11;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+      font-family: var(--lo-font-mono);
       font-size: 11px;
-      line-height: 1.35;
+      line-height: 1.45;
+      color: #94a3b8;
     }
 
     .lasso-agent-status[hidden] {
       display: none;
     }
 
+    .lasso-agent-terminal-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .lasso-agent-terminal-dots {
+      display: flex;
+      gap: 4px;
+    }
+
+    .lasso-agent-terminal-dots span {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+    }
+
+    .lasso-dot-red { background: #ef4444; }
+    .lasso-dot-yellow { background: #f59e0b; }
+    .lasso-dot-green { background: #10b981; }
+
     .lasso-agent-status-kicker {
-      color: var(--lo-primary);
       font-size: 10px;
+      color: #64748b;
+      font-weight: 500;
+    }
+
+    .lasso-agent-status-badge {
+      margin-left: auto;
+      font-size: 9.5px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: rgba(110, 160, 255, 0.14);
+      color: var(--lo-primary);
+      text-transform: none;
+      font-weight: 500;
+    }
+
+    .lasso-agent-status-badge.thinking {
+      background: rgba(139, 92, 246, 0.16);
+      color: #a78bfa;
+    }
+
+    .lasso-agent-status-badge.working {
+      background: rgba(16, 185, 129, 0.16);
+      color: #34d399;
+    }
+
+    .lasso-agent-status-badge.error {
+      background: rgba(239, 68, 68, 0.16);
+      color: #f87171;
+    }
+
+    .lasso-agent-status-line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #e2e8f0;
+      font-weight: 500;
+    }
+
+    .lasso-agent-terminal-prompt {
+      color: #38bdf8;
       font-weight: 700;
-      letter-spacing: .02em;
-      white-space: nowrap;
     }
 
     .lasso-agent-status-message {
@@ -1336,55 +1657,42 @@ export function buildStyles(): string {
       white-space: nowrap;
     }
 
-    .lasso-agent-log {
-      grid-column: 1 / -1;
-      display: grid;
-      gap: 3px;
-      margin: 2px 0 0 16px;
-      color: var(--lo-text-3);
-      font: 10px/1.4 var(--lo-font-mono);
+    .lasso-agent-cursor {
+      display: inline-block;
+      width: 6px;
+      height: 12px;
+      background: #38bdf8;
+      animation: lasso-cursor-blink 1s step-end infinite;
+      margin-left: 2px;
     }
 
-    .lasso-agent-log div {
+    @keyframes lasso-cursor-blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    .lasso-agent-log {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-top: 6px;
+      max-height: 80px;
+      overflow-y: auto;
+      font-size: 10px;
+      color: #64748b;
+    }
+
+    .lasso-agent-log-line {
+      display: flex;
+      gap: 5px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
-    .lasso-agent-status[data-status="review"] {
-      background: rgba(129, 201, 149, 0.12);
-      color: var(--lo-success);
+    .lasso-agent-log-prefix {
+      color: #475569;
     }
-
-    .lasso-agent-status[data-status="error"] {
-      background: rgba(242, 139, 130, 0.12);
-      color: var(--lo-error);
-    }
-
-    .lasso-agent-status-dot {
-      width: 7px;
-      height: 7px;
-      flex-shrink: 0;
-      border-radius: 50%;
-      background: var(--lo-primary);
-      animation: lasso-agent-pulse 1.2s ease-in-out infinite;
-    }
-
-    .lasso-agent-status[data-status="thinking"] .lasso-agent-status-dot,
-    .lasso-agent-status[data-status="working"] .lasso-agent-status-dot {
-      width: 10px;
-      height: 10px;
-      border: 2px solid var(--lo-border);
-      border-top-color: var(--lo-primary);
-      background: transparent;
-      animation: lasso-agent-spin .8s linear infinite;
-    }
-
-    [data-status="review"] .lasso-agent-status-dot { background: var(--lo-success); animation: none; }
-    [data-status="error"] .lasso-agent-status-dot { background: var(--lo-error); animation: none; }
-
-    @keyframes lasso-agent-pulse { 50% { opacity: .35; transform: scale(.75); } }
-    @keyframes lasso-agent-spin { to { transform: rotate(360deg); } }
 
     .lasso-prompt-actions {
       display: flex;
@@ -1397,14 +1705,14 @@ export function buildStyles(): string {
     .lasso-prompt-icon-group {
       display: flex;
       align-items: center;
-      gap: 4px;
+      gap: 5px;
     }
 
     .lasso-prompt-upload,
     .lasso-prompt-voice,
     .lasso-prompt-stop {
-      width: 32px;
-      height: 32px;
+      width: 30px;
+      height: 30px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -1427,13 +1735,13 @@ export function buildStyles(): string {
     }
 
     .lasso-prompt-stop {
-      border-color: rgba(242, 139, 130, 0.4);
-      background: rgba(242, 139, 130, 0.15);
+      border: 1px solid rgba(242, 139, 130, 0.3);
+      background: rgba(242, 139, 130, 0.12);
       color: var(--lo-error);
     }
 
     .lasso-prompt-stop:hover {
-      background: rgba(242, 139, 130, 0.25);
+      background: rgba(242, 139, 130, 0.22);
     }
 
     .lasso-prompt-stop[hidden] {
@@ -1441,21 +1749,21 @@ export function buildStyles(): string {
     }
 
     .lasso-prompt-send {
-      height: 34px;
+      height: 32px;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 6px;
-      padding: 0 16px;
+      padding: 0 14px;
       border: 0;
-      border-radius: var(--lo-radius-md);
+      border-radius: var(--lo-radius-full);
       background: var(--lo-primary);
       color: #111214;
       font-family: inherit;
-      font-size: 13px;
-      font-weight: 600;
+      font-size: 12.5px;
+      font-weight: 550;
       cursor: pointer;
-      transition: background 120ms ease, transform 120ms ease;
+      transition: all 140ms ease;
     }
 
     .lasso-prompt-send:hover {
@@ -1468,7 +1776,7 @@ export function buildStyles(): string {
     }
 
     .lasso-prompt-send.loading {
-      min-width: 92px;
+      min-width: 86px;
       cursor: wait;
       opacity: 0.9;
     }
@@ -1479,9 +1787,9 @@ export function buildStyles(): string {
 
     .lasso-prompt-send.loading::before {
       content: "";
-      width: 13px;
-      height: 13px;
-      border: 2px solid rgba(0, 0, 0, 0.4);
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(0, 0, 0, 0.3);
       border-top-color: #000;
       border-radius: 50%;
       animation: lasso-agent-spin .7s linear infinite;
@@ -1737,6 +2045,385 @@ export function buildStyles(): string {
       color: var(--lo-text-3);
       font-size: 11px;
       line-height: 1.4;
+    }
+
+    /* ==========================================================
+       TODO PANEL
+       ========================================================== */
+
+    .lasso-todo-panel {
+      position: fixed;
+      right: 20px;
+      bottom: 82px;
+      width: 320px;
+      max-height: 480px;
+      display: flex;
+      flex-direction: column;
+      padding: 14px;
+      border: 1px solid var(--lo-border);
+      border-radius: var(--lo-radius-xl);
+      background: rgba(24, 25, 29, 0.98);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      color: var(--lo-text);
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
+      pointer-events: auto;
+      z-index: 12;
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+      transition: opacity 160ms ease, transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .lasso-todo-panel.visible {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+
+    .lasso-todo-panel[hidden] {
+      display: none;
+    }
+
+    .lasso-todo-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--lo-border-subtle);
+    }
+
+    .lasso-todo-title-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--lo-text);
+    }
+
+    .lasso-todo-title {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .lasso-todo-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: var(--lo-radius-full);
+      background: var(--lo-indigo);
+      color: #ffffff;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    .lasso-todo-close {
+      border: 0;
+      background: transparent;
+      color: var(--lo-text-3);
+      cursor: pointer;
+      border-radius: var(--lo-radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+    }
+
+    .lasso-todo-close:hover {
+      background: var(--lo-surface-hover);
+      color: var(--lo-text);
+    }
+
+    .lasso-todo-form {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .lasso-todo-input {
+      flex: 1;
+      height: 32px;
+      padding: 0 10px;
+      border: 1px solid var(--lo-border);
+      border-radius: var(--lo-radius-md);
+      background: var(--lo-surface-2);
+      color: var(--lo-text);
+      font-family: inherit;
+      font-size: 12px;
+      outline: none;
+    }
+
+    .lasso-todo-input:focus {
+      border-color: var(--lo-primary);
+    }
+
+    .lasso-todo-add-btn {
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: var(--lo-radius-md);
+      background: var(--lo-primary);
+      color: #111214;
+      cursor: pointer;
+      transition: all 120ms ease;
+    }
+
+    .lasso-todo-add-btn:hover {
+      background: var(--lo-primary-hover);
+    }
+
+    .lasso-todo-list {
+      flex: 1;
+      overflow-y: auto;
+      max-height: 260px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding-right: 2px;
+    }
+
+    .lasso-todo-empty {
+      padding: 24px 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: var(--lo-text-3);
+      font-size: 11.5px;
+      text-align: center;
+    }
+
+    .lasso-todo-empty svg {
+      opacity: 0.6;
+    }
+
+    .lasso-todo-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: var(--lo-radius-md);
+      background: var(--lo-surface-2);
+      border: 1px solid transparent;
+      transition: all 120ms ease;
+    }
+
+    .lasso-todo-item:hover {
+      background: var(--lo-surface-hover);
+      border-color: var(--lo-border-subtle);
+    }
+
+    .lasso-todo-item.done .lasso-todo-text {
+      text-decoration: line-through;
+      color: var(--lo-text-3);
+    }
+
+    .lasso-todo-checkbox-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+    }
+
+    .lasso-todo-checkbox-wrap input {
+      position: absolute;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .lasso-todo-checkmark {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      border: 1.5px solid var(--lo-border);
+      background: var(--lo-surface);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: transparent;
+      transition: all 120ms ease;
+    }
+
+    .lasso-todo-checkbox-wrap input:checked ~ .lasso-todo-checkmark {
+      background: var(--lo-success);
+      border-color: var(--lo-success);
+      color: #111214;
+    }
+
+    .lasso-todo-text {
+      flex: 1;
+      font-size: 12px;
+      color: var(--lo-text);
+      word-break: break-word;
+      line-height: 1.35;
+    }
+
+    .lasso-todo-del {
+      opacity: 0;
+      border: 0;
+      background: transparent;
+      color: var(--lo-text-3);
+      cursor: pointer;
+      padding: 2px 4px;
+      border-radius: 4px;
+      transition: opacity 120ms ease, color 120ms ease;
+    }
+
+    .lasso-todo-item:hover .lasso-todo-del {
+      opacity: 1;
+    }
+
+    .lasso-todo-del:hover {
+      color: var(--lo-error);
+    }
+
+    .lasso-todo-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid var(--lo-border-subtle);
+    }
+
+    .lasso-todo-stats {
+      font-size: 11px;
+      color: var(--lo-text-3);
+    }
+
+    .lasso-todo-clear-done {
+      border: 0;
+      background: transparent;
+      color: var(--lo-text-3);
+      font-size: 11px;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .lasso-todo-clear-done:hover {
+      background: var(--lo-surface-hover);
+      color: var(--lo-text);
+    }
+
+    /* ==========================================================
+       NOTEPAD PANEL
+       ========================================================== */
+
+    .lasso-notepad-panel {
+      position: fixed;
+      right: 20px;
+      bottom: 82px;
+      width: 340px;
+      max-height: 480px;
+      display: flex;
+      flex-direction: column;
+      padding: 14px;
+      border: 1px solid var(--lo-border);
+      border-radius: var(--lo-radius-xl);
+      background: rgba(24, 25, 29, 0.98);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      color: var(--lo-text);
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
+      pointer-events: auto;
+      z-index: 12;
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+      transition: opacity 160ms ease, transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .lasso-notepad-panel.visible {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+
+    .lasso-notepad-panel[hidden] {
+      display: none;
+    }
+
+    .lasso-notepad-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--lo-border-subtle);
+    }
+
+    .lasso-notepad-title-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--lo-text);
+    }
+
+    .lasso-notepad-title {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .lasso-notepad-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .lasso-notepad-copy,
+    .lasso-notepad-close {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: var(--lo-radius-sm);
+      background: transparent;
+      color: var(--lo-text-3);
+      cursor: pointer;
+      transition: all 120ms ease;
+    }
+
+    .lasso-notepad-copy:hover,
+    .lasso-notepad-close:hover {
+      background: var(--lo-surface-hover);
+      color: var(--lo-text);
+    }
+
+    .lasso-notepad-textarea {
+      width: 100%;
+      min-height: 220px;
+      max-height: 320px;
+      padding: 10px;
+      border-radius: var(--lo-radius-md);
+      background: var(--lo-surface-2);
+      border: 1px solid var(--lo-border);
+      color: var(--lo-text);
+      font-family: var(--lo-font-mono);
+      font-size: 12px;
+      line-height: 1.5;
+      resize: vertical;
+      outline: none;
+      transition: border-color 140ms ease;
+    }
+
+    .lasso-notepad-textarea:focus {
+      border-color: var(--lo-primary);
+    }
+
+    .lasso-notepad-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+      font-size: 10.5px;
+      color: var(--lo-text-3);
     }
   `;
 }

@@ -13,6 +13,13 @@ src/
     project.ts          # project identity: `lasso init` (register project, write `lasso.config.json`), `lasso dev` session resolution
     auth.ts             # `lasso auth`: browser-OAuth login, credential store (~/.lasso/credentials.json), status, logout
     bridge.ts           # WebSocket bridge the browser overlay connects to
+    host/               # Lasso Host: local *.lasso domains + app hosting
+      daemon.ts         # background host daemon (proxy + /_host API, single-instance, crash guard)
+      registry.ts       # domain → {projectId, directory} registry (atomic, 0600)
+      runtime.ts        # auto-start dev servers on traffic, readiness polling
+      dns.ts            # UDP *.lasso → 127.0.0.1 responder + per-OS resolver config
+      client.ts         # CLI-side host helpers (health, register, stop/restart)
+      install.ts        # daemon install/uninstall, LaunchAgent, spawn/status
     server/
       vite.ts           # Vite dev server with the source-mapping plugin injected in-memory
       next.ts           # Next.js dev server integration (uses React _debugSource)
