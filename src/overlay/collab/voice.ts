@@ -48,10 +48,23 @@ export async function toggleVoice() {
     return;
   }
 
-  // Pre-check: Clipboard/mic APIs require a secure context
-  if (typeof window !== "undefined" && !window.isSecureContext) {
-    showActivity("Voice requires HTTPS or localhost — please open the app via http://localhost or https://.", "#f28b82");
-    return;
+  // Pre-check: mic APIs require a secure context.
+  // Browsers don't classify .lasso domains as secure even though they resolve
+  // to 127.0.0.1 — navigate to http://localhost:PORT instead.
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    if (hostname.endsWith(".lasso") || hostname === "lasso") {
+      const port = window.location.port ? `:${window.location.port}` : "";
+      showActivity(
+        `Voice is unavailable on .lasso domains — open http://localhost${port} directly to use voice.`,
+        "#f28b82"
+      );
+      return;
+    }
+    if (!window.isSecureContext) {
+      showActivity("Voice requires HTTPS or localhost — please open the app via http://localhost:PORT or https://.", "#f28b82");
+      return;
+    }
   }
 
   if (

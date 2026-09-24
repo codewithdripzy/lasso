@@ -139,7 +139,12 @@ export async function transcribeAudioBlob(
 }
 
 /**
- * Safely request microphone stream across modern, legacy, and edge contexts
+ * Safely request microphone stream across modern, legacy, and edge contexts.
+ *
+ * NOTE: The Lasso daemon serves your app on a *.lasso custom domain which
+ * browsers do NOT classify as a secure context — even though it resolves to
+ * 127.0.0.1. As a result, navigator.mediaDevices is undefined on .lasso
+ * domains. The fix: access your app via http://localhost:PORT directly.
  */
 export async function getAudioMediaStream(): Promise<MediaStream> {
   // 1. Standard modern API
@@ -181,11 +186,21 @@ export async function getAudioMediaStream(): Promise<MediaStream> {
     });
   }
 
-  // 3. Informative error when page is not running in a secure origin
-  if (typeof window !== "undefined" && !window.isSecureContext) {
-    throw new Error(
-      "Microphone access requires a secure origin (HTTPS or localhost). Please open your app via http://localhost:PORT or https://."
-    );
+  // 3. Targeted error: detect the .lasso custom domain vs a generic HTTP page
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    // .lasso domains resolve to 127.0.0.1 but aren't a secure context
+    if (hostname.endsWith(".lasso") || hostname === "lasso") {
+      const port = window.location.port ? `:${window.location.port}` : "";
+      throw new Error(
+        `Microphone is unavailable on .lasso domains. Open your app directly via http://localhost${port} to enable voice features.`
+      );
+    }
+    if (!window.isSecureContext) {
+      throw new Error(
+        "Microphone access requires a secure origin. Open your app via http://localhost:PORT or https://."
+      );
+    }
   }
 
   throw new Error("Audio recording is not supported in this browser environment.");

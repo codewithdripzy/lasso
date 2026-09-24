@@ -3152,6 +3152,7 @@ export function buildStyles(): string {
       color: var(--lo-primary);
     }
 
+    .lasso-notepad-voice,
     .lasso-notepad-copy,
     .lasso-notepad-close {
       width: 24px;
@@ -3167,10 +3168,34 @@ export function buildStyles(): string {
       transition: all 120ms ease;
     }
 
+    .lasso-notepad-voice:hover,
     .lasso-notepad-copy:hover,
     .lasso-notepad-close:hover {
       background: var(--lo-surface-hover);
       color: var(--lo-text);
+    }
+
+    .lasso-notepad-voice.recording {
+      color: var(--lo-error);
+      background: rgba(242, 139, 130, 0.12);
+      box-shadow: 0 0 0 2px rgba(242, 139, 130, 0.35);
+      border-radius: 50%;
+      animation: lasso-np-mic-pulse 1.4s ease-in-out infinite;
+    }
+
+    @keyframes lasso-np-mic-pulse {
+      0%, 100% { box-shadow: 0 0 0 2px rgba(242, 139, 130, 0.35); }
+      50%       { box-shadow: 0 0 0 4px rgba(242, 139, 130, 0.18); }
+    }
+
+    .lasso-notepad-voice.transcribing {
+      color: var(--lo-primary);
+      animation: lasso-np-transcribing 0.9s ease-in-out infinite alternate;
+    }
+
+    @keyframes lasso-np-transcribing {
+      from { opacity: 1; }
+      to   { opacity: 0.4; }
     }
 
     .lasso-notepad-body {

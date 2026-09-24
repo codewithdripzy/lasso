@@ -1,5 +1,7 @@
 import { getDOM } from "../dom";
 import { collabEmit } from "../collab/socket";
+import { startVoiceRecording, stopVoiceRecording, cancelVoiceRecording, isRecordingVoice } from "../audio/transcribe";
+
 
 const STORAGE_KEY = "lasso:notepad";
 
@@ -89,6 +91,14 @@ export function buildNotepadPanel(): HTMLDivElement {
         <span class="lasso-notepad-title">Notepad</span>
       </div>
       <div class="lasso-notepad-actions">
+        <button class="lasso-notepad-voice" type="button" aria-label="Voice typing" title="Click to dictate (speech-to-text)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="2" width="6" height="12" rx="3"/>
+            <path d="M5 10v2a7 7 0 0 0 14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="22"/>
+            <line x1="8" y1="22" x2="16" y2="22"/>
+          </svg>
+        </button>
         <button class="lasso-notepad-preview-toggle" type="button" title="Preview markdown">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
@@ -130,6 +140,7 @@ export function buildNotepadPanel(): HTMLDivElement {
 
   const closeBtn = el.querySelector<HTMLButtonElement>(".lasso-notepad-close")!;
   const copyBtn = el.querySelector<HTMLButtonElement>(".lasso-notepad-copy")!;
+  const voiceBtn = el.querySelector<HTMLButtonElement>(".lasso-notepad-voice")!;
   const previewToggle = el.querySelector<HTMLButtonElement>(".lasso-notepad-preview-toggle")!;
   const textarea = el.querySelector<HTMLTextAreaElement>(".lasso-notepad-textarea")!;
   const preview = el.querySelector<HTMLDivElement>(".lasso-notepad-preview")!;
@@ -149,7 +160,63 @@ export function buildNotepadPanel(): HTMLDivElement {
   });
   updateCounts(initialContent.length, countEl);
 
-  closeBtn.addEventListener("click", () => toggleNotepadPanel(false));
+  closeBtn.addEventListener("click", () => {
+    // Stop any in-progress voice recording when closing
+    if (isRecordingVoice()) cancelVoiceRecording();
+    toggleNotepadPanel(false);
+  });
+
+  // ── Voice typing ──────────────────────────────────────────────────────────
+  voiceBtn.addEventListener("click", async () => {
+    if (isRecordingVoice()) {
+      // Second click → stop and transcribe
+      voiceBtn.classList.remove("recording");
+      voiceBtn.classList.add("transcribing");
+      voiceBtn.title = "Transcribing…";
+      statusEl.textContent = "Transcribing…";
+      try {
+        const result = await stopVoiceRecording();
+        if (result.text) {
+          // Insert at current cursor position
+          const start = textarea.selectionStart ?? textarea.value.length;
+          const end = textarea.selectionEnd ?? start;
+          const before = textarea.value.slice(0, start);
+          const after = textarea.value.slice(end);
+          // Add a space separator if needed
+          const sep = before.length && !before.endsWith(" ") && !before.endsWith("\n") ? " " : "";
+          textarea.value = before + sep + result.text + after;
+          // Restore cursor after inserted text
+          const cursor = start + sep.length + result.text.length;
+          textarea.setSelectionRange(cursor, cursor);
+          textarea.dispatchEvent(new Event("input"));
+          textarea.focus();
+          const providerLabel = result.provider === "deepgram" ? "Deepgram (fallback)" : "Gradium";
+          statusEl.textContent = `Transcribed via ${providerLabel}`;
+          window.setTimeout(() => { statusEl.textContent = "Autosaved"; }, 2000);
+        } else {
+          statusEl.textContent = "No speech detected";
+          window.setTimeout(() => { statusEl.textContent = "Autosaved"; }, 1500);
+        }
+      } catch (err: any) {
+        statusEl.textContent = err?.message || "Transcription failed";
+        window.setTimeout(() => { statusEl.textContent = "Autosaved"; }, 2500);
+      } finally {
+        voiceBtn.classList.remove("transcribing");
+        voiceBtn.title = "Click to dictate (speech-to-text)";
+      }
+    } else {
+      // First click → start recording
+      try {
+        await startVoiceRecording();
+        voiceBtn.classList.add("recording");
+        voiceBtn.title = "Recording… click again to stop & transcribe";
+        statusEl.textContent = "Listening…";
+      } catch (err: any) {
+        statusEl.textContent = err?.message || "Microphone access denied";
+        window.setTimeout(() => { statusEl.textContent = "Autosaved"; }, 3000);
+      }
+    }
+  });
 
   previewToggle.addEventListener("click", () => {
     isPreviewMode = !isPreviewMode;
