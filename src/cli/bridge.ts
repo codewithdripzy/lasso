@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import chalk from "chalk";
 import { answerQuestion, detectLocalAgents, proposeChanges, generateCommitMessage, type AgentConfig, type SourceChange, type LocalAgent } from "./agent";
 import type { CollabConfig } from "./project";
+import { serverUrlFrom } from "./auth";
 
 const DEFAULT_BRIDGE_PORT = 3056;
 const execFileAsync = promisify(execFile);
@@ -26,7 +27,8 @@ export type BridgeMessage =
   | { type: "git_init" }
   | { type: "git_commit"; message: string }
   | { type: "git_push" }
-  | { type: "agent_status"; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string };
+  | { type: "agent_status"; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string }
+  | { type: "transcribe"; requestId: string; audio: string; mimeType?: string; language?: string };
 
 type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" | "cli" };
 
@@ -38,7 +40,8 @@ export type ServerBridgeMessage =
   | { type: "agent_status"; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string; changes?: SourceChange[] }
   | { type: "assistant_message"; message: string }
   | { type: "applied"; message: string }
-  | { type: "undone"; message: string };
+  | { type: "undone"; message: string }
+  | { type: "transcribe_result"; requestId: string; success: boolean; text?: string; provider?: string; error?: string };
 
 async function gitCommand(cwd: string, args: string[]) {
   const result = await execFileAsync("git", args, { cwd, maxBuffer: 1024 * 1024 });
@@ -340,6 +343,35 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
           socket.send(JSON.stringify({ type: "git_state", git: await getGitState(cwd) }));
         } catch (error) {
           socket.send(JSON.stringify({ type: "git_result", error: error instanceof Error ? error.message : "Changes could not be pushed." }));
+        }
+      } else if (msg.type === "transcribe") {
+        const serverUrl = serverUrlFrom(fileEnv);
+        try {
+          const resp = await fetch(`${serverUrl}/api/v1/transcribe`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              audio: msg.audio,
+              mimeType: msg.mimeType,
+              language: msg.language,
+            }),
+          });
+          const data: any = await resp.json();
+          socket.send(JSON.stringify({
+            type: "transcribe_result",
+            requestId: msg.requestId,
+            success: Boolean(data.success),
+            text: data.text || "",
+            provider: data.provider || "gradium",
+            error: data.message,
+          }));
+        } catch (error: any) {
+          socket.send(JSON.stringify({
+            type: "transcribe_result",
+            requestId: msg.requestId,
+            success: false,
+            error: error instanceof Error ? error.message : "Failed to contact transcription service",
+          }));
         }
       } else if (msg.type === "apply") {
         try {

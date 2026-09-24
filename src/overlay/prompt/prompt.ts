@@ -9,9 +9,10 @@ import { getDOM } from "../dom";
 import { getElementGroup, getElementLabel, getSourceHint, elementKey, setSelectMode, updateSelectedVisual } from "../toolbar/select";
 import { acquireOwnership, releaseHeldLock, updateLockChip } from "../collab/locks";
 import { collabEmit, sendPresenceUpdate } from "../collab/socket";
-import { renderRemoteBoxes } from "../collab/presence";
+import { renderRemoteBoxes, showActivity } from "../collab/presence";
 import { renderComments } from "../comments/pins";
 import { LASSO_ICON_DATA_URL } from "../icons/lasso";
+import { startVoiceRecording, stopVoiceRecording, isRecordingVoice } from "../audio/transcribe";
 import type { ModelOption, PendingChange, ScreenshotContext } from "../types";
 
 let promptEl: HTMLDivElement | null = null;
@@ -108,7 +109,7 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
             </svg>
           </button>
 
-          <button class="lasso-prompt-voice" type="button" disabled aria-label="Voice mode coming soon" title="Voice mode coming soon">
+          <button class="lasso-prompt-voice" type="button" aria-label="Voice input (speech-to-text)" title="Click to speak (speech-to-text)">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></svg>
           </button>
 
@@ -252,6 +253,51 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
     appendChat("assistant", "Agent stopped.");
     resetAgentState();
   });
+
+  // Voice recording & transcription (Gradium -> Deepgram fallback)
+  const voiceBtn = el.querySelector<HTMLButtonElement>(".lasso-prompt-voice");
+  if (voiceBtn) {
+    voiceBtn.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (isRecordingVoice()) {
+        voiceBtn.classList.remove("recording");
+        voiceBtn.classList.add("transcribing");
+        voiceBtn.title = "Transcribing speech…";
+        showActivity("Transcribing speech via AI…", "#fdd663");
+
+        try {
+          const result = await stopVoiceRecording();
+          if (result.text && promptInput) {
+            const prev = promptInput.value.trim();
+            promptInput.value = prev ? `${prev} ${result.text}` : result.text;
+            promptInput.focus();
+            promptInput.style.height = "auto";
+            promptInput.style.height = `${Math.min(promptInput.scrollHeight, 180)}px`;
+            const providerLabel = result.provider === "deepgram" ? "Deepgram (fallback)" : "Gradium";
+            showActivity(`Transcribed via ${providerLabel}`, "#81c995");
+          } else {
+            showActivity("No speech detected.", "#fdd663");
+          }
+        } catch (err: any) {
+          showActivity(err?.message || "Transcription failed", "#f28b82");
+        } finally {
+          voiceBtn.classList.remove("transcribing");
+          voiceBtn.title = "Click to speak (speech-to-text)";
+        }
+      } else {
+        try {
+          await startVoiceRecording();
+          voiceBtn.classList.add("recording");
+          voiceBtn.title = "Recording… Click again to stop and transcribe";
+          showActivity("Listening… speak now, click mic again when finished", "#ea4335");
+        } catch (err: any) {
+          showActivity(err?.message || "Microphone access denied", "#f28b82");
+        }
+      }
+    });
+  }
 
   // Close prompt
   promptClose.addEventListener("click", (event) => {

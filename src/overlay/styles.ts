@@ -1053,6 +1053,20 @@ export function buildStyles(): string {
       color: var(--lo-text);
     }
 
+    .lasso-pin-itool-btn.recording {
+      color: #ea4335 !important;
+      background: rgba(234, 67, 53, 0.16) !important;
+      border: 1px solid rgba(234, 67, 53, 0.4) !important;
+      animation: lasso-pulse-recording 1.2s infinite ease-in-out;
+    }
+
+    .lasso-pin-itool-btn.transcribing {
+      color: #fbbc04 !important;
+      background: rgba(251, 188, 4, 0.16) !important;
+      border: 1px solid rgba(251, 188, 4, 0.4) !important;
+      animation: lasso-pulse-transcribing 0.9s infinite alternate ease-in-out;
+    }
+
     .lasso-pin-input-spacer {
       flex: 1;
     }
@@ -1954,8 +1968,53 @@ export function buildStyles(): string {
     }
 
     .lasso-prompt-voice {
-      cursor: not-allowed;
-      opacity: 0.5;
+      cursor: pointer;
+      opacity: 0.85;
+      transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+    }
+
+    .lasso-prompt-voice:hover {
+      background: var(--lo-surface-hover);
+      color: var(--lo-text);
+      opacity: 1;
+    }
+
+    .lasso-prompt-voice.recording {
+      color: #ea4335 !important;
+      background: rgba(234, 67, 53, 0.16) !important;
+      border: 1px solid rgba(234, 67, 53, 0.45) !important;
+      animation: lasso-pulse-recording 1.2s infinite ease-in-out;
+      opacity: 1;
+    }
+
+    .lasso-prompt-voice.transcribing {
+      color: #fbbc04 !important;
+      background: rgba(251, 188, 4, 0.16) !important;
+      border: 1px solid rgba(251, 188, 4, 0.45) !important;
+      animation: lasso-pulse-transcribing 0.9s infinite alternate ease-in-out;
+      opacity: 1;
+    }
+
+    @keyframes lasso-pulse-recording {
+      0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.4);
+      }
+      50% {
+        transform: scale(1.1);
+        box-shadow: 0 0 0 6px rgba(234, 67, 53, 0);
+      }
+    }
+
+    @keyframes lasso-pulse-transcribing {
+      0% {
+        transform: scale(0.96);
+        opacity: 0.8;
+      }
+      100% {
+        transform: scale(1.04);
+        opacity: 1;
+      }
     }
 
     .lasso-prompt-stop {

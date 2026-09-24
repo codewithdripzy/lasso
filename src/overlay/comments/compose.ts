@@ -4,6 +4,7 @@ import { setCommentMode } from "../toolbar/toolbar";
 import { collabEmit } from "../collab/socket";
 import { showActivity } from "../collab/presence";
 import { upsertComment, renderCommentPins, updateCommentsBadge } from "./pins";
+import { startVoiceRecording, stopVoiceRecording, isRecordingVoice } from "../audio/transcribe";
 import type { CollabComment } from "../types";
 
 let pinComposeEl: HTMLDivElement | null = null;
@@ -59,6 +60,14 @@ export function buildPinCompose(): HTMLDivElement {
           </svg>
         </button>
 
+        <button class="lasso-pin-itool-btn voice-dictate-btn" type="button" title="Dictate comment (speech-to-text)" aria-label="Dictate comment">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="2" width="6" height="12" rx="3"/>
+            <path d="M5 10v2a7 7 0 0 0 14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="22"/>
+          </svg>
+        </button>
+
         <span class="lasso-pin-input-spacer"></span>
 
         <button class="lasso-pin-cancel" type="button">Cancel</button>
@@ -92,6 +101,7 @@ export function buildPinCompose(): HTMLDivElement {
   const fileInput = el.querySelector<HTMLInputElement>("input[type='file']")!;
   const gifBtn = el.querySelector<HTMLButtonElement>(".gif-picker-toggle")!;
   const mentionBtn = el.querySelector<HTMLButtonElement>(".mention-btn")!;
+  const voiceDictateBtn = el.querySelector<HTMLButtonElement>(".voice-dictate-btn");
   const gifPicker = el.querySelector<HTMLDivElement>(".lasso-pin-gif-picker")!;
   const gifClose = el.querySelector<HTMLButtonElement>(".lasso-pin-gif-close")!;
   const attachmentPreview = el.querySelector<HTMLDivElement>(".lasso-pin-attachment-preview")!;
@@ -102,6 +112,48 @@ export function buildPinCompose(): HTMLDivElement {
     closePinCompose();
     setCommentMode(false);
   });
+
+  // Voice dictation handling
+  if (voiceDictateBtn) {
+    voiceDictateBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (isRecordingVoice()) {
+        voiceDictateBtn.classList.remove("recording");
+        voiceDictateBtn.classList.add("transcribing");
+        voiceDictateBtn.title = "Transcribing speech…";
+        showActivity("Transcribing speech…", "#fdd663");
+
+        try {
+          const result = await stopVoiceRecording();
+          if (result.text) {
+            const current = textarea.value.trim();
+            textarea.value = current ? `${current} ${result.text}` : result.text;
+            textarea.focus();
+            const providerName = result.provider === "deepgram" ? "Deepgram (fallback)" : "Gradium";
+            showActivity(`Transcribed via ${providerName}`, "#81c995");
+          } else {
+            showActivity("No speech detected.", "#fdd663");
+          }
+        } catch (err: any) {
+          showActivity(err?.message || "Transcription failed", "#f28b82");
+        } finally {
+          voiceDictateBtn.classList.remove("transcribing");
+          voiceDictateBtn.title = "Dictate comment (speech-to-text)";
+        }
+      } else {
+        try {
+          await startVoiceRecording();
+          voiceDictateBtn.classList.add("recording");
+          voiceDictateBtn.title = "Recording… Click again to stop and transcribe";
+          showActivity("Listening… speak your comment now", "#ea4335");
+        } catch (err: any) {
+          showActivity(err?.message || "Microphone access denied", "#f28b82");
+        }
+      }
+    });
+  }
 
   // File upload handling
   fileInput.addEventListener("change", () => {
