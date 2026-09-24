@@ -5,6 +5,7 @@ import type {
   CollabLock,
   CollabUser,
   CommentThread,
+  DragContext,
   GitState,
   ModelOption,
   PendingChange,

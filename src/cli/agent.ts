@@ -267,24 +267,9 @@ async function proposeWithLocalAgent(cwd: string, instruction: string, context: 
     }
   };
   child.stdout.on("data", consume);
-  // Buffer stderr by newline — Node delivers chunks at arbitrary byte boundaries,
-  // so a single log line can arrive in multiple data events. Only emit complete lines.
-  let stderrPending = "";
-  const consumeStderr = (chunk: Buffer | string) => {
-    stderrPending += String(chunk);
-    const lines = stderrPending.split(/\r?\n/);
-    stderrPending = lines.pop() || "";
-    const prefix = config.provider === "claude-code" ? "Claude Code" : config.provider === "opencode" ? "OpenCode" : "Codex";
-    for (const line of lines) {
-      stderr += `${line}\n`;
-      // Strip ANSI escape codes
-      const clean = line.replace(/\x1B\[[0-9;]*[mGKHFJ]/g, "").trim();
-      // Skip empty lines, pure spinner/separator lines, very short noise
-      if (!clean || clean.length < 4 || /^[\-=|>*.\s]+$/.test(clean)) continue;
-      onProgress?.(`${prefix} · ${clean.slice(0, 200)}`);
-    }
-  };
-  child.stderr.on("data", consumeStderr);
+  child.stderr.on("data", (chunk: Buffer | string) => {
+    stderr += String(chunk);
+  });
   if (signal) {
     if (signal.aborted) child.kill("SIGTERM");
     signal.addEventListener("abort", () => child.kill("SIGTERM"), { once: true });

@@ -16,6 +16,20 @@ export type ScreenshotContext = {
   element?: string;
 };
 
+export type DragContext = {
+  originalRect: { left: number; top: number; width: number; height: number };
+  targetRect: { left: number; top: number; width: number; height: number };
+  delta: { dx: number; dy: number };
+  parentTag?: string;
+  parentClass?: string;
+  parentDisplay?: string;
+  parentFlexDirection?: string;
+  currentPositioning?: string;
+  computedMargins?: { top: string; right: string; bottom: string; left: string };
+  siblingBefore?: string;
+  siblingAfter?: string;
+};
+
 export type ModelOption = {
   id: string;
   label: string;
