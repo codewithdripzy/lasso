@@ -43,10 +43,13 @@ export function initErrorListeners() {
 
 export function connectBridge() {
   try {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    // The bridge is intentionally a loopback-only plain WebSocket server.
+    // HTTPS Lasso pages can still connect to this trusted local endpoint;
+    // using wss:// here would fail because the bridge does not terminate TLS.
+    const protocol = "ws:";
     const overlayScript = Array.from(document.scripts).find((script) => script.src.includes("/__lasso/overlay.js"));
     const bridgePort = overlayScript ? new URL(overlayScript.src, window.location.href).searchParams.get("bridgePort") || "3056" : "3056";
-    state.bridgeSocket = new WebSocket(`${protocol}//localhost:${bridgePort}`);
+    state.bridgeSocket = new WebSocket(`${protocol}//127.0.0.1:${bridgePort}`);
 
     state.bridgeSocket.addEventListener("open", () => {
       state.bridgeSocket?.send(JSON.stringify({ type: "hello", from: "overlay" }));

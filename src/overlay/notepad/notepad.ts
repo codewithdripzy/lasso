@@ -190,8 +190,7 @@ export function buildNotepadPanel(): HTMLDivElement {
           textarea.setSelectionRange(cursor, cursor);
           textarea.dispatchEvent(new Event("input"));
           textarea.focus();
-          const providerLabel = result.provider === "deepgram" ? "Deepgram (fallback)" : "Gradium";
-          statusEl.textContent = `Transcribed via ${providerLabel}`;
+          statusEl.textContent = "Transcribed";
           window.setTimeout(() => { statusEl.textContent = "Autosaved"; }, 2000);
         } else {
           statusEl.textContent = "No speech detected";

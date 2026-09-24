@@ -2073,6 +2073,12 @@ export function buildStyles(): string {
       transform: translateY(-1px);
     }
 
+    .lasso-prompt-send:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+
     .lasso-prompt-send:active {
       transform: scale(0.96);
     }

@@ -240,6 +240,9 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
 
   refreshModelMenu();
 
+  promptInput.addEventListener("input", syncSendButtonState);
+  syncSendButtonState();
+
   // Send action
   sendButton.addEventListener("click", handleSend);
 
@@ -272,11 +275,11 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
           if (result.text && promptInput) {
             const prev = promptInput.value.trim();
             promptInput.value = prev ? `${prev} ${result.text}` : result.text;
+            syncSendButtonState();
             promptInput.focus();
             promptInput.style.height = "auto";
             promptInput.style.height = `${Math.min(promptInput.scrollHeight, 180)}px`;
-            const providerLabel = result.provider === "deepgram" ? "Deepgram (fallback)" : "Gradium";
-            showActivity(`Transcribed via ${providerLabel}`, "#81c995");
+            showActivity("Transcribed", "#81c995");
           } else {
             showActivity("No speech detected.", "#fdd663");
           }
@@ -506,14 +509,13 @@ export function setAgentStatus(status: "thinking" | "working" | "review" | "erro
   sendButton.classList.toggle("loading", state.agentRunning);
   if (stopButton) stopButton.hidden = !state.agentRunning;
   if (promptInput) promptInput.disabled = state.agentRunning;
-  sendButton.disabled = state.agentRunning;
-
   const label = sendButton.querySelector("span");
   if (label) {
     label.textContent = status === "review" ? "Review" : status === "error" ? "Retry" : state.agentRunning ? "" : "Send";
   }
   sendButton.setAttribute("aria-label", state.agentRunning ? "Agent is working" : status === "error" ? "Retry request" : "Send request");
   sendButton.dataset.state = status === "error" ? "retry" : state.agentRunning ? "working" : status;
+  syncSendButtonState();
 
   if (status === "review" || status === "error" || status === "stopped") {
     appendChat(status === "error" ? "error" : "assistant", message);
@@ -526,6 +528,14 @@ function escapeHtml(text: string): string {
   return div.innerHTML;
 }
 
+function syncSendButtonState(): void {
+  if (!promptInput || !sendButton) return;
+  const hasInstruction = Boolean(promptInput.value.trim()) ||
+    (sendButton.dataset.state === "retry" && Boolean(state.lastInstruction?.trim()));
+  const isReviewAction = sendButton.dataset.state === "review";
+  sendButton.disabled = state.agentRunning || (!hasInstruction && !isReviewAction);
+}
+
 export function resetAgentState() {
   state.agentRunning = false;
   if (agentStatusElement) {
@@ -535,11 +545,11 @@ export function resetAgentState() {
   if (agentLogElement) agentLogElement.replaceChildren();
   if (sendButton) {
     sendButton.classList.remove("loading");
-    sendButton.disabled = false;
     sendButton.dataset.state = "idle";
     const label = sendButton.querySelector("span");
     if (label) label.textContent = "Send";
     sendButton.setAttribute("aria-label", "Send request");
+    syncSendButtonState();
   }
   if (stopButton) stopButton.hidden = true;
   if (promptInput) promptInput.disabled = false;

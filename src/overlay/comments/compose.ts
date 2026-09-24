@@ -131,8 +131,7 @@ export function buildPinCompose(): HTMLDivElement {
             const current = textarea.value.trim();
             textarea.value = current ? `${current} ${result.text}` : result.text;
             textarea.focus();
-            const providerName = result.provider === "deepgram" ? "Deepgram (fallback)" : "Gradium";
-            showActivity(`Transcribed via ${providerName}`, "#81c995");
+            showActivity("Transcribed", "#81c995");
           } else {
             showActivity("No speech detected.", "#fdd663");
           }
