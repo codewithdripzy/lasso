@@ -57,6 +57,41 @@ async function getGitState(cwd: string): Promise<GitState> {
   return { isRepo: true, branch, status, hasChanges: status.length > 0, hasRemote: Boolean(remote), remote };
 }
 
+function fileLineEnding(content: string): "\n" | "\r\n" {
+  return content.includes("\r\n") ? "\r\n" : "\n";
+}
+
+function withLineEnding(value: string, lineEnding: "\n" | "\r\n") {
+  return value.replace(/\r\n?|\n/g, lineEnding);
+}
+
+function occurrenceCount(content: string, needle: string) {
+  if (!needle) return 0;
+  let count = 0;
+  let from = 0;
+  while (true) {
+    const index = content.indexOf(needle, from);
+    if (index < 0) return count;
+    count += 1;
+    from = index + needle.length;
+  }
+}
+
+function prepareChange(content: string, change: SourceChange) {
+  const lineEnding = fileLineEnding(content);
+  const oldString = withLineEnding(change.oldString, lineEnding);
+  const newString = withLineEnding(change.newString, lineEnding);
+  const matches = occurrenceCount(content, oldString);
+  if (matches === 0) {
+    throw new Error(`Could not safely apply ${change.filePath}. The source changed after the suggestion was generated.`);
+  }
+  if (matches > 1) {
+    throw new Error(`Could not safely apply ${change.filePath}. The selected code is not unique (${matches} matches).`);
+  }
+  const start = content.indexOf(oldString);
+  return { start, end: start + oldString.length, oldString, newString };
+}
+
 function readEnvFile(cwd: string, filename: string) {
   try {
     return fs.readFileSync(path.join(cwd, filename), "utf8").split(/\r?\n/).reduce<Record<string, string>>((values, line) => {
@@ -309,13 +344,29 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       } else if (msg.type === "apply") {
         try {
           lastSnapshot = [];
+          const planned = new Map<string, { filePath: string; content: string; start: number; end: number; oldString: string; newString: string }[]>();
           for (const change of msg.changes) {
             const filePath = path.resolve(cwd, change.filePath);
             if (!filePath.startsWith(`${path.resolve(cwd)}${path.sep}`)) throw new Error("A proposed file was outside the project.");
             const content = fs.readFileSync(filePath, "utf8");
-            if (content.split(change.oldString).length - 1 !== 1) throw new Error(`Could not safely apply ${change.filePath}. The selected text changed.`);
+            const prepared = prepareChange(content, change);
+            const fileChanges = planned.get(filePath) || [];
+            if (fileChanges.some((item) => prepared.start < item.end && item.start < prepared.end)) {
+              throw new Error(`Could not safely apply ${change.filePath}. Proposed changes overlap.`);
+            }
+            fileChanges.push({ filePath, content, ...prepared });
+            planned.set(filePath, fileChanges);
+          }
+
+          // Validate every change before writing any file, then apply each
+          // file's replacements from the end toward the beginning.
+          for (const [filePath, changes] of planned) {
+            const content = changes[0]!.content;
             lastSnapshot.push({ filePath, content });
-            fs.writeFileSync(filePath, content.replace(change.oldString, change.newString));
+            const nextContent = [...changes]
+              .sort((a, b) => b.start - a.start)
+              .reduce((value, change) => value.slice(0, change.start) + change.newString + value.slice(change.end), content);
+            fs.writeFileSync(filePath, nextContent);
           }
           socket.send(JSON.stringify({ type: "applied", message: `${msg.changes.length} file${msg.changes.length === 1 ? "" : "s"} updated. Your dev server will reload.` }));
         } catch (error) {
