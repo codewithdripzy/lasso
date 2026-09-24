@@ -15,6 +15,7 @@ import { renderCommentPins } from "./comments/pins";
 import { buildGitPanel } from "./git/git";
 import { buildTodoPanel } from "./todo/todo";
 import { buildNotepadPanel } from "./notepad/notepad";
+import { buildClipboardPanel } from "./clipboard/clipboard";
 import {
   buildPrompt,
   openPromptForSelected,
@@ -46,6 +47,7 @@ export function init() {
   buildGitPanel();
   buildTodoPanel();
   buildNotepadPanel();
+  buildClipboardPanel();
   buildPrompt();
 
   // Connect local bridge & collab

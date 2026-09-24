@@ -1,7 +1,7 @@
 import { state, rememberModel, storedModelId } from "../state";
 import { connectCollab, collabEmit } from "../collab/socket";
 import { releaseHeldLock } from "../collab/locks";
-import { renderGitState, setGitMessage } from "../git/git";
+import { renderGitState, setGitMessage, setGeneratedCommitMessage } from "../git/git";
 import {
   setAgentStatus,
   appendChat,
@@ -90,6 +90,10 @@ export function connectBridge() {
           if (!message.error && state.bridgeSocket?.readyState === WebSocket.OPEN) {
             state.bridgeSocket.send(JSON.stringify({ type: "git_status" }));
           }
+        }
+
+        if (message.type === "git_commit_message") {
+          setGeneratedCommitMessage(message.message || "", message.error);
         }
 
         if (message.type === "agent_status" && message.status && message.message) {

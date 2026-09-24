@@ -21,19 +21,19 @@ type AgentInput = {
 };
 
 export type AgentConfig = {
-  provider: "anthropic" | "openai" | "google" | "ollama" | "claude-code" | "codex";
+  provider: "anthropic" | "openai" | "google" | "ollama" | "claude-code" | "codex" | "opencode";
   apiKey?: string;
   model?: string;
   baseUrl?: string;
 };
 
-export type LocalAgent = "claude-code" | "codex";
+export type LocalAgent = "claude-code" | "codex" | "opencode";
 export type AgentProgress = (message: string) => void;
 export type AgentAnswer = { question: string; context?: AgentInput["context"]; element: AgentInput["element"]; messages?: AgentInput["messages"] };
 
 export async function detectLocalAgents(): Promise<Set<LocalAgent>> {
   const found = new Set<LocalAgent>();
-  for (const [name, command] of [["claude-code", "claude"], ["codex", "codex"]] as const) {
+  for (const [name, command] of [["claude-code", "claude"], ["codex", "codex"], ["opencode", "opencode"]] as const) {
     try {
       await execFileAsync(process.platform === "win32" ? "where.exe" : "which", [command]);
       found.add(name);
@@ -151,13 +151,29 @@ function progressFromLine(raw: string, provider: LocalAgent): string | null {
   return null;
 }
 
+function localModel(provider: LocalAgent, model?: string): string | undefined {
+  if (!model) return undefined;
+  const prefix = `${provider}:`;
+  return model.startsWith(prefix) ? model.slice(prefix.length) : model;
+}
+
+function localCommand(provider: LocalAgent, model?: string, prompt?: string): { command: string; args: string[] } {
+  const selectedModel = localModel(provider, model);
+  if (provider === "claude-code") {
+    return { command: "claude", args: ["-p", prompt || "", "--output-format", "stream-json", "--verbose", "--permission-mode", "plan", "--max-turns", "3", ...(selectedModel ? ["--model", selectedModel] : [])] };
+  }
+  if (provider === "opencode") {
+    return { command: "opencode", args: ["run", "--format", "json", ...(selectedModel ? ["--model", selectedModel] : []), prompt || ""] };
+  }
+  return { command: "codex", args: ["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", ...(selectedModel ? ["--model", selectedModel] : []), prompt || ""] };
+}
+
 async function proposeWithLocalAgent(cwd: string, instruction: string, context: string, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress) {
   const outputContract = `Return ONLY valid JSON in this exact shape: {"summary":"short explanation","changes":[{"filePath":"relative/path","oldString":"exact existing text","newString":"replacement text"}]}. Every oldString must occur exactly once. Do not edit files, run write commands, commit, or produce markdown fences.`;
   const prompt = `${instruction}\n\n${outputContract}\n\nLasso has already assembled this source context:\n${context || "No matching source context was found."}`;
-  const command = config.provider === "claude-code" ? "claude" : "codex";
-  const args = config.provider === "claude-code"
-    ? ["-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", "plan", "--max-turns", "3"]
-    : ["exec", "--json", "--sandbox", "read-only", prompt];
+  const local = localCommand(config.provider as LocalAgent, config.model, prompt);
+  const command = local.command;
+  const args = local.args;
   const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
   let stdout = "";
   let stderr = "";
@@ -176,7 +192,7 @@ async function proposeWithLocalAgent(cwd: string, instruction: string, context: 
   child.stderr.on("data", (chunk: Buffer | string) => {
     stderr += String(chunk);
     const message = String(chunk).trim();
-    if (message) onProgress?.(`${config.provider === "claude-code" ? "Claude Code" : "Codex"} · ${message.slice(0, 180)}`);
+      if (message) onProgress?.(`${config.provider === "claude-code" ? "Claude Code" : config.provider === "opencode" ? "OpenCode" : "Codex"} · ${message.slice(0, 180)}`);
   });
   if (signal) {
     if (signal.aborted) child.kill("SIGTERM");
@@ -201,7 +217,7 @@ export async function proposeChanges(cwd: string, input: AgentInput, config: Age
   const history = input.messages?.map((message) => `${message.role}: ${message.content}`).join("\n") || input.instruction;
   const priorChanges = input.changesHistory?.length ? JSON.stringify(input.changesHistory, null, 2) : "None";
   const instruction = `Selection context:\n${JSON.stringify(input.element, null, 2)}\n${JSON.stringify(visualContext, null, 2)}\n\nConversation history:\n${history}\n\nPrevious change history for this selection:\n${priorChanges}\n\nRelevant source context:\n${context || "No matching source context was found. Ask for a more specific selection rather than inventing a file."}\n\nReturn ONLY JSON: {"summary":"short explanation","changes":[{"filePath":"relative/path","oldString":"exact text","newString":"replacement text"}]}`;
-  if (config.provider === "claude-code" || config.provider === "codex") {
+  if (config.provider === "claude-code" || config.provider === "codex" || config.provider === "opencode") {
     return proposeWithLocalAgent(cwd, instruction, context, config, signal, onProgress);
   }
   const system = "You are Lasso, a careful source-code editing agent. Return only valid JSON. Each oldString must occur exactly once in its file. Never rewrite whole files. Keep changes focused on the request.";
@@ -258,11 +274,10 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
   const history = input.messages?.map((message) => `${message.role}: ${message.content}`).join("\n") || "None";
   const prompt = `Answer the user's question conversationally and directly. Do not propose file changes and do not return JSON. If the question is about the selected UI, use the selection and source context below.\n\nUser question:\n${input.question}\n\nSelected element:\n${JSON.stringify(input.element, null, 2)}\n\nVisual context:\n${JSON.stringify({ ...input.context, screenshots: undefined }, null, 2)}\n\nConversation:\n${history}\n\nRelevant source context:\n${context || "No matching source context was found."}`;
 
-  if (config.provider === "claude-code" || config.provider === "codex") {
-    const command = config.provider === "claude-code" ? "claude" : "codex";
-    const args = config.provider === "claude-code"
-      ? ["-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", "plan", "--max-turns", "2"]
-      : ["exec", "--json", "--sandbox", "read-only", prompt];
+  if (config.provider === "claude-code" || config.provider === "codex" || config.provider === "opencode") {
+    const local = localCommand(config.provider as LocalAgent, config.model, prompt);
+    const command = local.command;
+    const args = local.args;
     const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
     let pending = "";
@@ -316,4 +331,12 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
       : payload.content?.find((item) => item.type === "text")?.text;
   if (!answer?.trim()) throw new Error("The agent returned an empty answer.");
   return answer.trim();
+}
+
+export async function generateCommitMessage(cwd: string, status: string[], config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress): Promise<string> {
+  const answer = await answerQuestion(cwd, {
+    question: `Generate exactly one concise Conventional Commit message for these changes. Return only the commit subject line, no quotes, markdown, explanation, or body. Keep it under 100 characters.\n\nChanged files:\n${status.join("\n") || "No changed files listed."}`,
+    element: { tag: "git", group: "workspace", label: "Git working tree" },
+  }, config, signal, onProgress);
+  return answer.split(/\r?\n/).map((line) => line.replace(/^[-*]\s*/, "").replace(/^['"`]|['"`]$/g, "").trim()).find(Boolean)?.slice(0, 120) || "Update project files";
 }

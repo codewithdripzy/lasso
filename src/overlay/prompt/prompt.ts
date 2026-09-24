@@ -28,14 +28,14 @@ let reviewPanel: HTMLDivElement | null = null;
 let modelBtn: HTMLButtonElement | null = null;
 let modelName: HTMLSpanElement | null = null;
 let modelMenu: HTMLDivElement | null = null;
+const openCliGroups = new Set<string>();
 
 const providerLabels: Record<ModelOption["provider"], string> = {
   google: "Google",
   openai: "OpenAI",
   anthropic: "Anthropic",
   ollama: "Local",
-  "claude-code": "Claude Code",
-  codex: "Codex",
+  cli: "CLI",
 };
 
 const providerIcons = {
@@ -43,8 +43,7 @@ const providerIcons = {
   openai: openaiIcon,
   anthropic: anthropicIcon,
   ollama: terminalIcon,
-  "claude-code": terminalIcon,
-  codex: terminalIcon,
+  cli: terminalIcon,
 };
 
 function providerIcon(provider: ModelOption["provider"], active = false): string {
@@ -316,18 +315,65 @@ export function refreshModelMenu() {
     group.className = "lasso-model-group";
     group.textContent = providerLabels[provider as ModelOption["provider"]];
     children.push(group);
+
+    if (provider === "cli") {
+      const cliGroups = new Map<string, ModelOption[]>();
+      for (const model of models) {
+        const key = model.id.split(":", 1)[0] || "cli";
+        const groupModels = cliGroups.get(key) || [];
+        groupModels.push(model);
+        cliGroups.set(key, groupModels);
+      }
+      const selectedCliGroup = state.selectedModel.id.split(":", 1)[0];
+      if (selectedCliGroup && !openCliGroups.size) openCliGroups.add(selectedCliGroup);
+      for (const [cliKey, cliModels] of cliGroups) {
+        const subGroup = document.createElement("div");
+        subGroup.className = "lasso-cli-subgroup";
+        const subHeader = document.createElement("button");
+        subHeader.type = "button";
+        subHeader.className = "lasso-cli-subgroup-header";
+        subHeader.setAttribute("aria-expanded", String(openCliGroups.has(cliKey)));
+        subHeader.innerHTML = `<span>${cliLabel(cliKey)}</span><span class="lasso-cli-subgroup-chevron">${openCliGroups.has(cliKey) ? "⌃" : "⌄"}</span>`;
+        const subItems = document.createElement("div");
+        subItems.className = "lasso-cli-subgroup-items";
+        subItems.hidden = !openCliGroups.has(cliKey);
+        subHeader.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (openCliGroups.has(cliKey)) openCliGroups.delete(cliKey);
+          else openCliGroups.add(cliKey);
+          refreshModelMenu();
+        });
+        subGroup.append(subHeader, subItems);
+        children.push(subGroup);
+        for (const model of cliModels) subItems.appendChild(modelItem(model));
+      }
+      continue;
+    }
+
     for (const model of models) {
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = "lasso-prompt-model-item";
-      item.dataset.model = model.id;
-      item.innerHTML = `${providerIcon(model.provider)}<span>${model.label}</span><svg class="lasso-prompt-model-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`;
-      children.push(item);
+      children.push(modelItem(model));
     }
   }
 
   modelMenu.replaceChildren(...children);
   syncModelMenu();
+}
+
+function cliLabel(key: string): string {
+  if (key === "claude-code") return "Claude Code";
+  if (key === "codex") return "Codex";
+  if (key === "opencode") return "OpenCode";
+  return key;
+}
+
+function modelItem(model: ModelOption): HTMLButtonElement {
+  const item = document.createElement("button");
+  item.type = "button";
+  item.className = "lasso-prompt-model-item";
+  item.dataset.model = model.id;
+  item.innerHTML = `${providerIcon(model.provider)}<span>${model.label}</span><svg class="lasso-prompt-model-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`;
+  return item;
 }
 
 export function syncModelMenu() {

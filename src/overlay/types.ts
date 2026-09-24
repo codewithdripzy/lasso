@@ -19,7 +19,7 @@ export type ScreenshotContext = {
 export type ModelOption = {
   id: string;
   label: string;
-  provider: "anthropic" | "openai" | "google" | "ollama" | "claude-code" | "codex";
+  provider: "anthropic" | "openai" | "google" | "ollama" | "cli";
 };
 
 export type GitState = {
@@ -108,6 +108,16 @@ export type CollabTodo = {
   status: "todo" | "in-progress" | "done";
   priority: "none" | "low" | "medium" | "high" | "critical";
   assignee: string;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type CollabClipboardItem = {
+  uid: string;
+  scope: "private" | "shared";
+  type: "text" | "url" | "code" | "json" | "image";
+  label: string;
+  content: string;
   createdAt: string;
   updatedAt?: string;
 };

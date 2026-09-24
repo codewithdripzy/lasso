@@ -1504,6 +1504,27 @@ export function buildStyles(): string {
       text-transform: none;
     }
 
+    .lasso-cli-subgroup { margin: 2px 0; }
+    .lasso-cli-subgroup-header {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px 5px 18px;
+      border: 0;
+      border-radius: var(--lo-radius-sm);
+      background: transparent;
+      color: var(--lo-text-2);
+      font: inherit;
+      font-size: 11px;
+      font-weight: 550;
+      text-align: left;
+      cursor: pointer;
+    }
+    .lasso-cli-subgroup-header:hover { background: var(--lo-surface-hover); color: var(--lo-text); }
+    .lasso-cli-subgroup-chevron { color: var(--lo-text-3); font-size: 13px; line-height: 10px; }
+    .lasso-cli-subgroup-items { padding-left: 6px; }
+
     .lasso-model-item-icon {
       display: inline-flex;
       width: 22px;
@@ -1551,6 +1572,7 @@ export function buildStyles(): string {
     .provider-ollama { background: rgba(255, 255, 255, 0.1); color: var(--lo-text-2); }
     .provider-claude-code { background: rgba(245, 158, 11, 0.16); color: #f59e0b; }
     .provider-codex { background: rgba(129, 201, 149, 0.16); color: var(--lo-success); }
+    .provider-cli { background: rgba(192, 132, 252, 0.16); color: #c084fc; }
 
     .lasso-prompt-model-name,
     .lasso-prompt-model-name-text,
@@ -2429,6 +2451,7 @@ export function buildStyles(): string {
     }
 
     .lasso-git-commit-input-wrap {
+      position: relative;
       background: var(--lo-surface-2);
       border: 1px solid var(--lo-border);
       border-radius: var(--lo-radius-md);
@@ -2451,7 +2474,27 @@ export function buildStyles(): string {
       resize: none;
       outline: none;
       box-shadow: none;
+      padding-right: 28px;
     }
+
+    .lasso-git-ai-btn {
+      position: absolute;
+      right: 7px;
+      bottom: 7px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      border: 1px solid var(--lo-border-subtle);
+      border-radius: 6px;
+      background: var(--lo-surface);
+      color: var(--lo-primary);
+      cursor: pointer;
+    }
+    .lasso-git-ai-btn:hover:not(:disabled) { background: var(--lo-primary-soft); }
+    .lasso-git-ai-btn:disabled { opacity: .5; cursor: wait; }
 
     .lasso-git-commit-textarea::placeholder {
       color: var(--lo-text-3);
@@ -3092,5 +3135,49 @@ export function buildStyles(): string {
       font-size: 10.5px;
       color: var(--lo-text-3);
     }
+
+    .lasso-clipboard-panel {
+      position: fixed;
+      top: 58px;
+      right: 18px;
+      width: 360px;
+      max-height: calc(100vh - 82px);
+      overflow: auto;
+      z-index: 20;
+      padding: 14px;
+      border: 1px solid var(--lo-border);
+      border-radius: 12px;
+      background: var(--lo-surface);
+      color: var(--lo-text);
+      box-shadow: 0 18px 44px rgba(0,0,0,.35);
+    }
+    .lasso-clipboard-panel[hidden] { display: none; }
+    .lasso-clipboard-header, .lasso-clipboard-compose-row, .lasso-clipboard-compose-actions, .lasso-clipboard-item-meta, .lasso-clipboard-item-actions { display: flex; align-items: center; }
+    .lasso-clipboard-header { justify-content: space-between; gap: 12px; }
+    .lasso-clipboard-title { display: block; font-size: 13px; font-weight: 650; }
+    .lasso-clipboard-subtitle { display: block; margin-top: 2px; font-size: 10px; color: var(--lo-text-3); }
+    .lasso-clipboard-close { border: 0; background: transparent; color: var(--lo-text-3); font-size: 20px; cursor: pointer; }
+    .lasso-clipboard-tabs { display: flex; gap: 4px; margin: 14px 0 10px; padding: 3px; border-radius: 7px; background: var(--lo-surface-2); }
+    .lasso-clipboard-tab { flex: 1; border: 0; border-radius: 5px; padding: 6px; background: transparent; color: var(--lo-text-3); font-size: 11px; cursor: pointer; }
+    .lasso-clipboard-tab.active { background: var(--lo-surface); color: var(--lo-text); box-shadow: 0 1px 4px rgba(0,0,0,.18); }
+    .lasso-clipboard-compose { padding-bottom: 12px; border-bottom: 1px solid var(--lo-border-subtle); }
+    .lasso-clipboard-compose-row { gap: 6px; }
+    .lasso-clipboard-type, .lasso-clipboard-label, .lasso-clipboard-input { min-width: 0; border: 1px solid var(--lo-border); border-radius: 6px; background: var(--lo-surface-2); color: var(--lo-text); font: inherit; font-size: 11px; outline: none; }
+    .lasso-clipboard-type { width: 76px; padding: 6px 4px; }
+    .lasso-clipboard-label { flex: 1; padding: 6px 8px; }
+    .lasso-clipboard-input { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; padding: 8px; resize: vertical; }
+    .lasso-clipboard-compose-actions { justify-content: space-between; gap: 8px; margin-top: 7px; }
+    .lasso-clipboard-read, .lasso-clipboard-add, .lasso-clipboard-copy-item, .lasso-clipboard-delete-item { border: 0; border-radius: 5px; padding: 6px 8px; background: transparent; color: var(--lo-text-2); font: inherit; font-size: 10px; cursor: pointer; }
+    .lasso-clipboard-add { background: var(--lo-primary); color: #fff; }
+    .lasso-clipboard-list { display: grid; gap: 7px; padding-top: 10px; }
+    .lasso-clipboard-item { padding: 9px; border: 1px solid var(--lo-border-subtle); border-radius: 8px; background: var(--lo-surface-2); }
+    .lasso-clipboard-item-meta { justify-content: space-between; gap: 8px; }
+    .lasso-clipboard-item-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 600; }
+    .lasso-clipboard-item-type { flex: 0 0 auto; color: var(--lo-primary); font-size: 9px; text-transform: uppercase; }
+    .lasso-clipboard-item-content { max-height: 60px; overflow: hidden; margin-top: 6px; color: var(--lo-text-2); font-family: var(--lo-font-mono); font-size: 10px; line-height: 15px; white-space: pre-wrap; word-break: break-word; }
+    .lasso-clipboard-item-actions { justify-content: flex-end; gap: 4px; margin-top: 5px; }
+    .lasso-clipboard-delete-item { color: #f28b82; }
+    .lasso-clipboard-empty { padding: 24px 8px; color: var(--lo-text-3); font-size: 11px; text-align: center; }
+    @media (max-width: 600px) { .lasso-clipboard-panel { top: 52px; right: 10px; left: 10px; width: auto; } }
   `;
 }

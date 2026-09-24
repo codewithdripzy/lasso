@@ -6,7 +6,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import chalk from "chalk";
-import { answerQuestion, detectLocalAgents, proposeChanges, type AgentConfig, type SourceChange, type LocalAgent } from "./agent";
+import { answerQuestion, detectLocalAgents, proposeChanges, generateCommitMessage, type AgentConfig, type SourceChange, type LocalAgent } from "./agent";
 import type { CollabConfig } from "./project";
 
 const DEFAULT_BRIDGE_PORT = 3056;
@@ -15,24 +15,26 @@ type GitState = { isRepo: boolean; branch?: string; status?: string[]; hasChange
 
 export type BridgeMessage =
   | { type: "hello"; from: "overlay" | "cli" }
-  | { type: "edit"; instruction: string; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "claude-code" | "codex"; messages?: Array<{ role: string; content: string; createdAt?: string }>; changesHistory?: Array<{ summary: string; changes: SourceChange[]; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
-  | { type: "ask"; question: string; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "claude-code" | "codex"; messages?: Array<{ role: string; content: string; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
+  | { type: "edit"; instruction: string; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "cli"; messages?: Array<{ role: string; content: string; createdAt?: string }>; changesHistory?: Array<{ summary: string; changes: SourceChange[]; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
+  | { type: "ask"; question: string; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "cli"; messages?: Array<{ role: string; content: string; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
   | { type: "runtime_error"; selectionId?: string; details: string }
   | { type: "apply"; changes: SourceChange[] }
   | { type: "undo" }
   | { type: "stop" }
   | { type: "git_status" }
+  | { type: "git_generate_message"; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "cli" }
   | { type: "git_init" }
   | { type: "git_commit"; message: string }
   | { type: "git_push" }
   | { type: "agent_status"; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string };
 
-type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" | "claude-code" | "codex" };
+type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" | "cli" };
 
 export type ServerBridgeMessage =
   | { type: "config"; apiKeyConfigured: boolean; agentConfigured: boolean; models: ModelOption[]; collab?: CollabConfig | null }
   | { type: "git_state"; git: GitState }
   | { type: "git_result"; message?: string; error?: string }
+  | { type: "git_commit_message"; message?: string; error?: string }
   | { type: "agent_status"; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string; changes?: SourceChange[] }
   | { type: "assistant_message"; message: string }
   | { type: "applied"; message: string }
@@ -117,9 +119,24 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     }
   }
 
+  async function openCodeModels() {
+    if (!localAgents.has("opencode")) return [];
+    try {
+      const result = await execFileAsync("opencode", ["models"], { maxBuffer: 1024 * 1024 });
+      return result.stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.:@/-]+$/.test(line))
+        .map((model) => ({ id: `opencode:${model}`, label: `OpenCode · ${model}`, provider: "cli" as const }));
+    } catch {
+      return [];
+    }
+  }
+
   const availableModels = async () => {
     localAgents = await detectLocalAgents();
     const locals = await localModels();
+    const discoveredOpenCodeModels = await openCodeModels();
     if (locals.length && !agentConfig) {
       const base = process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL || "http://localhost:11434/api";
       agentConfig = { provider: "ollama", apiKey: "ollama", model: process.env.OLLAMA_MODEL || fileEnv.OLLAMA_MODEL, baseUrl: `${base.replace(/\/api\/?$/, "")}/v1` };
@@ -136,8 +153,22 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "google" as const },
       { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "google" as const },
       { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite", provider: "google" as const },
-      ...(localAgents.has("claude-code") ? [{ id: "claude-code", label: "Claude Code · Local", provider: "claude-code" as const }] : []),
-      ...(localAgents.has("codex") ? [{ id: "codex", label: "Codex · Local", provider: "codex" as const }] : []),
+      ...(localAgents.has("claude-code") ? [
+        { id: "claude-code:sonnet", label: "Claude Code · Sonnet", provider: "cli" as const },
+        { id: "claude-code:opus", label: "Claude Code · Opus", provider: "cli" as const },
+        { id: "claude-code:haiku", label: "Claude Code · Haiku", provider: "cli" as const },
+      ] : []),
+      ...(localAgents.has("codex") ? [
+        { id: "codex:gpt-5", label: "Codex · GPT-5", provider: "cli" as const },
+        { id: "codex:gpt-5-codex", label: "Codex · GPT-5-Codex", provider: "cli" as const },
+      ] : []),
+      ...(localAgents.has("opencode") ? [
+        { id: "opencode:opencode/big-pickle", label: "OpenCode · Big Pickle", provider: "cli" as const },
+        { id: "opencode:deepseek/deepseek-chat", label: "OpenCode · DeepSeek Chat", provider: "cli" as const },
+        { id: "opencode:anthropic/claude-sonnet-4-5", label: "OpenCode · Claude Sonnet", provider: "cli" as const },
+        { id: "opencode:openai/gpt-5", label: "OpenCode · GPT-5", provider: "cli" as const },
+      ] : []),
+      ...discoveredOpenCodeModels,
       ...locals,
     ];
   };
@@ -161,7 +192,8 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         console.log("[lasso] received from overlay:", msg);
       }
       if (msg.type === "ask") {
-        const localProvider = msg.provider === "claude-code" || msg.provider === "codex";
+        const localProvider = msg.provider === "cli";
+        const cliProvider = msg.model.startsWith("claude-code:") ? "claude-code" : msg.model.startsWith("opencode:") ? "opencode" : "codex";
         if (!lassoKeyConfigured && !localProvider) {
           socket.send(JSON.stringify({ type: "agent_status", status: "error", message: "Set your Lasso API key before asking the hosted agent a question." }));
           return;
@@ -175,8 +207,8 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         const controller = new AbortController();
         activeAgentController = controller;
         const selectedConfig: AgentConfig = localProvider
-          ? { provider: msg.provider as "claude-code" | "codex", model: msg.model }
-          : { ...agentConfig!, provider: msg.provider || agentConfig!.provider, model: msg.model };
+          ? { provider: cliProvider, model: msg.model }
+          : { ...agentConfig!, provider: (msg.provider || agentConfig!.provider) as AgentConfig["provider"], model: msg.model };
         void answerQuestion(cwd, { question: msg.question, context: msg.context, element: msg.element, messages: msg.messages }, selectedConfig, controller.signal, (message) => {
           if (!controller.signal.aborted && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "agent_status", status: "working", message }));
         }).then((answer) => {
@@ -187,7 +219,8 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
           if (activeAgentController === controller) activeAgentController = null;
         });
       } else if (msg.type === "edit") {
-        const localProvider = msg.provider === "claude-code" || msg.provider === "codex";
+        const localProvider = msg.provider === "cli";
+        const cliProvider = msg.model.startsWith("claude-code:") ? "claude-code" : msg.model.startsWith("opencode:") ? "opencode" : "codex";
         if (!lassoKeyConfigured && !localProvider) {
           socket.send(JSON.stringify({ type: "agent_status", status: "error", message: "Set VITE_LASSO_API_KEY or NEXT_LASSO_API_KEY in your app environment before sending an edit." }));
           return;
@@ -202,8 +235,8 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         const controller = new AbortController();
         activeAgentController = controller;
         const selectedConfig: AgentConfig = localProvider
-          ? { provider: msg.provider as "claude-code" | "codex", model: msg.model }
-          : { ...agentConfig!, provider: msg.provider || agentConfig!.provider, model: msg.model };
+          ? { provider: cliProvider, model: msg.model }
+          : { ...agentConfig!, provider: (msg.provider || agentConfig!.provider) as AgentConfig["provider"], model: msg.model };
         void proposeChanges(cwd, msg, selectedConfig, controller.signal, (message) => {
           if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
             socket.send(JSON.stringify({ type: "agent_status", status: "working", message }));
@@ -228,6 +261,27 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         socket.send(JSON.stringify({ type: "agent_status", status: "error", message: `Runtime error detected${msg.selectionId ? ` for selection ${msg.selectionId}` : ""}: ${msg.details}` }));
       } else if (msg.type === "git_status") {
         socket.send(JSON.stringify({ type: "git_state", git: await getGitState(cwd) }));
+      } else if (msg.type === "git_generate_message") {
+        const localProvider = msg.provider === "cli";
+        const cliProvider = msg.model.startsWith("claude-code:") ? "claude-code" : msg.model.startsWith("opencode:") ? "opencode" : "codex";
+        if (!agentConfig && !localProvider) {
+          socket.send(JSON.stringify({ type: "git_commit_message", error: "No AI provider is configured." }));
+          return;
+        }
+        const selectedConfig: AgentConfig = localProvider
+          ? { provider: cliProvider, model: msg.model }
+          : { ...agentConfig!, provider: (msg.provider || agentConfig!.provider) as AgentConfig["provider"], model: msg.model };
+        const controller = new AbortController();
+        activeAgentController?.abort();
+        activeAgentController = controller;
+        socket.send(JSON.stringify({ type: "agent_status", status: "thinking", message: "Generating a commit message…" }));
+        void getGitState(cwd).then((git) => generateCommitMessage(cwd, git.status || [], selectedConfig, controller.signal, (message) => {
+          if (!controller.signal.aborted && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "agent_status", status: "working", message }));
+        })).then((message) => {
+          if (!controller.signal.aborted) socket.send(JSON.stringify({ type: "git_commit_message", message }));
+        }).catch((error: unknown) => {
+          if (!controller.signal.aborted) socket.send(JSON.stringify({ type: "git_commit_message", error: error instanceof Error ? error.message : "Unable to generate a commit message." }));
+        }).finally(() => { if (activeAgentController === controller) activeAgentController = null; });
       } else if (msg.type === "git_init") {
         try {
           await gitCommand(cwd, ["init"]);

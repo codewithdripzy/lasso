@@ -139,6 +139,9 @@ export function buildGitPanel(): HTMLDivElement {
             rows="2"
             maxlength="200"
           ></textarea>
+          <button class="lasso-git-ai-btn" type="button" aria-label="Generate commit message with AI" title="Generate commit message with AI">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 1.4 5.6L19 10l-5.6 1.4L12 17l-1.4-5.6L5 10l5.6-1.4L12 3Z"/><path d="m19 16 .6 2.4L22 19l-2.4.6L19 22l-.6-2.4L16 19l2.4-.6L19 16Z"/></svg>
+          </button>
         </div>
       </div>
 
@@ -178,6 +181,7 @@ export function buildGitPanel(): HTMLDivElement {
   const commitBtn = el.querySelector<HTMLButtonElement>(".lasso-git-commit-btn")!;
   const pushBtn = el.querySelector<HTMLButtonElement>(".lasso-git-push-btn")!;
   const commitInput = el.querySelector<HTMLTextAreaElement>(".lasso-git-commit-textarea")!;
+  const aiMessageBtn = el.querySelector<HTMLButtonElement>(".lasso-git-ai-btn")!;
   const messageDismiss = el.querySelector<HTMLButtonElement>(".lasso-git-message-dismiss")!;
 
   closeBtn.addEventListener("click", () => toggleGitPanel(false));
@@ -215,6 +219,16 @@ export function buildGitPanel(): HTMLDivElement {
       e.preventDefault();
       commitBtn.click();
     }
+  });
+
+  aiMessageBtn.addEventListener("click", () => {
+    if (state.bridgeSocket?.readyState !== WebSocket.OPEN) {
+      setGitMessage("Connect the Lasso bridge before using AI.", true);
+      return;
+    }
+    aiMessageBtn.disabled = true;
+    setGitMessage("Generating commit message…");
+    state.bridgeSocket.send(JSON.stringify({ type: "git_generate_message", model: state.selectedModel.id, provider: state.selectedModel.provider }));
   });
 
   commitBtn.addEventListener("click", () => {
@@ -361,6 +375,14 @@ export function setGitMessage(msg: string, isError = false) {
   msgTimer = window.setTimeout(() => {
     if (msgBox) msgBox.hidden = true;
   }, 4500);
+}
+
+export function setGeneratedCommitMessage(message: string, error?: string) {
+  const input = gitPanelEl?.querySelector<HTMLTextAreaElement>(".lasso-git-commit-textarea");
+  const button = gitPanelEl?.querySelector<HTMLButtonElement>(".lasso-git-ai-btn");
+  if (button) button.disabled = false;
+  if (error) { setGitMessage(error, true); return; }
+  if (input && message) { input.value = message; input.focus(); setGitMessage("Commit message ready."); }
 }
 
 export function toggleGitPanel(force?: boolean): void {

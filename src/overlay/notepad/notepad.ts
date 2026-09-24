@@ -1,4 +1,5 @@
 import { getDOM } from "../dom";
+import { collabEmit } from "../collab/socket";
 
 const STORAGE_KEY = "lasso:notepad";
 
@@ -7,6 +8,13 @@ function loadNote(): string {
 }
 
 function saveNote(text: string): void {
+  if (collabEmit("note:save", { body: text }, (response) => {
+    if (!response.ok) saveNoteLocally(text);
+  })) return;
+  saveNoteLocally(text);
+}
+
+function saveNoteLocally(text: string): void {
   try { window.localStorage.setItem(STORAGE_KEY, text); } catch {}
 }
 
@@ -129,6 +137,16 @@ export function buildNotepadPanel(): HTMLDivElement {
   const statusEl = el.querySelector<HTMLSpanElement>(".lasso-notepad-status")!;
 
   textarea.value = initialContent;
+  collabEmit("note:get", {}, (response) => {
+    if (response.ok && typeof response.body === "string") {
+      if (!response.body && initialContent) {
+        saveNote(initialContent);
+        return;
+      }
+      textarea.value = response.body;
+      updateCounts(response.body.length, countEl);
+    }
+  });
   updateCounts(initialContent.length, countEl);
 
   closeBtn.addEventListener("click", () => toggleNotepadPanel(false));
@@ -172,6 +190,14 @@ export function buildNotepadPanel(): HTMLDivElement {
   });
 
   return el;
+}
+
+export function setNoteFromServer(text: string): void {
+  const textarea = notepadPanelEl?.querySelector<HTMLTextAreaElement>(".lasso-notepad-textarea");
+  const count = notepadPanelEl?.querySelector<HTMLSpanElement>(".lasso-notepad-count");
+  if (!textarea) return;
+  textarea.value = text;
+  if (count) updateCounts(text.length, count);
 }
 
 function updateCounts(length: number, countEl: HTMLSpanElement): void {

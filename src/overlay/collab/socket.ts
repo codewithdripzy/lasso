@@ -6,8 +6,10 @@ import { applyPresence, renderPresence, renderRemoteBoxes, showActivity, spotlig
 import { indexLocks, updateLockChip, releaseHeldLock } from "./locks";
 import { handleOffer, handleAnswer, handleCandidate, closePeer } from "./voice";
 import { upsertComment, removeCommentUid, renderComments, updateCommentsBadge } from "../comments/pins";
-import type { CollabConfig, CollabLock, CollabComment, CollabTodo } from "../types";
+import type { CollabConfig, CollabLock, CollabComment, CollabTodo, CollabClipboardItem } from "../types";
 import { replaceTodos, upsertTodo, removeTodo } from "../todo/todo";
+import { setNoteFromServer } from "../notepad/notepad";
+import { upsertClipboardItem, removeClipboardItem } from "../clipboard/clipboard";
 
 export function readAuthToken(): string {
   for (const key of ["token", "lasso_token", "auth_token", "jwt"]) {
@@ -22,9 +24,10 @@ export function collabEmit(
   payload: Record<string, unknown>,
   ack?: (res: { ok: boolean; error?: string; [key: string]: unknown }) => void
 ) {
-  if (!state.collabSocket?.connected) return;
+  if (!state.collabSocket?.connected) return false;
   if (ack) state.collabSocket.emit(event, payload, ack);
   else state.collabSocket.emit(event, payload);
+  return true;
 }
 
 export function connectCollab(config: CollabConfig) {
@@ -59,6 +62,9 @@ export function connectCollab(config: CollabConfig) {
   state.collabSocket.on("connect", () => {
     console.log("[Lasso Collab] Socket connected to collab server:", config.realtimeUrl, "socketId:", state.collabSocket?.id);
     if (state.collabProjectId) joinCollabSession();
+    collabEmit("note:get", {}, (payload) => {
+      if (payload.ok && typeof payload.body === "string") setNoteFromServer(payload.body);
+    });
   });
 
   state.collabSocket.on("connect_error", (error) => {
@@ -135,6 +141,16 @@ export function connectCollab(config: CollabConfig) {
   state.collabSocket.on("todos:removed", (payload: { sessionId?: string; todoId?: string }) => {
     if (payload.sessionId !== state.collabProjectId || !payload.todoId) return;
     removeTodo(payload.todoId);
+  });
+
+  state.collabSocket.on("clipboard:new", (payload: { sessionId?: string; item?: CollabClipboardItem }) => {
+    if (payload.sessionId !== state.collabProjectId || !payload.item) return;
+    upsertClipboardItem(payload.item);
+  });
+
+  state.collabSocket.on("clipboard:removed", (payload: { sessionId?: string; itemId?: string }) => {
+    if (payload.sessionId !== state.collabProjectId || !payload.itemId) return;
+    removeClipboardItem(payload.itemId);
   });
 
   state.collabSocket.on(

@@ -7,6 +7,7 @@ import { toggleVoice, leaveVoice, setVoiceMuted } from "../collab/voice";
 import { toggleGitPanel } from "../git/git";
 import { toggleTodoPanel } from "../todo/todo";
 import { toggleNotepadPanel } from "../notepad/notepad";
+import { toggleClipboardPanel } from "../clipboard/clipboard";
 
 export function setCommentMode(active: boolean) {
   state.commentMode = active;
@@ -86,7 +87,7 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
       </svg>
     </button>
 
-    <button class="lasso-tool-btn clipboard-tool" type="button" aria-label="Copy page" title="Copy selected text or page content">
+    <button class="lasso-tool-btn clipboard-tool" type="button" aria-label="Clipboard" title="Clipboard">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect x="8" y="8" width="12" height="12" rx="2"/>
         <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>
@@ -202,21 +203,10 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
     toggleNotepadPanel();
   });
 
-  clipboardBtn.addEventListener("click", async (e) => {
+  clipboardBtn.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    const text = window.getSelection()?.toString() || document.body.innerText;
-    try {
-      await navigator.clipboard.writeText(text);
-      clipboardBtn.classList.add("active");
-      clipboardBtn.title = "Copied";
-      window.setTimeout(() => {
-        clipboardBtn.classList.remove("active");
-        clipboardBtn.title = "Copy selected text or page content";
-      }, 1200);
-    } catch {
-      clipboardBtn.title = "Clipboard permission denied";
-    }
+    toggleClipboardPanel();
   });
 
   voiceBtn.addEventListener("click", (e) => {
