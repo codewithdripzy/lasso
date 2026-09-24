@@ -151,24 +151,39 @@ export function renderRemoteBoxes() {
   dom.remoteLayer.innerHTML = "";
   for (const user of state.presenceUsers.values()) {
     if (user.socketId === state.collabSocket?.id) continue;
+
+    // Selection box
     const sel = user.selection;
-    if (!sel?.elementId) continue;
-    const el = state.elementRegistry.get(sel.elementId);
-    if (!el || !isVisible(el)) continue;
+    if (sel?.elementId) {
+      const el = state.elementRegistry.get(sel.elementId);
+      if (el && isVisible(el)) {
+        const rect = el.getBoundingClientRect();
+        const box = document.createElement("div");
+        box.className = "lasso-remote-box";
+        box.style.setProperty("--lc", user.color);
+        box.style.left = `${rect.left}px`;
+        box.style.top = `${rect.top}px`;
+        box.style.width = `${rect.width}px`;
+        box.style.height = `${rect.height}px`;
+        const tag = document.createElement("div");
+        tag.className = "lasso-remote-tag";
+        tag.textContent = `${initials(user.name)}${sel.label ? ` · ${sel.label}` : ""}`;
+        box.appendChild(tag);
+        dom.remoteLayer.appendChild(box);
+      }
+    }
 
-    const rect = el.getBoundingClientRect();
-    const box = document.createElement("div");
-    box.className = "lasso-remote-box";
-    box.style.setProperty("--lc", user.color);
-    box.style.left = `${rect.left}px`;
-    box.style.top = `${rect.top}px`;
-    box.style.width = `${rect.width}px`;
-    box.style.height = `${rect.height}px`;
-
-    const tag = document.createElement("div");
-    tag.className = "lasso-remote-tag";
-    tag.textContent = `${initials(user.name)}${sel.label ? ` · ${sel.label}` : ""}`;
-    box.appendChild(tag);
-    dom.remoteLayer.appendChild(box);
+    // Cursor dot + name label
+    if (user.cursor) {
+      const cursor = document.createElement("div");
+      cursor.className = "lasso-remote-cursor";
+      cursor.style.setProperty("--lc", user.color);
+      cursor.style.transform = `translate(${user.cursor.x}px, ${user.cursor.y}px)`;
+      cursor.innerHTML = `
+        <div class="lasso-remote-cursor-dot"></div>
+        <div class="lasso-remote-cursor-label">${initials(user.name)} ${user.name.split(" ")[0]}</div>
+      `;
+      dom.remoteLayer.appendChild(cursor);
+    }
   }
 }

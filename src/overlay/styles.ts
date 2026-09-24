@@ -460,27 +460,28 @@ export function buildStyles(): string {
 
     .lasso-lock-chip {
       position: absolute;
-      top: -26px;
+      top: -28px;
       right: -2px;
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 3px 10px;
+      gap: 5px;
+      padding: 3px 9px 3px 7px;
       border-radius: var(--lo-radius-full);
-      font-size: 11px;
-      font-weight: 700;
+      font-size: 10.5px;
+      font-weight: 600;
       color: #ffffff;
       white-space: nowrap;
-      box-shadow: var(--lo-shadow-subtle);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
       pointer-events: none;
+      letter-spacing: 0.01em;
     }
 
     .lasso-lock-chip.held {
-      background: var(--lo-amber);
+      background: linear-gradient(135deg, #f59e0b, #d97706);
     }
 
     .lasso-lock-chip.blocked {
-      background: var(--lo-error);
+      background: linear-gradient(135deg, #ef4444, #dc2626);
     }
 
     /* Remote user selection box */
@@ -500,14 +501,48 @@ export function buildStyles(): string {
       top: -22px;
       display: flex;
       align-items: center;
-      gap: 5px;
-      padding: 3px 8px;
+      gap: 4px;
+      padding: 2px 7px;
       border-radius: var(--lo-radius-full);
       background: var(--lc);
       color: #ffffff;
       font-size: 10px;
-      font-weight: 700;
+      font-weight: 600;
       white-space: nowrap;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    }
+
+    /* Remote cursor */
+    .lasso-remote-cursor {
+      position: fixed;
+      pointer-events: none;
+      z-index: 9999;
+      transform: translate(0, 0);
+      transition: transform 80ms linear;
+      will-change: transform;
+    }
+
+    .lasso-remote-cursor-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--lc);
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.5);
+    }
+
+    .lasso-remote-cursor-label {
+      position: absolute;
+      top: 12px;
+      left: 8px;
+      padding: 2px 7px;
+      border-radius: var(--lo-radius-full);
+      background: var(--lc);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 600;
+      white-space: nowrap;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+      opacity: 0.9;
     }
 
     /* Spotlight */
@@ -900,6 +935,25 @@ export function buildStyles(): string {
       display: none;
     }
 
+    .lasso-gif-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 6.5px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      line-height: 1;
+      padding: 1.5px 2.5px;
+      border-radius: 2px;
+      border: 1px solid currentColor;
+      opacity: 0.75;
+      pointer-events: none;
+    }
+
+    .lasso-pin-itool-btn:hover .lasso-gif-badge {
+      opacity: 1;
+    }
+
     .lasso-pin-gif-header {
       display: flex;
       align-items: center;
@@ -972,32 +1026,6 @@ export function buildStyles(): string {
       resize: none;
     }
 
-    .lasso-pin-quick-tags {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      padding: 3px 0 6px;
-      overflow-x: auto;
-    }
-
-    .lasso-pin-qtag {
-      border: 1px solid var(--lo-border-subtle);
-      border-radius: var(--lo-radius-full);
-      padding: 2px 7px;
-      background: var(--lo-surface);
-      color: var(--lo-text-3);
-      font-size: 10px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 120ms ease;
-      white-space: nowrap;
-    }
-
-    .lasso-pin-qtag:hover {
-      background: var(--lo-primary-soft);
-      color: var(--lo-primary);
-      border-color: var(--lo-primary);
-    }
 
     .lasso-pin-input-toolbar {
       display: flex;
@@ -1045,6 +1073,10 @@ export function buildStyles(): string {
       flex-direction: column;
       gap: 2px;
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    }
+
+    .lasso-pin-tag-menu[hidden] {
+      display: none;
     }
 
     .lasso-pin-tag-item {
@@ -1180,33 +1212,16 @@ export function buildStyles(): string {
       transition: all 140ms ease;
     }
 
-    .lasso-pin-chip-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-
     .lasso-pin-thread-chip.open {
       background: rgba(99, 102, 241, 0.14);
       color: #818cf8;
       border-color: rgba(99, 102, 241, 0.25);
     }
 
-    .lasso-pin-thread-chip.open .lasso-pin-chip-dot {
-      background: #818cf8;
-      box-shadow: 0 0 6px rgba(129, 140, 248, 0.6);
-    }
-
     .lasso-pin-thread-chip.resolved {
       background: rgba(16, 185, 129, 0.14);
       color: #34d399;
       border-color: rgba(16, 185, 129, 0.25);
-    }
-
-    .lasso-pin-thread-chip.resolved .lasso-pin-chip-dot {
-      background: #34d399;
-      box-shadow: 0 0 6px rgba(52, 211, 153, 0.6);
     }
 
     .lasso-pin-thread-chip:hover {
@@ -2799,21 +2814,22 @@ export function buildStyles(): string {
     }
 
     .lasso-todo-col-status {
-      width: 90px;
+      width: 76px;
       flex-shrink: 0;
     }
 
     .lasso-todo-status-chip {
       border: 0;
-      border-radius: var(--lo-radius-full);
-      padding: 2.5px 8px;
-      font-size: 10.5px;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 10px;
       font-weight: 500;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       transition: all 120ms ease;
+      letter-spacing: 0.01em;
     }
 
     .lasso-todo-status-chip:hover {

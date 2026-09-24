@@ -270,6 +270,21 @@ export function sendPresenceUpdate(patch: { state?: "online" | "away"; selection
   });
 }
 
+export function initCursorTracking() {
+  let lastEmit = 0;
+  const THROTTLE_MS = 50; // ~20fps
+  document.addEventListener("mousemove", (e) => {
+    if (!state.collabSocket?.connected || !state.collabJoined || !state.collabProjectId) return;
+    const now = Date.now();
+    if (now - lastEmit < THROTTLE_MS) return;
+    lastEmit = now;
+    collabEmit("presence:update", {
+      sessionId: state.collabProjectId,
+      cursor: { x: e.clientX, y: e.clientY },
+    });
+  }, { passive: true });
+}
+
 export function initCollabPagehide() {
   window.addEventListener("pagehide", () => {
     if (state.collabHeartbeat) window.clearInterval(state.collabHeartbeat);

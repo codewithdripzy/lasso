@@ -27,9 +27,14 @@ export function updateLockChip() {
     dom.heldLockChip.hidden = false;
     dom.heldLockChip.classList.toggle("held", mine);
     dom.heldLockChip.classList.toggle("blocked", !mine);
-    dom.heldLockChip.textContent = mine
-      ? "Locked by you"
-      : `Locked by ${lock.locker?.name || "a teammate"}`;
+    const label = mine ? "Locked by you" : `Locked · ${lock.locker?.name || "teammate"}`;
+    dom.heldLockChip.innerHTML = `
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+      <span>${label}</span>
+    `;
   } else {
     dom.heldLockChip.hidden = true;
   }

@@ -26,7 +26,7 @@ import {
   isPromptOpen,
 } from "./prompt/prompt";
 import { connectBridge, initErrorListeners } from "./bridge/bridge";
-import { initCollabPagehide, sendPresenceUpdate } from "./collab/socket";
+import { initCollabPagehide, sendPresenceUpdate, initCursorTracking } from "./collab/socket";
 import { renderRemoteBoxes } from "./collab/presence";
 import { updateLockChip } from "./collab/locks";
 
@@ -56,6 +56,7 @@ export function init() {
   initErrorListeners();
   connectBridge();
   initCollabPagehide();
+  initCursorTracking();
 
   // Keep overlays aligned on scroll & resize
   function updatePositions() {

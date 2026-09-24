@@ -201,7 +201,7 @@ function renderTodoTable(): void {
         <button class="lasso-todo-status-chip" type="button" style="background:${sc.bg};color:${sc.color};">${sc.label}</button>
       </div>
       <div class="lasso-todo-col lasso-todo-col-task">
-        <input class="lasso-todo-row-text" type="text" value="${escapeAttr(item.text)}" placeholder="Task name…" />
+        <input class="lasso-todo-row-text" type="text" value="${escapeAttr(item.text)}" placeholder="Task…" />
       </div>
       <div class="lasso-todo-col lasso-todo-col-priority">
         <button class="lasso-todo-priority-chip" type="button" style="color:${pc.color};">${pc.label}</button>

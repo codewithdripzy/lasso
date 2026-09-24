@@ -17,7 +17,6 @@ export function buildPinThread(): HTMLDivElement {
   el.innerHTML = `
     <div class="lasso-pin-thread-head">
       <button class="lasso-pin-thread-chip open" type="button" aria-label="Toggle status" title="Click to toggle status">
-        <span class="lasso-pin-chip-dot"></span>
         <span class="lasso-pin-chip-label">In progress</span>
       </button>
       <div class="lasso-pin-thread-head-actions">
@@ -32,15 +31,10 @@ export function buildPinThread(): HTMLDivElement {
     <div class="lasso-pin-thread-msgs"></div>
     <div class="lasso-pin-thread-reply-area">
       <div class="lasso-pin-input-wrap">
-        <textarea placeholder="Write a reply… type @ to mention" maxlength="2000" rows="2"></textarea>
+        <textarea placeholder="Reply…" maxlength="2000" rows="2"></textarea>
         <div class="lasso-pin-tag-menu" hidden></div>
 
-        <div class="lasso-pin-quick-tags">
-          <button type="button" class="lasso-pin-qtag" data-tag="#bug">#bug</button>
-          <button type="button" class="lasso-pin-qtag" data-tag="#ui">#ui</button>
-          <button type="button" class="lasso-pin-qtag" data-tag="#copy">#copy</button>
-          <button type="button" class="lasso-pin-qtag" data-tag="#design">#design</button>
-        </div>
+
 
         <div class="lasso-pin-input-toolbar">
           <label class="lasso-pin-itool-btn" title="Attach file">
@@ -51,10 +45,7 @@ export function buildPinThread(): HTMLDivElement {
           </label>
 
           <button class="lasso-pin-itool-btn gif-picker-toggle" type="button" title="Add GIF" aria-label="Insert GIF">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="3" width="20" height="18" rx="3"/>
-              <path d="M7 9h2v6H7zM11 9h4M13 12h2M11 15h4"/>
-            </svg>
+            <span class="lasso-gif-badge">GIF</span>
           </button>
 
           <button class="lasso-pin-itool-btn mention-btn" type="button" title="Mention someone" aria-label="@mention">

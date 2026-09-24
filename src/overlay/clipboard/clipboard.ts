@@ -7,6 +7,8 @@ let panel: HTMLDivElement | null = null;
 let items: CollabClipboardItem[] = [];
 let scope: "private" | "shared" = "private";
 
+const PRIVATE_STORAGE_KEY = "lasso:clipboard:private";
+
 const TYPE_ICONS: Record<string, string> = {
   text: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 6.1H3"/><path d="M21 12.1H3"/><path d="M15.1 18H3"/></svg>`,
   url:  `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
@@ -88,6 +90,25 @@ export function buildClipboardPanel(): HTMLDivElement {
     const label = el.querySelector<HTMLInputElement>(".lasso-clipboard-label")!.value || type;
     if (!content.trim()) return setStatus("Add some content first");
     if (scope === "shared" && (!state.collabJoined || !state.collabProjectId)) return setStatus("Join a session to use Shared");
+
+    if (scope === "private") {
+      const newItem: CollabClipboardItem = {
+        uid: `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        scope: "private",
+        type,
+        label,
+        content,
+        createdAt: new Date().toISOString(),
+      };
+      items.unshift(newItem);
+      savePrivateItems();
+      el.querySelector<HTMLTextAreaElement>(".lasso-clipboard-input")!.value = "";
+      el.querySelector<HTMLInputElement>(".lasso-clipboard-label")!.value = "";
+      render();
+      setStatus("Saved ✓");
+      return;
+    }
+
     collabEmit("clipboard:add", { scope, type, label, content, sessionId: state.collabProjectId }, (response) => {
       if (!response.ok) return setStatus(response.error || "Unable to save item");
       if (response.item) upsertClipboardItem(response.item as CollabClipboardItem);
@@ -101,11 +122,34 @@ export function buildClipboardPanel(): HTMLDivElement {
   return el;
 }
 
+function loadPrivateItems(): CollabClipboardItem[] {
+  try {
+    const raw = window.localStorage.getItem(PRIVATE_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as CollabClipboardItem[]) : [];
+  } catch { return []; }
+}
+
+function savePrivateItems(): void {
+  try {
+    const privateItems = items.filter((item) => item.scope === "private");
+    window.localStorage.setItem(PRIVATE_STORAGE_KEY, JSON.stringify(privateItems));
+  } catch {}
+}
+
 function requestItems() {
-  if (scope === "shared" && (!state.collabJoined || !state.collabProjectId)) { render(); return; }
+  if (scope === "private") {
+    const privateItems = loadPrivateItems();
+    items = [...privateItems, ...items.filter((item) => item.scope === "shared")];
+    render();
+    return;
+  }
+  if (!state.collabJoined || !state.collabProjectId) { render(); return; }
   collabEmit("clipboard:list", { scope, sessionId: state.collabProjectId }, (response) => {
-    if (response.ok) { items = (response.items || []) as CollabClipboardItem[]; render(); }
-    else setStatus(response.error || "Unable to load clipboard");
+    if (response.ok) {
+      const shared = (response.items || []) as CollabClipboardItem[];
+      items = [...items.filter((item) => item.scope === "private"), ...shared];
+      render();
+    } else setStatus(response.error || "Unable to load clipboard");
   });
 }
 
@@ -174,6 +218,11 @@ function render() {
     row.querySelector<HTMLButtonElement>(".lasso-clipboard-delete-item")!.addEventListener("click", () => {
       row.classList.add("removing");
       window.setTimeout(() => {
+        if (item.scope === "private") {
+          removeClipboardItem(item.uid);
+          savePrivateItems();
+          return;
+        }
         collabEmit("clipboard:remove", { scope, itemId: item.uid, sessionId: state.collabProjectId }, (response) => {
           if (response.ok) removeClipboardItem(item.uid);
           else { row.classList.remove("removing"); setStatus(response.error || "Unable to delete item"); }
