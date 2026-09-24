@@ -12,8 +12,8 @@ Select any part of your running app, describe what you want changed, and Lasso t
 
 <br />
 
-[![npm version](https://img.shields.io/npm/v/lasso?style=flat-square&color=6366f1)](https://www.npmjs.com/package/lasso)
-[![npm downloads](https://img.shields.io/npm/dm/lasso?style=flat-square&color=6366f1)](https://www.npmjs.com/package/lasso)
+[![npm version](https://img.shields.io/npm/v/%40lasso-ai%2Fcli?style=flat-square&color=6366f1)](https://www.npmjs.com/package/@lasso-ai/cli)
+[![npm downloads](https://img.shields.io/npm/dm/%40lasso-ai%2Fcli?style=flat-square&color=6366f1)](https://www.npmjs.com/package/@lasso-ai/cli)
 [![GitHub stars](https://img.shields.io/github/stars/codewithdripzy/lasso?style=flat-square&color=6366f1)](https://github.com/codewithdripzy/lasso)
 [![GitHub contributors](https://img.shields.io/github/contributors/codewithdripzy/lasso?style=flat-square&color=6366f1)](https://github.com/codewithdripzy/lasso/graphs/contributors)
 [![license](https://img.shields.io/github/license/codewithdripzy/lasso?style=flat-square&color=6366f1)](LICENSE)
@@ -235,28 +235,28 @@ and refuses any non-`.lasso` host. The secure URL is
 ### 1. Install
 
 ```bash
-npm install --save-dev lasso
+npm install --save-dev @lasso-ai/cli
 ```
 
 Or:
 
 ```bash
-pnpm add -D lasso
+pnpm add -D @lasso-ai/cli
 ```
 
 ```bash
-yarn add -D lasso
+yarn add -D @lasso-ai/cli
 ```
 
 You can also install the CLI globally and use `lasso` directly from any
 project:
 
 ```bash
-npm install --global lasso
+npm install --global @lasso-ai/cli
 # or
-pnpm add --global lasso
+pnpm add --global @lasso-ai/cli
 # or
-yarn global add lasso
+yarn global add @lasso-ai/cli
 ```
 
 Use a project-local install when you want each repository to pin its Lasso
@@ -269,7 +269,7 @@ From your application's root:
 ```bash
 lasso
 # or, without a global install
-npx lasso
+npx @lasso-ai/cli
 ```
 
 This is equivalent to:
@@ -277,7 +277,7 @@ This is equivalent to:
 ```bash
 lasso dev
 # or, without a global install
-npx lasso dev
+npx @lasso-ai/cli dev
 ```
 
 Lasso detects your framework, starts the development environment with its integration injected in memory, and connects the browser overlay.
@@ -455,10 +455,10 @@ The numbers below are pulled from public package and repository activity where a
 
 | Metric | |
 |---|---:|
-| npm downloads | [![npm downloads](https://img.shields.io/npm/dm/lasso?style=flat-square&color=6366f1)](https://www.npmjs.com/package/lasso) |
+| npm downloads | [![npm downloads](https://img.shields.io/npm/dm/%40lasso-ai%2Fcli?style=flat-square&color=6366f1)](https://www.npmjs.com/package/@lasso-ai/cli) |
 | GitHub stars | [![GitHub stars](https://img.shields.io/github/stars/codewithdripzy/lasso?style=flat-square&color=6366f1)](https://github.com/codewithdripzy/lasso) |
 | Contributors | [![GitHub contributors](https://img.shields.io/github/contributors/codewithdripzy/lasso?style=flat-square&color=6366f1)](https://github.com/codewithdripzy/lasso/graphs/contributors) |
-| Latest release | [![npm version](https://img.shields.io/npm/v/lasso?style=flat-square&color=6366f1)](https://www.npmjs.com/package/lasso) |
+| Latest release | [![npm version](https://img.shields.io/npm/v/%40lasso-ai%2Fcli?style=flat-square&color=6366f1)](https://www.npmjs.com/package/@lasso-ai/cli) |
 | License | [![license](https://img.shields.io/github/license/codewithdripzy/lasso?style=flat-square&color=6366f1)](LICENSE) |
 
 > npm downloads represent package downloads, not unique users or installations.

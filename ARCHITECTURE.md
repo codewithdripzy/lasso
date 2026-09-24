@@ -98,7 +98,7 @@ A Node process that wraps the user's existing dev server. Entry: `src/cli/index.
 
 ### 5.1 Responsibilities
 
-1. Detect framework/bundler on `npx lasso` (`src/cli/utils/framework.ts` reads
+1. Detect framework/bundler on `npx @lasso-ai/cli` (`src/cli/utils/framework.ts` reads
    `vite.config.*`, `next.config.*`, `package.json`).
 2. Spawn the dev server programmatically with the source-mapping plugin injected in memory
    (`src/cli/server/vite.ts`, `src/cli/server/next.ts`) — the user's own config files are

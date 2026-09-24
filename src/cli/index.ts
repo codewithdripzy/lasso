@@ -280,7 +280,7 @@ auth.command("login").description("Sign in with the browser OAuth flow and store
 auth.command("status").description("Show the Lasso credential stored on this machine").action(() => {
     const credentials = loadCredentials();
     if (!credentials) {
-        console.log(chalk.dim("Not authenticated. Run ") + chalk.cyan("npx lasso auth login") + chalk.dim(" to sign in."));
+        console.log(chalk.dim("Not authenticated. Run ") + chalk.cyan("npx @lasso-ai/cli auth login") + chalk.dim(" to sign in."));
         return;
     }
     const summary = credentialSummary(credentials);
@@ -311,7 +311,7 @@ program.command("dev", { isDefault: true }).description("Start your dev server w
     if (existing?.id) {
         collabConfig = await resolveCollabSession(cwd, fileEnv, existing.id);
     } else {
-        console.log(chalk.yellow("!") + ` No ${chalk.bold(LASSO_CONFIG_FILE)} found. Run ${chalk.cyan("npx lasso init")} to enable realtime collaboration.`);
+        console.log(chalk.yellow("!") + ` No ${chalk.bold(LASSO_CONFIG_FILE)} found. Run ${chalk.cyan("npx @lasso-ai/cli init")} to enable realtime collaboration.`);
     }
 
     startBridge(cwd, collabConfig);

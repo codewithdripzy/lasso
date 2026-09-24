@@ -199,7 +199,7 @@ async function buildProjectMetadata(cwd: string, framework: string): Promise<Pro
 function promptForApiKey(): Promise<string | null> {
     return new Promise((resolve) => {
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        rl.question(`No Lasso key found. Run ${chalk.cyan("npx lasso auth login")} to sign in, or paste an API key (create one in the dashboard: ${chalk.cyan("lss_live_…")}): `, (answer) => {
+        rl.question(`No Lasso key found. Run ${chalk.cyan("npx @lasso-ai/cli auth login")} to sign in, or paste an API key (create one in the dashboard: ${chalk.cyan("lss_live_…")}): `, (answer) => {
             rl.close();
             resolve(answer.trim() || null);
         });
@@ -299,7 +299,7 @@ export async function resolveCollabSession(cwd: string, fileEnv: Record<string, 
 
     const apiKey = resolveLassoApiKey(fileEnv);
     if (!apiKey) {
-        console.warn(chalk.yellow("!") + " No Lasso credential found. Run " + chalk.cyan("npx lasso auth login") + " (or set LASSO_API_KEY) to enable realtime collaboration." );
+        console.warn(chalk.yellow("!") + " No Lasso credential found. Run " + chalk.cyan("npx @lasso-ai/cli auth login") + " (or set LASSO_API_KEY) to enable realtime collaboration." );
         return config;
     }
 

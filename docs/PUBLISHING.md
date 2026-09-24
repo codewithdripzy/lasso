@@ -1,10 +1,10 @@
-# Publishing `lasso` to npm
+# Publishing `@lasso-ai/cli` to npm
 
-This document is for maintainers preparing a release of the [`lasso`](https://www.npmjs.com/package/lasso) package.
+This document is for maintainers preparing a release of the [`@lasso-ai/cli`](https://www.npmjs.com/package/@lasso-ai/cli) package.
 
 ## Prerequisites
 
-- npm account with publish access to the `lasso` package name (or your scoped name).
+- npm account with publish access to the `@lasso-ai` scope.
 - Node.js **>= 18**.
 - A clean git tree on the release commit tagged in [CHANGELOG.md](../CHANGELOG.md).
 
@@ -42,18 +42,18 @@ npm publish --access public
 For a prerelease:
 
 ```bash
-npm publish --tag next
+npm publish --access public --tag next
 ```
 
 ## After publish
 
 1. Create a [GitHub release](https://github.com/codewithdripzy/lasso/releases) matching the version tag.
-2. Confirm the [npm package page](https://www.npmjs.com/package/lasso) shows the new README, homepage, and funding link.
+2. Confirm the [npm package page](https://www.npmjs.com/package/@lasso-ai/cli) shows the new README, homepage, and funding link.
 3. Smoke-test install in a fresh app:
 
    ```bash
-   npm install --save-dev lasso@latest
-   npx lasso --help
+   npm install --save-dev @lasso-ai/cli@latest
+   npx @lasso-ai/cli --help
    ```
 
 ## Links

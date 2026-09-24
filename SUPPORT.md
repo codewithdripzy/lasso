@@ -23,7 +23,7 @@ best place for each kind of question.
 - Read [README.md](README.md) and [ARCHITECTURE.md](ARCHITECTURE.md) first; most
   "why does it do that?" questions are answered there.
 - Search existing issues before opening a new one.
-- Include versions: `node --version`, the framework version, and Lasso (`npx lasso --version`).
+- Include versions: `node --version`, the framework version, and Lasso (`npx @lasso-ai/cli --version`).
 
 ## No private support
 
