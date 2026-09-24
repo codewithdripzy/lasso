@@ -118,7 +118,11 @@ function extractLocalAgentText(raw: string, provider: LocalAgent): string {
     try {
       const event = JSON.parse(line) as Record<string, unknown>;
       const item = event.item as Record<string, unknown> | undefined;
-      for (const candidate of [event.text, event.output_text, item?.text, item?.output_text, item?.message]) {
+      const part = event.part as Record<string, unknown> | undefined;
+      const candidates = provider === "opencode"
+        ? [part?.type === "text" ? part.text : undefined, event.text, event.output_text]
+        : [event.text, event.output_text, item?.text, item?.output_text, item?.message];
+      for (const candidate of candidates) {
         if (typeof candidate === "string" && candidate.trim()) texts.push(candidate);
       }
     } catch {
@@ -138,17 +142,35 @@ function progressFromLine(raw: string, provider: LocalAgent): string | null {
       if (tool) return `Claude Code · ${String(tool)}`;
       if (event.type === "result" || event.result) return "Claude Code · preparing the proposal";
       if (event.type === "assistant") return "Claude Code · reasoning about the change";
-    } else {
+    } else if (provider === "codex") {
       const type = item?.type || event.type;
       if (type === "command_execution" || type === "command_execution_output") return "Codex · inspecting the project";
       if (type === "agent_message" || type === "message") return "Codex · drafting the proposal";
       if (type === "turn.started" || type === "turn_start") return "Codex · starting a turn";
       if (type === "turn.completed" || type === "turn_complete") return "Codex · preparing the proposal";
     }
+    if (provider === "opencode") {
+      const part = event.part as Record<string, any> | undefined;
+      if (event.type === "step-start") return "OpenCode · starting a step";
+      if (part?.type === "tool") return `OpenCode · ${String(part.tool || "using a tool")}`;
+      if (part?.type === "text") return "OpenCode · drafting the response";
+      if (event.type === "step-finish") return "OpenCode · finalizing the response";
+    }
   } catch {
     // Progress output is best-effort; the final parser reports malformed output.
   }
   return null;
+}
+
+function localAgentError(command: string, stderr: string, exitCode: number): string {
+  const output = stderr.trim();
+  if (command === "codex" && output.includes("missing field `base_instructions`")) {
+    return "Codex could not read its models cache because it uses an older cache format. Update Codex, then retry. Lasso already bypasses the repository trust check.";
+  }
+  if (command === "codex" && output.includes("mcp.canva.com") && output.includes("invalid_token")) {
+    return "Codex started, but the Canva MCP connection has an expired OAuth token. Re-authenticate or remove the Canva MCP server from Codex, then retry.";
+  }
+  return `${command} exited with code ${exitCode}${output ? `: ${output.slice(0, 500)}` : ""}`;
 }
 
 function localModel(provider: LocalAgent, model?: string): string | undefined {
@@ -207,7 +229,7 @@ async function proposeWithLocalAgent(cwd: string, instruction: string, context: 
     const progress = progressFromLine(pending, config.provider as LocalAgent);
     if (progress) onProgress?.(progress);
   }
-  if (exitCode !== 0) throw new Error(`${command} exited with code ${exitCode}${stderr.trim() ? `: ${stderr.trim().slice(0, 500)}` : ""}`);
+  if (exitCode !== 0) throw new Error(localAgentError(command, stderr, exitCode));
   return jsonFrom(extractLocalAgentText(stdout, config.provider as LocalAgent));
 }
 
@@ -300,7 +322,7 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
       child.once("close", (status) => resolve(status ?? 1));
     });
     if (pending.trim()) output += pending;
-    if (code !== 0) throw new Error(`${command} exited with code ${code}${stderr.trim() ? `: ${stderr.trim().slice(0, 500)}` : ""}`);
+    if (code !== 0) throw new Error(localAgentError(command, stderr, code));
     return extractLocalAgentText(output, config.provider as LocalAgent).trim();
   }
 

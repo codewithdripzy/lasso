@@ -442,13 +442,11 @@ export function setAgentStatus(status: "thinking" | "working" | "review" | "erro
 
   state.agentRunning = status === "thinking" || status === "working";
 
-  if (state.agentRunning && agentLogElement && agentLogElement.lastElementChild?.textContent !== message) {
+  if (state.agentRunning && agentLogElement) {
     const line = document.createElement("div");
     line.className = "lasso-agent-log-line";
     line.innerHTML = `<span class="lasso-agent-log-prefix">›</span> <span class="lasso-agent-log-text">${escapeHtml(message)}</span>`;
-    agentLogElement.appendChild(line);
-    while (agentLogElement.children.length > 5) agentLogElement.firstElementChild?.remove();
-    agentLogElement.scrollTop = agentLogElement.scrollHeight;
+    agentLogElement.replaceChildren(line);
   }
 
   sendButton.classList.toggle("loading", state.agentRunning);
@@ -458,8 +456,9 @@ export function setAgentStatus(status: "thinking" | "working" | "review" | "erro
 
   const label = sendButton.querySelector("span");
   if (label) {
-    label.textContent = status === "review" ? "Review" : status === "error" ? "Retry" : state.agentRunning ? "Working" : "Send";
+    label.textContent = status === "review" ? "Review" : status === "error" ? "Retry" : state.agentRunning ? "" : "Send";
   }
+  sendButton.setAttribute("aria-label", state.agentRunning ? "Agent is working" : status === "error" ? "Retry request" : "Send request");
   sendButton.dataset.state = status === "error" ? "retry" : state.agentRunning ? "working" : status;
 
   if (status === "review" || status === "error" || status === "stopped") {
@@ -486,6 +485,7 @@ export function resetAgentState() {
     sendButton.dataset.state = "idle";
     const label = sendButton.querySelector("span");
     if (label) label.textContent = "Send";
+    sendButton.setAttribute("aria-label", "Send request");
   }
   if (stopButton) stopButton.hidden = true;
   if (promptInput) promptInput.disabled = false;
@@ -620,7 +620,7 @@ export async function handleSend(event: MouseEvent) {
   }
 
   appendChat("user", instruction);
-  setAgentStatus("thinking", "Starting the Lasso agent…");
+  setAgentStatus("thinking", "Thinking…");
   state.lastInstruction = instruction;
   promptInput.value = "";
 

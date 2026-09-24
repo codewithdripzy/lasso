@@ -1474,9 +1474,13 @@ export function buildStyles(): string {
     }
 
     .lasso-model-filters {
+      position: sticky;
+      top: -6px;
+      z-index: 2;
       display: flex;
       gap: 4px;
       padding: 2px 2px 6px;
+      background: rgba(24, 25, 29, 0.98);
       border-bottom: 1px solid var(--lo-border-subtle);
       margin-bottom: 4px;
     }
@@ -1833,6 +1837,11 @@ export function buildStyles(): string {
       white-space: nowrap;
     }
 
+    /* The status line is the single latest activity message. */
+    .lasso-agent-log {
+      display: none;
+    }
+
     .lasso-agent-cursor {
       display: inline-block;
       width: 6px;
@@ -1963,7 +1972,9 @@ export function buildStyles(): string {
     }
 
     .lasso-prompt-send.loading {
-      min-width: 86px;
+      width: 32px;
+      min-width: 32px;
+      padding: 0;
       cursor: wait;
       opacity: 0.9;
     }
@@ -1979,7 +1990,7 @@ export function buildStyles(): string {
       border: 2px solid rgba(0, 0, 0, 0.3);
       border-top-color: #000;
       border-radius: 50%;
-      animation: lasso-agent-spin .7s linear infinite;
+      animation: lasso-spin .7s linear infinite;
     }
 
     /* ==========================================================
@@ -3142,37 +3153,48 @@ export function buildStyles(): string {
 
     .lasso-clipboard-panel {
       position: fixed;
-      top: 58px;
-      right: 18px;
+      right: 20px;
+      bottom: 82px;
       width: 360px;
-      max-height: calc(100vh - 82px);
+      max-height: 520px;
+      display: flex;
+      flex-direction: column;
       overflow: auto;
-      z-index: 20;
-      padding: 14px;
+      padding: 14px 16px;
       border: 1px solid var(--lo-border);
-      border-radius: 12px;
-      background: var(--lo-surface);
+      border-radius: var(--lo-radius-xl);
+      background: rgba(24, 25, 29, 0.98);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
       color: var(--lo-text);
-      box-shadow: 0 18px 44px rgba(0,0,0,.35);
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
+      pointer-events: auto;
+      z-index: 12;
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+      transition: opacity 160ms ease, transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
     }
+    .lasso-clipboard-panel.visible { opacity: 1; transform: translateY(0) scale(1); }
     .lasso-clipboard-panel[hidden] { display: none; }
     .lasso-clipboard-header, .lasso-clipboard-compose-row, .lasso-clipboard-compose-actions, .lasso-clipboard-item-meta, .lasso-clipboard-item-actions { display: flex; align-items: center; }
     .lasso-clipboard-header { justify-content: space-between; gap: 12px; }
     .lasso-clipboard-title { display: block; font-size: 13px; font-weight: 650; }
     .lasso-clipboard-subtitle { display: block; margin-top: 2px; font-size: 10px; color: var(--lo-text-3); }
-    .lasso-clipboard-close { border: 0; background: transparent; color: var(--lo-text-3); font-size: 20px; cursor: pointer; }
-    .lasso-clipboard-tabs { display: flex; gap: 4px; margin: 14px 0 10px; padding: 3px; border-radius: 7px; background: var(--lo-surface-2); }
-    .lasso-clipboard-tab { flex: 1; border: 0; border-radius: 5px; padding: 6px; background: transparent; color: var(--lo-text-3); font-size: 11px; cursor: pointer; }
-    .lasso-clipboard-tab.active { background: var(--lo-surface); color: var(--lo-text); box-shadow: 0 1px 4px rgba(0,0,0,.18); }
+    .lasso-clipboard-close { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: 0; border-radius: var(--lo-radius-sm); background: transparent; color: var(--lo-text-3); font-size: 18px; line-height: 1; cursor: pointer; }
+    .lasso-clipboard-close:hover { background: var(--lo-surface-hover); color: var(--lo-text); }
+    .lasso-clipboard-tabs { display: flex; gap: 4px; margin: 8px 0 10px; padding: 3px; border: 1px solid var(--lo-border-subtle); border-radius: var(--lo-radius-md); background: var(--lo-surface-2); }
+    .lasso-clipboard-tab { flex: 1; border: 0; border-radius: var(--lo-radius-sm); padding: 6px; background: transparent; color: var(--lo-text-3); font-size: 11px; cursor: pointer; }
+    .lasso-clipboard-tab.active { background: var(--lo-surface-hover); color: var(--lo-text); box-shadow: 0 1px 4px rgba(0,0,0,.18); }
     .lasso-clipboard-compose { padding-bottom: 12px; border-bottom: 1px solid var(--lo-border-subtle); }
     .lasso-clipboard-compose-row { gap: 6px; }
-    .lasso-clipboard-type, .lasso-clipboard-label, .lasso-clipboard-input { min-width: 0; border: 1px solid var(--lo-border); border-radius: 6px; background: var(--lo-surface-2); color: var(--lo-text); font: inherit; font-size: 11px; outline: none; }
+    .lasso-clipboard-type, .lasso-clipboard-label, .lasso-clipboard-input { min-width: 0; border: 1px solid var(--lo-border); border-radius: var(--lo-radius-md); background: var(--lo-surface-2); color: var(--lo-text); font: inherit; font-size: 11px; outline: none; }
     .lasso-clipboard-type { width: 76px; padding: 6px 4px; }
     .lasso-clipboard-label { flex: 1; padding: 6px 8px; }
+    .lasso-clipboard-type:focus, .lasso-clipboard-label:focus, .lasso-clipboard-input:focus { border-color: var(--lo-primary); }
     .lasso-clipboard-input { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; padding: 8px; resize: vertical; }
     .lasso-clipboard-compose-actions { justify-content: space-between; gap: 8px; margin-top: 7px; }
     .lasso-clipboard-read, .lasso-clipboard-add, .lasso-clipboard-copy-item, .lasso-clipboard-delete-item { border: 0; border-radius: 5px; padding: 6px 8px; background: transparent; color: var(--lo-text-2); font: inherit; font-size: 10px; cursor: pointer; }
-    .lasso-clipboard-add { background: var(--lo-primary); color: #fff; }
+    .lasso-clipboard-add { background: var(--lo-primary); color: #111214; font-weight: 600; }
     .lasso-clipboard-list { display: grid; gap: 7px; padding-top: 10px; }
     .lasso-clipboard-item { padding: 9px; border: 1px solid var(--lo-border-subtle); border-radius: 8px; background: var(--lo-surface-2); }
     .lasso-clipboard-item-meta { justify-content: space-between; gap: 8px; }
@@ -3182,6 +3204,6 @@ export function buildStyles(): string {
     .lasso-clipboard-item-actions { justify-content: flex-end; gap: 4px; margin-top: 5px; }
     .lasso-clipboard-delete-item { color: #f28b82; }
     .lasso-clipboard-empty { padding: 24px 8px; color: var(--lo-text-3); font-size: 11px; text-align: center; }
-    @media (max-width: 600px) { .lasso-clipboard-panel { top: 52px; right: 10px; left: 10px; width: auto; } }
+    @media (max-width: 600px) { .lasso-clipboard-panel { right: 10px; bottom: 72px; left: 10px; width: auto; } }
   `;
 }

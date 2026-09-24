@@ -229,8 +229,6 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
           socket.send(JSON.stringify({ type: "agent_status", status: "error", message: "Add a supported agent key: GOOGLE_GENERATIVE_AI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY." }));
           return;
         }
-        socket.send(JSON.stringify({ type: "agent_status", status: "thinking", message: "Reading the selected component…" }));
-        socket.send(JSON.stringify({ type: "agent_status", status: "working", message: "Inspecting source, conversation, and visual context…" }));
         activeAgentController?.abort();
         const controller = new AbortController();
         activeAgentController = controller;
