@@ -50,13 +50,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   realtime collaboration unavailable (local editing unaffected) when there is no
   config, no key, or the project belongs to another workspace.
 - **Realtime collaboration in the overlay**: presence avatars with online/away
-  dots, click-an-avatar spotlight, remote selection rings, and a live
-  "teammate is working …" activity strip.
+  dots, click-an-avatar spotlight, remote selection rings, live teammate cursors
+  with custom user colors and name badges, and a live activity strip.
+- **Live multiplayer cursors**: broadcast cursor movement via Socket.IO presence,
+  rendering smoothed remote pointers for teammates in real time.
 - **Component lock mode in the UI**: taking a suggestion acquires a lock on the
-  selected element; teammates see a "Locked by …" chip and the edit is blocked
-  until release/expiry.
+  selected element; teammates see a refined "Locked by …" badge and the edit is
+  blocked until release or expiry.
+- **Speech-to-Text (STT) voice input & dictation**:
+  - Interactive microphone button in the prompt card with animated listening and
+    transcribing states.
+  - Voice dictation button in the comment compose bar.
+  - Client-side audio recording module (`src/overlay/audio/transcribe.ts`) using
+    the `MediaRecorder` API.
+  - Multi-provider pooling via the backend server: primary transcription via
+    Gradium (`api.gradium.ai`), with automatic failover to Deepgram (`api.deepgram.com`)
+    when credits finish or errors occur.
+  - CLI bridge support for local `transcribe` and `transcribe_result` relay.
 - **Comments panel**: thread comments anchored to the selected element (or whole
-  session), reply/resolve/reopen/delete, with a badge on the toolbar button.
+  session), reply/resolve/reopen/delete, attachments, GIFs, and voice dictation.
+- **Clipboard & Snippets panel**: manage, copy, and share frequently used code
+  snippets, design tokens, and references with private and shared tabs.
 - **Voice chat**: P2P WebRTC mesh — join from the toolbar, mute with a right-click
   while live.
 - CLI → overlay `config` message carries `collab: { projectId, realtimeUrl,

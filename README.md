@@ -156,14 +156,20 @@ changes to your source files.
 Lasso can be live — teammates watch your selection, lock components so nobody
 edits the same element at once, leave review comments, and talk over the app.
 
-- **Presence avatars** in the toolbar with online/away dots; click an avatar to
-  **spotlight** the element that teammate is looking at.
+- **Presence & Live Cursors**: see team members online in the toolbar, with live
+  cursor tracking across the viewport showing user names and color badges. Click
+  an avatar to **spotlight** the element that teammate is looking at.
 - **Lock mode**: taking an AI suggestion locks the selected element for the
-  duration of the edit. A teammate who tries the same component sees a
-  "Locked by …" chip and is blocked until release/expiry.
-- **Comments** anchored to the element you selected (or the whole session),
-  with replies, resolve/reopen, and delete.
-- **Voice chat** over a P2P WebRTC mesh — no media goes through a server.
+  duration of the edit. Teammates see a "Locked by …" badge and are prevented
+  from conflicting edits until release or expiry.
+- **Voice Mode & Speech-to-Text**: speak prompt instructions directly using the
+  mic tool. Features an automated STT pooling backend that transcribes via
+  Gradium first, falling back to Deepgram if credits or connections fail.
+- **Comments & Dictation**: thread comments anchored to the element you selected
+  (or the whole session), with attachments, GIFs, replies, and voice dictation.
+- **Voice chat**: P2P WebRTC mesh — no media goes through a server.
+- **Clipboard**: store and reuse code snippets, design references, and prompt
+  templates in private or shared workspaces.
 
 To share a live session with your team, sign in once with `npx lasso auth login`
 (easy browser OAuth — no manual keys), then run `npx lasso init`: it registers

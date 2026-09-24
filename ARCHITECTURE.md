@@ -34,6 +34,8 @@ src/
   overlay/
     index.ts              # browser-side overlay (single file, bundled to dist/overlay.js)
                           # also hosts the realtime client: presence, locks, comments, voice
+    audio/
+      transcribe.ts       # client-side audio capture (MediaRecorder) & STT relay
 ```
 
 Two artifacts ship from `pnpm build`:
@@ -287,7 +289,40 @@ so `http://app.lasso` maps to that project — no remembering ports, no manual
 - **Trust**: no API keys or source paths in project config; only registered
   domains proxy; the daemon listens on loopback by default.
 
-## 9. Open questions for v1
+## 9. Speech-to-Text & Voice Input Architecture
+
+Lasso supports natural voice prompting in the prompt toolbar and voice dictation in component comment pins without requiring manual audio file management.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Browser Overlay                                             │
+│  - MediaRecorder captures audio (WebM/Opus / WAV)          │
+│  - Reactive mic animation (.recording / .transcribing)      │
+│  - Base64 payload packaging                                │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                ┌──────────────┴──────────────┐
+                │ Bridge WebSocket or Fetch   │
+                └──────────────┬──────────────┘
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Lasso Server /api/v1/transcribe (STTService)                │
+│                                                             │
+│   1. Attempt Gradium ASR (POST api.gradium.ai/speech/asr)   │
+│      - Fast streaming NDJSON transcription                 │
+│      - Credit check (402, 429, error signals)              │
+│                                                             │
+│   2. Automatic Fallback to Deepgram (Nova-2)                │
+│      - Seamless failover if Gradium credits finish/fail     │
+│      - 15-minute cooldown before retrying Gradium           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+1. **Client Capture**: `src/overlay/audio/transcribe.ts` starts an audio stream via `navigator.mediaDevices.getUserMedia({ audio: true })`. Chunks are gathered into a single blob on stop.
+2. **Transport**: The client transmits base64-encoded audio either over the local CLI bridge socket (`{ type: "transcribe" }`) or directly to the server REST API (`POST /api/v1/transcribe`), avoiding cross-origin complexities.
+3. **Provider Pooling**: The backend `sttService` attempts Gradium first. If Gradium responds with a credit exhaustion code (402, 429, or out-of-credit status), it transparently falls back to Deepgram Nova-2 and returns the transcribed text to the client.
+
+## 10. Open questions for v1
 
 - Exact context window budget per request (full file vs. just the referenced function).
 - Whether the diff-preview UI lives in the browser overlay only, or also as a terminal
@@ -296,7 +331,7 @@ so `http://app.lasso` maps to that project — no remembering ports, no manual
   Claude Code subscription.
 - Extending source resolution beyond Vite and Next.js (Webpack/CRA/Angular).
 
-## 10. Trust model
+## 11. Trust model
 
 - **Telemetry-free by default.** Nothing about a user's source code leaves their machine
   except what's explicitly sent to whichever agent they've configured.
