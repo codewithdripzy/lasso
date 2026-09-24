@@ -267,19 +267,24 @@ async function proposeWithLocalAgent(cwd: string, instruction: string, context: 
     }
   };
   child.stdout.on("data", consume);
-  child.stderr.on("data", (chunk: Buffer | string) => {
-    const raw = String(chunk);
-    stderr += raw;
-    // Strip ANSI codes and blank lines; skip version banners and noise
-    const clean = raw.replace(/\x1B\[[0-9;]*[mGKHF]/g, "").trim();
-    if (!clean) return;
-    // Skip very short lines that are just progress spinners or empty banners
-    if (clean.length < 4) return;
-    // Skip lines that look like pure ANSI/control sequences or log prefixes we don't want
-    if (/^(\s*[\-=|>]+\s*)?$/.test(clean)) return;
+  // Buffer stderr by newline — Node delivers chunks at arbitrary byte boundaries,
+  // so a single log line can arrive in multiple data events. Only emit complete lines.
+  let stderrPending = "";
+  const consumeStderr = (chunk: Buffer | string) => {
+    stderrPending += String(chunk);
+    const lines = stderrPending.split(/\r?\n/);
+    stderrPending = lines.pop() || "";
     const prefix = config.provider === "claude-code" ? "Claude Code" : config.provider === "opencode" ? "OpenCode" : "Codex";
-    onProgress?.(`${prefix} · ${clean.slice(0, 200)}`);
-  });
+    for (const line of lines) {
+      stderr += `${line}\n`;
+      // Strip ANSI escape codes
+      const clean = line.replace(/\x1B\[[0-9;]*[mGKHFJ]/g, "").trim();
+      // Skip empty lines, pure spinner/separator lines, very short noise
+      if (!clean || clean.length < 4 || /^[\-=|>*.\s]+$/.test(clean)) continue;
+      onProgress?.(`${prefix} · ${clean.slice(0, 200)}`);
+    }
+  };
+  child.stderr.on("data", consumeStderr);
   if (signal) {
     if (signal.aborted) child.kill("SIGTERM");
     signal.addEventListener("abort", () => child.kill("SIGTERM"), { once: true });
