@@ -52,7 +52,7 @@ npm publish --access public --tag next
 3. Smoke-test install in a fresh app:
 
    ```bash
-   npm install --save-dev @lasso-ai/cli@latest
+   npm i -g @lasso-ai/cli@latest
    npx @lasso-ai/cli --help
    ```
 

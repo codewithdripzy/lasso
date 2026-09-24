@@ -235,7 +235,7 @@ and refuses any non-`.lasso` host. The secure URL is
 ### 1. Install
 
 ```bash
-npm install --save-dev @lasso-ai/cli
+npm i -g @lasso-ai/cli
 ```
 
 Or:
