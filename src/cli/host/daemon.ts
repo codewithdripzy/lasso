@@ -227,6 +227,21 @@ export class LassoHost {
           writeJson(res, 200, { ok: true, stopped });
         },
       },
+      {
+        route: "POST /_host/restart-project",
+        handler: async (req, res) => {
+          const body = await readBody(req);
+          const domain = String(body.domain || "").trim().toLowerCase();
+          if (!domain) return writeJson(res, 400, { ok: false, error: "A project domain is required." });
+          const runtime = this.running.get(domain);
+          if (runtime) {
+            runtime.child.kill("SIGTERM");
+            this.running.delete(domain);
+            this.log(`stopped ${domain} for bridge restart`);
+          }
+          writeJson(res, 200, { ok: true, domain, status: "stopped" });
+        },
+      },
     ];
   }
 

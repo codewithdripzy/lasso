@@ -12,8 +12,8 @@ import { authLogin, authLogout, credentialSummary, loadCredentials } from "./aut
 import { startHost, waitForShutdown } from "./host/daemon";
 import { hostProxyPort, hostHttpsPort, hostDnsPort } from "./host/paths";
 import { spawnDaemon, daemonStatus, stopDaemon, enableAutoStart, disableAutoStart, daemonPortMessage, daemonHttpsPortMessage } from "./host/install";
-import { listHostProjects, registerWithHost } from "./host/client";
-import { loadRegistry, generateUniqueDomain, validateDomain } from "./host/registry";
+import { listHostProjects, registerWithHost, restartHostProject, unregisterFromHost } from "./host/client";
+import { loadRegistry, findByDirectory, generateUniqueDomain, validateDomain } from "./host/registry";
 import packageJson from "../../package.json";
 
 const VERSION = packageJson.version;
@@ -33,8 +33,19 @@ bridge.command("restart")
     .action(async (options: { port: string }) => {
         const result = await restartBridge(Number(options.port));
         if (!result.ok) {
-            console.error(chalk.red("✗") + ` ${result.error}`);
-            process.exitCode = 1;
+            const project = findByDirectory(loadRegistry(), process.cwd());
+            if (!project) {
+                console.error(chalk.red("✗") + ` ${result.error}`);
+                process.exitCode = 1;
+                return;
+            }
+            const hostResult = await restartHostProject(project.domain, hostProxyPort(projectEnv()));
+            if (!hostResult.ok) {
+                console.error(chalk.red("✗") + ` ${hostResult.error}`);
+                process.exitCode = 1;
+                return;
+            }
+            console.log(chalk.green("✓") + ` Restarted the Host runtime for ${chalk.cyan(project.domain)}. Its bridge will start again on the next page request.`);
             return;
         }
         console.log(chalk.green("✓") + " Lasso bridge restarted. The overlay will reconnect automatically.");
@@ -275,6 +286,37 @@ program.command("register [domain]")
                 console.log(chalk.dim(`  Added domain to ${LASSO_CONFIG_FILE}.`));
             }
         }
+    });
+
+// prettier-ignore
+program.command("unregister [domain]")
+    .description("Remove the current project (or a named project) from Lasso Host")
+    .action(async (domainArg?: string) => {
+        const cwd = process.cwd();
+        const config = readProjectConfig(cwd);
+        const registered = findByDirectory(loadRegistry(), cwd);
+        const domain = (domainArg || config?.domain || registered?.domain || "").trim().toLowerCase();
+
+        if (!domain) {
+            console.error(chalk.red("✗") + " No .lasso project is registered for this directory. Pass a domain, for example: lasso unregister app.lasso");
+            process.exitCode = 1;
+            return;
+        }
+        if (!validateDomain(domain)) {
+            console.error(chalk.red("✗") + ` "${domain}" is not a valid .lasso domain.`);
+            process.exitCode = 1;
+            return;
+        }
+
+        const result = await unregisterFromHost(domain, hostProxyPort(projectEnv()));
+        if (!result.ok) {
+            console.error(chalk.red("✗") + ` ${result.error}`);
+            process.exitCode = 1;
+            return;
+        }
+        console.log(result.removed === false
+            ? chalk.dim(`No registration found for ${domain}.`)
+            : chalk.green("✓") + ` Unregistered ${chalk.cyan(domain)}`);
     });
 
 // prettier-ignore

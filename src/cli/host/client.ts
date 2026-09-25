@@ -153,3 +153,16 @@ export async function restartHost(port: number): Promise<{ ok: boolean; error?: 
   if (!response.ok) return { ok: false, error: "The host rejected the restart request." };
   return { ok: true };
 }
+
+export async function restartHostProject(domain: string, port: number): Promise<{ ok: boolean; error?: string }> {
+  const health = await hostAlive(port);
+  if (!health) return { ok: false, error: "Lasso Host is not running." };
+  const response = await fetchWithTimeout(`http://127.0.0.1:${port}/_host/restart-project`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ domain }),
+  });
+  const body = (await response.json()) as { ok?: boolean; error?: string };
+  if (!response.ok || !body.ok) return { ok: false, error: body.error || "The Host rejected the project restart." };
+  return { ok: true };
+}

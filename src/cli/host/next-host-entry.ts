@@ -22,11 +22,27 @@ function freePort(): Promise<number> {
   });
 }
 
-function waitForNext(nextPort: number, timeoutMs = 60_000): Promise<void> {
+function waitForNext(nextPort: number, nextProcess: ReturnType<typeof spawn>, timeoutMs = 60_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      nextProcess.off("exit", onExit);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      finish(new Error(`Next.js exited before becoming ready${code === null ? ` (${signal || "unknown signal"})` : ` with code ${code}`}.`));
+    };
+    const timeout = setTimeout(() => finish(new Error(`Next.js did not become ready on port ${nextPort} within ${timeoutMs / 1000}s.`)), timeoutMs);
+    nextProcess.once("exit", onExit);
+
     const check = () => {
+      if (settled) return;
       const request = http.get({
         hostname: "127.0.0.1",
         port: nextPort,
@@ -34,12 +50,13 @@ function waitForNext(nextPort: number, timeoutMs = 60_000): Promise<void> {
         headers: { connection: "close" },
       }, (response) => {
         response.resume();
-        response.once("end", resolve);
+        response.once("end", () => finish());
       });
 
       request.once("error", () => {
+        if (settled) return;
         if (Date.now() >= deadline) {
-          reject(new Error(`Next.js did not become ready on port ${nextPort} within ${timeoutMs / 1000}s.`));
+          finish(new Error(`Next.js did not become ready on port ${nextPort} within ${timeoutMs / 1000}s.`));
           return;
         }
         setTimeout(check, 250);
@@ -61,7 +78,7 @@ void (async () => {
     env: { ...process.env, PORT: String(nextPort) },
     stdio: "inherit",
   });
-  const proxy = httpProxy.createProxyServer({ target: `http://127.0.0.1:${nextPort}`, selfHandleResponse: true, ws: true });
+  const proxy = httpProxy.createProxyServer({ target: `http://127.0.0.1:${nextPort}`, changeOrigin: true, selfHandleResponse: true, ws: true });
   const bundlePath = path.resolve(__dirname, "../../overlay.js");
 
   proxy.on("proxyRes", (proxyRes, _req, res) => {
@@ -97,7 +114,7 @@ void (async () => {
   server.on("upgrade", (req, socket, head) => proxy.ws(req, socket, head));
 
   try {
-    await waitForNext(nextPort);
+    await waitForNext(nextPort, nextProcess);
   } catch (error) {
     bridge.close();
     nextProcess.kill("SIGTERM");

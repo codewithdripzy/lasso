@@ -1,6 +1,6 @@
 {
   "name": "@lasso-ai/cli",
-  "version": "1.0.7",
+  "version": "1.0.9",
   "description": "Select any part of your running app, describe a change, and let AI edit the real source code.",
   "type": "commonjs",
   "main": "dist/cli/index.js",
@@ -76,6 +76,7 @@
     "@iconify-icons/logos": "^2.0.1",
     "@iconify-json/logos": "^1.2.14",
     "@iconify/utils": "^3.1.7",
+    "@lasso-ai/cli": "link:",
     "chalk": "^6.0.0",
     "commander": "^15.0.0",
     "http-proxy": "^1.18.1",

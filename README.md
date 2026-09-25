@@ -197,6 +197,10 @@ The command closes the current overlay WebSocket, cancels any active agent
 request, and lets the overlay reconnect to the existing bridge. Use
 `--port <port>` when the bridge is running on a custom port.
 
+When the project is served through Lasso Host, the command automatically
+restarts the current registered project's runtime because Host assigns each
+project its own bridge port.
+
 ---
 
 ## Local domains with Lasso Host
@@ -211,6 +215,8 @@ project is served at `http://app.lasso:<port>` or the secure
   `*.lasso` domains, loopback-only, single instance).
 - `lasso register [domain]` — register the current directory under a `.lasso`
   domain (reuse, generate, or change one); never duplicates.
+- `lasso unregister [domain]` — remove the current directory’s `.lasso`
+  registration, or pass a domain explicitly.
 - `lasso projects` — list registered domains and running state.
 - `lasso daemon install/uninstall` — attach a macOS LaunchAgent (auto-start on
   login) and configure the system DNS resolver so bare `app.lasso` works.
