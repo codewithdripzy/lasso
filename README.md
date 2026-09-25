@@ -259,8 +259,8 @@ pnpm add --global @lasso-ai/cli
 yarn global add @lasso-ai/cli
 ```
 
-Use a project-local install when you want each repository to pin its Lasso
-version; use the global install for a convenient machine-wide CLI.
+Use the global install for the supported hosted CLI. Set `LASSO_AUTH_URL=http://localhost:3005`
+only when developing against a local Lasso server.
 
 ### 2. Start Lasso
 

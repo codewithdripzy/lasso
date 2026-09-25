@@ -102,9 +102,8 @@ export async function transcribeAudioBlob(
   const candidateUrls = isLassoPage
     ? ["https://api.lasso.byorello.space/api/v1/transcribe"]
     : [
-        "http://localhost:3005/api/v1/transcribe",
-        "/api/v1/transcribe",
         "https://api.lasso.byorello.space/api/v1/transcribe",
+        "/api/v1/transcribe",
       ];
 
   let lastError = new Error("Failed to contact transcription service");

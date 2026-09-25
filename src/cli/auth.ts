@@ -20,7 +20,8 @@ const CREDENTIALS_FILE = path.join(CREDENTIALS_DIR, "credentials.json");
 /**
  * Base URL of the Lasso API (the main server, not the realtime server). The
  * `lasso auth` flow lives here because the browser confirm needs the web session.
- * Defaults to the local development port used by `server/` and `web/`.
+ * Defaults to the hosted Lasso API. Set LASSO_AUTH_URL or LASSO_API_URL for
+ * local development.
  */
 export function serverUrlFrom(fileEnv: Record<string, string>): string {
   return (
@@ -28,7 +29,7 @@ export function serverUrlFrom(fileEnv: Record<string, string>): string {
     fileEnv.LASSO_AUTH_URL ||
     process.env.LASSO_API_URL ||
     fileEnv.LASSO_API_URL ||
-    "http://localhost:3005"
+    "https://api.lasso.byorello.space"
   ).replace(/\/$/, "");
 }
 
