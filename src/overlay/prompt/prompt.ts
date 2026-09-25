@@ -5,6 +5,7 @@ import openaiIcon from "@iconify-icons/logos/openai-icon";
 import terminalIcon from "@iconify-icons/logos/terminal";
 
 import { state, rememberModel } from "../state";
+import { requestAgentNotificationPermission } from "../notifications";
 import { getDOM } from "../dom";
 import { getElementGroup, getElementLabel, getSourceHint, elementKey, setSelectMode, updateSelectedVisual } from "../toolbar/select";
 import { acquireOwnership, releaseHeldLock, updateLockChip } from "../collab/locks";
@@ -332,6 +333,7 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
 
   rev.querySelector<HTMLButtonElement>(".lasso-review-apply")!.addEventListener("click", () => {
     if (!state.bridgeSocket || state.bridgeSocket.readyState !== WebSocket.OPEN || !state.pendingChanges.length) return;
+    requestAgentNotificationPermission();
     state.bridgeSocket.send(JSON.stringify({ type: "apply", changes: state.pendingChanges }));
     appendChat("assistant", "Applying the reviewed change…");
   });
@@ -656,6 +658,8 @@ export async function handleSend(event: MouseEvent) {
     promptInput.focus();
     return;
   }
+
+  requestAgentNotificationPermission();
 
   const isQuestion = /^(hi|hello|hey|thanks|thank you|what|why|how|when|where|who|which|is|are|does|do|can|could|would|should|tell me|explain|describe)\b/i.test(instruction) || /\?$/.test(instruction);
   const isExplicitEdit = /\b(change|edit|update|make|add|remove|delete|fix|replace|turn|convert|style|restyle|move|rename|implement|build|create|increase|decrease|hide|show|align|resize|set|enable|disable)\b/i.test(instruction);

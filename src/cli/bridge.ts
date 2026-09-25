@@ -91,13 +91,29 @@ function occurrenceCount(content: string, needle: string) {
   }
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function whitespaceEquivalentRange(content: string, oldString: string) {
+  const trimmed = oldString.trim();
+  if (!trimmed) return null;
+  const pattern = trimmed.split(/\s+/).map(escapeRegExp).join("\\s+");
+  const matches = Array.from(content.matchAll(new RegExp(pattern, "g")));
+  if (matches.length !== 1 || matches[0].index === undefined) return null;
+  const start = matches[0].index;
+  return { start, end: start + matches[0][0].length };
+}
+
 function prepareChange(content: string, change: SourceChange) {
   const lineEnding = fileLineEnding(content);
   const oldString = withLineEnding(change.oldString, lineEnding);
   const newString = withLineEnding(change.newString, lineEnding);
   const matches = occurrenceCount(content, oldString);
   if (matches === 0) {
-    throw new Error(`Could not safely apply ${change.filePath}. The source changed after the suggestion was generated.`);
+    const range = whitespaceEquivalentRange(content, oldString);
+    if (range) return { ...range, oldString: content.slice(range.start, range.end), newString };
+    throw new Error(`Could not safely apply ${change.filePath}. The source changed after the suggestion was generated. Regenerate the review so it uses the current source.`);
   }
   if (matches > 1) {
     throw new Error(`Could not safely apply ${change.filePath}. The selected code is not unique (${matches} matches).`);

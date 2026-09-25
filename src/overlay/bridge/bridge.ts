@@ -13,6 +13,7 @@ import {
 } from "../prompt/prompt";
 import { setDragCardStatus, resetDrag } from "../drag/drag";
 import { elementKey } from "../toolbar/select";
+import { notifyAgent } from "../notifications";
 import type { GitState, ModelOption, PendingChange } from "../types";
 
 export function reportRuntimeError(details: string) {
@@ -104,6 +105,7 @@ export function connectBridge() {
           setAgentStatus(message.status, message.message);
           setDragCardStatus(message.status, message.message);
           if (message.status === "review" && message.changes?.length) {
+            void notifyAgent("Review requested", message.message);
             state.pendingChanges = message.changes;
             state.changesHistory.push({
               summary: message.message,
@@ -115,11 +117,13 @@ export function connectBridge() {
         }
 
         if (message.type === "assistant_message" && message.message) {
+          void notifyAgent("Agent complete", message.message);
           appendChat("assistant", message.message);
           resetAgentState();
         }
 
         if (message.type === "applied" || message.type === "undone") {
+          void notifyAgent(message.type === "applied" ? "Changes applied" : "Change undone", message.message || "Done.");
           appendChat("assistant", message.message || "Done.");
           releaseHeldLock();
           if (state.collabSocket?.connected && state.collabJoined) {
