@@ -2903,6 +2903,7 @@ export function buildStyles(): string {
     .lasso-task-detail-status { color: var(--lo-primary); font-size: 11px; font-weight: 600; }
     .lasso-task-prompt { margin: 0 0 10px; font-size: 13px; line-height: 1.45; }
     .lasso-task-message { margin: 0 0 12px; line-height: 1.45; }
+    .lasso-task-activity { display: flex; flex-direction: column; gap: 4px; max-height: 130px; margin: 0 0 12px; padding: 8px; overflow: auto; border-radius: var(--lo-radius-md); background: var(--lo-surface-2); color: var(--lo-text-3); font-size: 10.5px; line-height: 1.35; }
     .lasso-task-changes { margin-bottom: 10px; color: var(--lo-text-2); font-size: 11px; }
     .lasso-task-apply { padding: 7px 11px; border: 0; border-radius: var(--lo-radius-full); background: var(--lo-primary); color: #111214; font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
 

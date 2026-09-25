@@ -14,7 +14,7 @@ import {
 import { setDragCardStatus, resetDrag } from "../drag/drag";
 import { elementKey } from "../toolbar/select";
 import { notifyAgent } from "../notifications";
-import { updateAgentTask } from "../tasks/tasks";
+import { getAgentTask, recordTaskActivity, recordTaskChangeHistory, updateAgentTask } from "../tasks/tasks";
 import type { GitState, ModelOption, PendingChange } from "../types";
 
 export function reportRuntimeError(details: string) {
@@ -105,50 +105,84 @@ export function connectBridge() {
         }
 
         if (message.type === "agent_status" && message.status && message.message) {
+          const taskId = message.taskId;
+          const task = taskId ? getAgentTask(taskId) : undefined;
           const taskStatus = message.status === "error" ? "error" : message.status === "stopped" ? "stopped" : message.status;
-          updateAgentTask(message.taskId, { status: taskStatus, message: message.message, detail: message.detail, changes: message.changes });
-          if (message.taskId && message.taskId !== state.activeTaskId) return;
-          setAgentStatus(message.status, message.message, message.detail);
+          if (task) {
+            const patch: Parameters<typeof updateAgentTask>[1] = {
+              status: taskStatus,
+              message: message.message,
+              detail: message.detail,
+            };
+            if (message.status === "review" && message.changes) {
+              patch.changes = message.changes;
+              patch.pendingChanges = message.changes;
+              recordTaskChangeHistory(task.id, message.message, message.changes);
+            }
+            updateAgentTask(task.id, patch);
+            recordTaskActivity(task.id, message.detail || message.message);
+          }
+          if (message.status === "review") {
+            appendChat("assistant", message.message, taskId);
+            if (message.changes?.length) void notifyAgent("Review requested", message.message);
+          } else if (message.status === "error" || message.status === "stopped") {
+            appendChat(message.status === "error" ? "error" : "assistant", message.message, taskId);
+            if (task?.element) releaseHeldLock(elementKey(task.element));
+            void notifyAgent(message.status === "error" ? "Agent error" : "Agent stopped", message.message);
+          }
+          if (taskId && taskId !== state.promptTaskId) return;
+
+          setAgentStatus(message.status, message.message, message.detail, taskId, false);
           setDragCardStatus(message.status, message.message);
           if (message.status === "review" && message.changes?.length) {
-            void notifyAgent("Review requested", message.message);
-            state.pendingChanges = message.changes;
-            state.changesHistory.push({
-              summary: message.message,
-              changes: message.changes,
-              createdAt: new Date().toISOString(),
-            });
+            if (task) state.changesHistory = task.changesHistory.map((entry) => ({ ...entry, changes: entry.changes.map((change) => ({ ...change })) }));
+            state.pendingChanges = [...message.changes];
             showReview(message.changes, message.message);
           }
         }
 
         if (message.type === "assistant_message" && message.message) {
-          updateAgentTask(message.taskId, { status: "complete", message: "Complete", response: message.message });
-          if (message.taskId && message.taskId !== state.activeTaskId) return;
+          const taskId = message.taskId;
+          const task = taskId ? getAgentTask(taskId) : undefined;
+          if (task) {
+            updateAgentTask(task.id, { status: "complete", message: "Complete", response: message.message });
+            recordTaskActivity(task.id, "Agent complete");
+          }
+          appendChat("assistant", message.message, taskId);
+          if (taskId && taskId !== state.promptTaskId) {
+            void notifyAgent("Agent complete", message.message);
+            return;
+          }
           void notifyAgent("Agent complete", message.message);
-          appendChat("assistant", message.message);
           resetAgentState();
         }
 
         if (message.type === "applied" || message.type === "undone") {
-          updateAgentTask(message.taskId, { status: "complete", message: message.message || "Done." });
-          if (message.taskId && message.taskId !== state.activeTaskId) return;
-          void notifyAgent(message.type === "applied" ? "Changes applied" : "Change undone", message.message || "Done.");
-          appendChat("assistant", message.message || "Done.");
-          releaseHeldLock();
+          const taskId = message.taskId;
+          const task = taskId ? getAgentTask(taskId) : undefined;
+          if (task) {
+            updateAgentTask(task.id, { status: "complete", message: message.message || "Done.", changes: [], pendingChanges: [] });
+            recordTaskActivity(task.id, message.message || "Done.");
+          }
+          const isPromptTask = !taskId || taskId === state.promptTaskId;
+          const result = message.message || "Done.";
+          void notifyAgent(message.type === "applied" ? "Changes applied" : "Change undone", result);
+          appendChat("assistant", result, taskId);
+          if (task?.element) releaseHeldLock(elementKey(task.element));
+          else if (isPromptTask && state.selected) releaseHeldLock(elementKey(state.selected));
           if (state.collabSocket?.connected && state.collabJoined) {
             collabEmit("collab:action", {
               sessionId: state.collabProjectId,
               status: "idle",
-              elementId: state.selected ? elementKey(state.selected) : undefined,
-              summary:
-                message.message ||
-                (message.type === "undone" ? "Undid the last change" : "Applied the change"),
+              elementId: task?.element ? elementKey(task.element) : state.selected ? elementKey(state.selected) : undefined,
+              summary: result || (message.type === "undone" ? "Undid the last change" : "Applied the change"),
             });
           }
-          closeReview();
-          resetDrag(false);
-          state.pendingChanges = [];
+          if (isPromptTask) {
+            closeReview();
+            resetDrag(false);
+            state.pendingChanges = [];
+          }
         }
       } catch {
         console.warn("[lasso] Invalid bridge message");

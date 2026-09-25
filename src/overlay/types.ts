@@ -14,6 +14,13 @@ export type AgentTask = {
   detail?: string;
   response?: string;
   changes?: PendingChange[];
+  pendingChanges: PendingChange[];
+  messages: ChatMessage[];
+  changesHistory: Array<{ summary: string; changes: PendingChange[]; createdAt: string }>;
+  activity: string[];
+  lastInstruction: string;
+  selectionId: string;
+  element?: Element;
   createdAt: string;
   updatedAt: string;
 };

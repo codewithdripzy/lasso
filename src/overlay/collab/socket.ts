@@ -252,10 +252,10 @@ export function startCollabHeartbeat() {
       state: "online",
       selection: currentSelectionPayload(),
     });
-    if (state.heldLockElement) {
+    for (const elementId of state.heldLockElements) {
       collabEmit("lock:extend", {
         sessionId: state.collabProjectId,
-        elementId: state.heldLockElement,
+        elementId,
       });
     }
   }, 30_000);

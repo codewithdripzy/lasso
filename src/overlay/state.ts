@@ -94,6 +94,7 @@ export class OverlayState {
   pendingChanges: PendingChange[] = [];
   agentTasks: AgentTask[] = [];
   activeTaskId: string | null = null;
+  promptTaskId: string | null = null;
   runtimeErrors: string[] = [];
   screenshotPromise: Promise<ScreenshotContext> = Promise.resolve({});
 
@@ -122,7 +123,7 @@ export class OverlayState {
   myUser: { id: string; name: string; photo: string } | null = null;
   presenceUsers = new Map<string, CollabUser>();
   lockMap = new Map<string, CollabLock>();
-  heldLockElement = "";
+  heldLockElements = new Set<string>();
   spotlightUserId: string | null = null;
 
   // Comments

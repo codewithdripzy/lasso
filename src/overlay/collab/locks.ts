@@ -21,7 +21,7 @@ export function updateLockChip() {
   }
   const key = elementKey(state.selected);
   const lock = state.lockMap.get(key);
-  const mine = state.heldLockElement === key;
+  const mine = state.heldLockElements.has(key);
 
   if (lock) {
     dom.heldLockChip.hidden = false;
@@ -58,7 +58,7 @@ export function acquireOwnership(el: Element): Promise<boolean> {
       },
       (res) => {
         if (res.ok && res.lock) {
-          state.heldLockElement = key;
+          state.heldLockElements.add(key);
           state.lockMap.set(key, res.lock as CollabLock);
           updateLockChip();
           resolve(true);
@@ -78,12 +78,14 @@ export function acquireOwnership(el: Element): Promise<boolean> {
   });
 }
 
-export function releaseHeldLock() {
-  if (!state.heldLockElement) return;
-  const elementId = state.heldLockElement;
-  state.heldLockElement = "";
-  updateLockChip();
-  if (state.collabSocket?.connected && state.collabJoined) {
-    collabEmit("lock:release", { sessionId: state.collabProjectId, elementId });
+export function releaseHeldLock(elementId?: string) {
+  const elementIds = elementId ? [elementId] : Array.from(state.heldLockElements);
+  for (const id of elementIds) {
+    if (!state.heldLockElements.delete(id)) continue;
+    state.lockMap.delete(id);
+    if (state.collabSocket?.connected && state.collabJoined) {
+      collabEmit("lock:release", { sessionId: state.collabProjectId, elementId: id });
+    }
   }
+  updateLockChip();
 }

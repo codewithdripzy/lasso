@@ -5,7 +5,14 @@ import openaiIcon from "@iconify-icons/logos/openai-icon";
 import terminalIcon from "@iconify-icons/logos/terminal";
 
 import { state, rememberModel } from "../state";
-import { createAgentTask } from "../tasks/tasks";
+import {
+  appendTaskMessage,
+  createAgentTask,
+  getAgentTask,
+  onAgentTaskSelected,
+  recordTaskActivity,
+  updateAgentTask,
+} from "../tasks/tasks";
 import { requestAgentNotificationPermission } from "../notifications";
 import { getDOM } from "../dom";
 import { getElementGroup, getElementLabel, getSourceHint, elementKey, setSelectMode, updateSelectedVisual } from "../toolbar/select";
@@ -15,7 +22,7 @@ import { renderRemoteBoxes, showActivity } from "../collab/presence";
 import { renderComments } from "../comments/pins";
 import { LASSO_ICON_DATA_URL } from "../icons/lasso";
 import { startVoiceRecording, stopVoiceRecording, isRecordingVoice } from "../audio/transcribe";
-import type { ModelOption, PendingChange, ScreenshotContext } from "../types";
+import type { AgentTask, AgentTaskStatus, ChatMessage, ModelOption, PendingChange, ScreenshotContext } from "../types";
 
 let promptEl: HTMLDivElement | null = null;
 let promptInput: HTMLTextAreaElement | null = null;
@@ -191,6 +198,11 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
   dom.shadow.appendChild(rev);
   reviewPanel = rev;
 
+  onAgentTaskSelected((task) => {
+    if (task) restoreTaskPrompt(task);
+    else resetPromptSession();
+  });
+
   // Dragging prompt card
   const promptTop = el.querySelector<HTMLDivElement>(".lasso-prompt-top")!;
   let dragState: { startX: number; startY: number; left: number; top: number } | null = null;
@@ -266,10 +278,19 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
   stopButton.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
+    const taskId = state.promptTaskId || undefined;
+    const task = taskId ? getAgentTask(taskId) : undefined;
     if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
-        state.bridgeSocket.send(JSON.stringify({ type: "stop", taskId: state.activeTaskId || undefined }));
+      state.bridgeSocket.send(JSON.stringify({ type: "stop", taskId }));
     }
-    appendChat("assistant", "Agent stopped.");
+    if (taskId) {
+      appendChat("assistant", "Agent stopped.", taskId);
+      if (task) {
+        updateAgentTask(task.id, { status: "stopped", message: "Agent stopped." });
+        recordTaskActivity(task.id, "Agent stopped.");
+      }
+    }
+    if (task?.element) releaseHeldLock(elementKey(task.element));
     resetAgentState();
   });
 
@@ -336,21 +357,23 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
   // Review panel buttons
   rev.querySelector<HTMLButtonElement>(".lasso-review-close")!.addEventListener("click", closeReview);
   rev.querySelector<HTMLButtonElement>(".lasso-review-undo")!.addEventListener("click", () => {
+    const taskId = state.promptTaskId || undefined;
     if (state.pendingChanges.length && rev.querySelector<HTMLButtonElement>(".lasso-review-apply")!.hidden) {
       if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
-        state.bridgeSocket.send(JSON.stringify({ type: "undo", taskId: state.activeTaskId || undefined }));
+        state.bridgeSocket.send(JSON.stringify({ type: "undo", taskId }));
       }
       return;
     }
     closeReview();
-    appendChat("assistant", "Kept as a proposal. Nothing was changed.");
+    appendChat("assistant", "Kept as a proposal. Nothing was changed.", taskId);
   });
 
   rev.querySelector<HTMLButtonElement>(".lasso-review-apply")!.addEventListener("click", () => {
-    if (!state.bridgeSocket || state.bridgeSocket.readyState !== WebSocket.OPEN || !state.pendingChanges.length) return;
+    const taskId = state.promptTaskId;
+    if (!taskId || !state.bridgeSocket || state.bridgeSocket.readyState !== WebSocket.OPEN || !state.pendingChanges.length) return;
     requestAgentNotificationPermission();
-    state.bridgeSocket.send(JSON.stringify({ type: "apply", taskId: state.activeTaskId || "", changes: state.pendingChanges }));
-    appendChat("assistant", "Applying the reviewed change…");
+    state.bridgeSocket.send(JSON.stringify({ type: "apply", taskId, changes: state.pendingChanges }));
+    appendChat("assistant", "Applying the reviewed change…", taskId);
   });
 
   return { prompt: el, review: rev };
@@ -536,31 +559,54 @@ function appendAgentLog(message: string) {
     text.textContent = value;
     line.append(prefix, text);
     agentLogElement.append(line);
-    if (agentLogExpanded) agentLogElement.scrollTop = agentLogElement.scrollHeight;
+    agentLogElement.scrollTop = agentLogElement.scrollHeight;
   }
   if (agentLogToggle) agentLogToggle.hidden = false;
 }
 
-export function appendChat(role: "user" | "assistant" | "error", text: string) {
+function loadAgentLog(lines: string[]): void {
+  clearAgentLog();
+  for (const line of lines) appendAgentLog(line);
+}
+
+function renderChatThread(): void {
   const thread = promptEl?.querySelector<HTMLDivElement>(".lasso-chat-thread");
-  if (!thread || !text.trim()) return;
-  const previous = thread.lastElementChild as HTMLElement | null;
-  if (previous?.classList.contains(role) && previous.dataset.rawText === text) return;
-
-  state.chatHistory.push({
-    role,
-    content: text,
-    createdAt: new Date().toISOString(),
-    contextId: state.selectionId || undefined,
-  });
-
-  const item = document.createElement("div");
-  item.className = `lasso-chat-message ${role}`;
-  item.dataset.rawText = text;
-  renderChatText(item, text);
-  thread.appendChild(item);
-  while (thread.children.length > 6) thread.firstElementChild?.remove();
+  if (!thread) return;
+  thread.replaceChildren();
+  for (const message of state.chatHistory.slice(-6)) {
+    const item = document.createElement("div");
+    item.className = `lasso-chat-message ${message.role}`;
+    item.dataset.rawText = message.content;
+    renderChatText(item, message.content);
+    thread.appendChild(item);
+  }
   thread.scrollTop = thread.scrollHeight;
+}
+
+export function appendChat(role: "user" | "assistant" | "error", text: string, taskId = state.promptTaskId) {
+  const content = text.trim();
+  if (!content) return;
+  const task = taskId ? getAgentTask(taskId) : undefined;
+  if (taskId && !task) return;
+
+  if (task) {
+    const previous = task.messages[task.messages.length - 1];
+    if (previous?.role === role && previous.content === content) return;
+    const message = appendTaskMessage(task.id, role, content);
+    if (!message || state.promptTaskId !== task.id) return;
+    state.chatHistory = [...task.messages];
+  } else {
+    const previous = state.chatHistory[state.chatHistory.length - 1];
+    if (previous?.role === role && previous.content === content) return;
+    state.chatHistory.push({
+      role,
+      content,
+      createdAt: new Date().toISOString(),
+      contextId: state.selectionId || undefined,
+    });
+  }
+
+  renderChatThread();
 }
 
 function renderChatText(container: HTMLElement, text: string): void {
@@ -584,7 +630,13 @@ function renderChatText(container: HTMLElement, text: string): void {
   }
 }
 
-export function setAgentStatus(status: "thinking" | "working" | "review" | "error" | "stopped", message: string, detail?: string) {
+export function setAgentStatus(
+  status: AgentTaskStatus,
+  message: string,
+  detail?: string,
+  taskId = state.promptTaskId,
+  appendMessage = true,
+) {
   if (!agentStatusElement || !agentStatusMessage || !sendButton) return;
 
   const logMessage = detail?.trim() || message.trim();
@@ -592,36 +644,36 @@ export function setAgentStatus(status: "thinking" | "working" | "review" | "erro
   if (
     agentStatusElement.dataset.status === status &&
     agentStatusMessage.textContent === message &&
-    (status === "thinking" || status === "working") &&
     (!logMessage || lastLog === logMessage)
   ) return;
 
   appendAgentLog(logMessage);
+  if (taskId) recordTaskActivity(taskId, logMessage);
+  const running = status === "thinking" || status === "working";
   agentStatusElement.hidden = status === "review";
   agentStatusElement.dataset.status = status;
   agentStatusMessage.textContent = message;
 
   const badgeEl = agentStatusElement.querySelector<HTMLSpanElement>(".lasso-agent-status-badge");
   if (badgeEl) {
-    badgeEl.textContent = status === "thinking" ? "thinking" : status === "working" ? "executing" : status;
+    badgeEl.textContent = status === "thinking" ? "thinking" : status === "working" ? "executing" : status === "complete" ? "done" : status;
     badgeEl.className = `lasso-agent-status-badge ${status}`;
   }
 
-  state.agentRunning = status === "thinking" || status === "working";
-
-  sendButton.classList.toggle("loading", state.agentRunning);
-  if (stopButton) stopButton.hidden = !state.agentRunning;
+  state.agentRunning = running;
+  sendButton.classList.toggle("loading", running);
+  if (stopButton) stopButton.hidden = !running;
   if (promptInput) promptInput.disabled = false;
   const label = sendButton.querySelector("span");
   if (label) {
-    label.textContent = status === "review" ? "Review" : status === "error" ? "Retry" : state.agentRunning ? "" : "Send";
+    label.textContent = status === "review" ? "Review" : status === "error" ? "Retry" : running ? "" : "Send";
   }
-  sendButton.setAttribute("aria-label", state.agentRunning ? "Agent is working" : status === "error" ? "Retry request" : "Send request");
-  sendButton.dataset.state = status === "error" ? "retry" : state.agentRunning ? "working" : status;
+  sendButton.setAttribute("aria-label", running ? "Agent is working" : status === "error" ? "Retry request" : "Send request");
+  sendButton.dataset.state = status === "error" ? "retry" : running ? "working" : status;
   syncSendButtonState();
 
-  if (status === "review" || status === "error" || status === "stopped") {
-    appendChat(status === "error" ? "error" : "assistant", message);
+  if (appendMessage && (status === "review" || status === "error" || status === "stopped")) {
+    appendChat(status === "error" ? "error" : "assistant", message, taskId);
   }
 }
 
@@ -660,6 +712,69 @@ export function resetAgentState() {
   if (promptInput) promptInput.disabled = false;
 }
 
+function hideReview(): void {
+  if (reviewPanel) reviewPanel.hidden = true;
+}
+
+function resetPromptSession(): void {
+  state.promptTaskId = null;
+  state.chatHistory = [];
+  state.changesHistory = [];
+  state.pendingChanges = [];
+  state.lastInstruction = "";
+  state.selectionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  state.screenshotPromise = Promise.resolve({});
+  hideReview();
+  clearAgentLog();
+  resetAgentState();
+  renderChatThread();
+  if (promptInput) {
+    promptInput.value = "";
+    syncSendButtonState();
+  }
+}
+
+function restoreTaskPrompt(task: AgentTask): void {
+  state.activeTaskId = task.id;
+  state.promptTaskId = task.id;
+  state.chatHistory = [...task.messages];
+  state.changesHistory = task.changesHistory.map((entry) => ({ ...entry, changes: entry.changes.map((change) => ({ ...change })) }));
+  state.pendingChanges = [...task.pendingChanges];
+  state.lastInstruction = task.lastInstruction;
+  state.selectionId = task.selectionId;
+  state.screenshotPromise = Promise.resolve({});
+  hideReview();
+  clearAgentLog();
+  loadAgentLog(task.activity);
+  renderChatThread();
+
+  const dom = getDOM();
+  if (task.element?.isConnected) {
+    state.selected = task.element;
+    state.elementRegistry.set(elementKey(task.element), task.element);
+    updateSelectedVisual();
+    updateLockChip();
+    if (promptElement) promptElement.textContent = getElementLabel(task.element);
+    positionPrompt(task.element);
+  } else {
+    state.selected = null;
+    dom.selectedBox.style.display = "none";
+    dom.label.style.display = "none";
+    if (promptElement) promptElement.textContent = "Agent task";
+    if (promptEl) {
+      promptEl.style.left = `${Math.max(12, (window.innerWidth - 360) / 2)}px`;
+      promptEl.style.top = `${Math.max(12, (window.innerHeight - 200) / 2)}px`;
+    }
+    updateLockChip();
+  }
+
+  if (promptEl) promptEl.classList.add("visible");
+  setSelectMode(false);
+  if (task.status === "review" && state.pendingChanges.length) showReview(state.pendingChanges, task.message);
+  setAgentStatus(task.status, task.message, task.detail, task.id, false);
+  requestAnimationFrame(() => promptInput?.focus());
+}
+
 export function showReview(changes: PendingChange[], summary: string) {
   if (!reviewPanel) return;
   const subtitle = reviewPanel.querySelector<HTMLParagraphElement>(".lasso-review-subtitle");
@@ -696,7 +811,7 @@ export function showReview(changes: PendingChange[], summary: string) {
 }
 
 export function closeReview() {
-  if (reviewPanel) reviewPanel.hidden = true;
+  hideReview();
   resetAgentState();
 }
 
@@ -734,12 +849,11 @@ export function cancelPrompt(reenter: boolean) {
   if (promptInput) promptInput.value = "";
 
   sendPresenceUpdate({ selection: null });
-  if (state.heldLockElement) releaseHeldLock();
-  updateLockChip();
   renderRemoteBoxes();
   renderComments();
 
   state.selected = null;
+  updateLockChip();
   getDOM().selectedBox.style.display = "none";
   getDOM().label.style.display = "none";
 
@@ -751,7 +865,8 @@ export function cancelPrompt(reenter: boolean) {
 export async function handleSend(event: MouseEvent) {
   event.preventDefault();
   event.stopPropagation();
-  if (!state.selected || !promptInput || !sendButton) return;
+  const selectedElement = state.selected;
+  if (!selectedElement || !promptInput || !sendButton) return;
 
   const instruction =
     promptInput.value.trim() ||
@@ -762,14 +877,14 @@ export async function handleSend(event: MouseEvent) {
     return;
   }
 
-  clearAgentLog();
   requestAgentNotificationPermission();
 
   const isQuestion = /^(hi|hello|hey|thanks|thank you|what|why|how|when|where|who|which|is|are|does|do|can|could|would|should|tell me|explain|describe)\b/i.test(instruction) || /\?$/.test(instruction);
   const isExplicitEdit = /\b(change|edit|update|make|add|remove|delete|fix|replace|turn|convert|style|restyle|move|rename|implement|build|create|increase|decrease|hide|show|align|resize|set|enable|disable)\b/i.test(instruction);
   const wantsAnswer = isQuestion && !(/\b(can|could|would|please)\s+you\s+(change|edit|update|add|fix|make)\b/i.test(instruction)) || (!isExplicitEdit && !isQuestion);
 
-  if (!state.bridgeSocket || state.bridgeSocket.readyState !== WebSocket.OPEN) {
+  const bridgeSocket = state.bridgeSocket;
+  if (!bridgeSocket || bridgeSocket.readyState !== WebSocket.OPEN) {
     setAgentStatus(
       "error",
       "The Lasso agent bridge is not connected. Start Lasso with your dev server and try again."
@@ -778,7 +893,7 @@ export async function handleSend(event: MouseEvent) {
   }
 
   if (!wantsAnswer) {
-    const ownershipGranted = await acquireOwnership(state.selected);
+    const ownershipGranted = await acquireOwnership(selectedElement);
     if (!ownershipGranted) return;
   }
 
@@ -786,39 +901,55 @@ export async function handleSend(event: MouseEvent) {
     collabEmit("collab:action", {
       sessionId: state.collabProjectId,
       status: "preparing",
-      elementId: elementKey(state.selected),
+      elementId: elementKey(selectedElement),
       summary: `Edits for ${instruction.slice(0, 80)}`,
     });
   }
 
+  const selectionId = state.selectionId;
+  const model = state.selectedModel;
+  const screenshotPromise = state.screenshotPromise;
   appendChat("user", instruction);
-  const task = createAgentTask(instruction);
-  setAgentStatus("thinking", "Thinking…");
+  const messages = state.chatHistory.map((message) => ({ ...message }));
+  const changesHistory = state.changesHistory.map((entry) => ({ ...entry, changes: entry.changes.map((change) => ({ ...change })) }));
+  const task = createAgentTask(instruction, messages, changesHistory, selectedElement, selectionId);
+  updateAgentTask(task.id, { status: "thinking", message: "Thinking…", activity: [...task.activity, "Thinking…"] });
+  resetPromptSession();
+  // resetPromptSession clears the previous conversation so another prompt can
+  // start immediately; keep this request attached to the prompt surface.
+  state.promptTaskId = task.id;
   state.lastInstruction = instruction;
-  promptInput.value = "";
 
-  const rect = state.selected.getBoundingClientRect();
-  const computed = getComputedStyle(state.selected);
+  const rect = selectedElement.getBoundingClientRect();
+  const computed = getComputedStyle(selectedElement);
   const attributes = Object.fromEntries(
-    Array.from(state.selected.attributes).map((attr) => [attr.name, attr.value])
+    Array.from(selectedElement.attributes).map((attr) => [attr.name, attr.value])
   );
   const needsVisualContext = /\b(look|visual|appearance|color|colour|background|image|icon|spacing|layout|position|align|responsive|style|restyle|font|size)\b/i.test(instruction);
-  const screenshots = needsVisualContext && state.selected
-    ? await captureElementScreenshot(state.selected)
-    : await state.screenshotPromise;
+  const screenshots = needsVisualContext
+    ? await captureElementScreenshot(selectedElement)
+    : await screenshotPromise;
 
-  state.bridgeSocket.send(
+  if (bridgeSocket.readyState !== WebSocket.OPEN) {
+    const message = "The Lasso agent bridge disconnected before the task could start.";
+    updateAgentTask(task.id, { status: "error", message });
+    appendChat("error", message, task.id);
+    if (!wantsAnswer) releaseHeldLock(elementKey(selectedElement));
+    return;
+  }
+
+  bridgeSocket.send(
     JSON.stringify({
       type: wantsAnswer ? "ask" : "edit",
       taskId: task.id,
       question: wantsAnswer ? instruction : undefined,
       instruction,
-      messages: state.chatHistory,
-      changesHistory: state.changesHistory,
-      model: state.selectedModel.id,
-      provider: state.selectedModel.provider,
+      messages,
+      changesHistory,
+      model: model.id,
+      provider: model.provider,
       context: {
-        selectionId: state.selectionId,
+        selectionId,
         position: {
           top: rect.top,
           left: rect.left,
@@ -849,14 +980,14 @@ export async function handleSend(event: MouseEvent) {
         screenshots,
       },
       element: {
-        tag: state.selected.tagName.toLowerCase(),
-        group: getElementGroup(state.selected),
-        label: getElementLabel(state.selected),
-        html: state.selected.outerHTML.slice(0, 6000),
+        tag: selectedElement.tagName.toLowerCase(),
+        group: getElementGroup(selectedElement),
+        label: getElementLabel(selectedElement),
+        html: selectedElement.outerHTML.slice(0, 6000),
         sourceHint:
-          state.selected.getAttribute("data-source") ||
-          state.selected.getAttribute("data-lasso-source") ||
-          getSourceHint(state.selected),
+          selectedElement.getAttribute("data-source") ||
+          selectedElement.getAttribute("data-lasso-source") ||
+          getSourceHint(selectedElement),
       },
     })
   );
@@ -864,7 +995,7 @@ export async function handleSend(event: MouseEvent) {
 
 export function openPromptForSelected(selected: Element) {
   if (!promptEl || !promptElement) return;
-  clearAgentLog();
+  resetPromptSession();
   promptElement.textContent = getElementLabel(selected);
   positionPrompt(selected);
   promptEl.classList.add("visible");

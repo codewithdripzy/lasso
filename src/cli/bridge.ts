@@ -510,7 +510,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
             reviewRefreshAttempts.set(msg.taskId, refreshAttempts + 1);
             runEditReview(editRequest, editConfig, "The source changed. Refreshing the review against the current file…");
           } else {
-            socket.send(JSON.stringify({ type: "agent_status", status: "error", message }));
+            socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "error", message }));
           }
         }
       } else if (msg.type === "undo") {
