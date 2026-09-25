@@ -72,6 +72,7 @@ void (async () => {
       const contentType = String(proxyRes.headers["content-type"] || "");
       const headers = { ...proxyRes.headers };
       delete headers["content-length"];
+      delete headers["content-encoding"];
       res.writeHead(proxyRes.statusCode || 200, headers);
       res.end(contentType.includes("text/html")
         ? body.replace("</head>", `<script src="/__lasso/overlay.js?bridgePort=${bridgePort}"></script></head>`)
@@ -85,7 +86,7 @@ void (async () => {
       res.end(fs.readFileSync(bundlePath, "utf8"));
       return;
     }
-    proxy.web(req, res, {}, (error) => {
+    proxy.web(req, res, { headers: { "accept-encoding": "identity" } }, (error) => {
       if (!res.headersSent) {
         res.writeHead(502, { "content-type": "text/plain" });
         res.end(`Next.js is still starting: ${error.message}`);

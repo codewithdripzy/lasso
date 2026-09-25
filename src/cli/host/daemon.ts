@@ -54,6 +54,7 @@ export class LassoHost {
   private readonly resolver: DomainResolver;
   private readonly registry: HostRegistry;
   private readonly running = new Map<string, ProjectRuntime>();
+  private readonly starting = new Map<string, Promise<ProjectRuntime | null>>();
   private readonly crashLog = new Map<string, number[]>();
   private readonly proxies = new Map<number, httpProxy>();
 
@@ -113,6 +114,9 @@ export class LassoHost {
     const existing = this.running.get(domain);
     if (existing) return existing;
 
+    const pending = this.starting.get(domain);
+    if (pending) return pending;
+
     const project = this.registry[domain];
     if (!project) return null;
 
@@ -122,22 +126,31 @@ export class LassoHost {
     }
     this.crashLog.set(domain, crashes);
 
-    const result = await startProjectRuntime(project.directory);
-    if (!result.ok || !result.runtime) {
-      this.crashLog.set(domain, [...crashes, Date.now()]);
-      throw new Error(result.error || `Could not start ${domain}.`);
-    }
-
-    const runtime = result.runtime;
-    this.running.set(domain, runtime);
-    runtime.child.on("exit", (code, signal) => {
-      if (this.running.get(domain) === runtime) {
-        this.running.delete(domain);
-        this.log(`project ${domain} exited (code=${code} signal=${signal})`);
+    const startup = (async () => {
+      const result = await startProjectRuntime(project.directory);
+      if (!result.ok || !result.runtime) {
+        this.crashLog.set(domain, [...crashes, Date.now()]);
+        throw new Error(result.error || `Could not start ${domain}.`);
       }
-    });
 
-    return runtime;
+      const runtime = result.runtime;
+      this.running.set(domain, runtime);
+      runtime.child.on("exit", (code, signal) => {
+        if (this.running.get(domain) === runtime) {
+          this.running.delete(domain);
+          this.log(`project ${domain} exited (code=${code} signal=${signal})`);
+        }
+      });
+
+      return runtime;
+    })();
+
+    this.starting.set(domain, startup);
+    try {
+      return await startup;
+    } finally {
+      if (this.starting.get(domain) === startup) this.starting.delete(domain);
+    }
   }
 
   // ---- control surface ---------------------------------------------

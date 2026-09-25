@@ -42,8 +42,11 @@ export async function startNextServer(
         proxyRes.on("end", () => {
             const body = Buffer.concat(chunks).toString("utf-8");
             const contentType = proxyRes.headers["content-type"] || "";
+            const headers = { ...proxyRes.headers };
+            delete headers["content-length"];
+            delete headers["content-encoding"];
 
-            res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+            res.writeHead(proxyRes.statusCode || 200, headers);
 
             if (contentType.includes("text/html")) {
                 res.end(body.replace("</head>", `<script src="/__lasso/overlay.js?bridgePort=3056"></script></head>`));
@@ -61,7 +64,7 @@ export async function startNextServer(
             return;
         }
 
-        proxy.web(req, res, {}, (err) => {
+        proxy.web(req, res, { headers: { "accept-encoding": "identity" } }, (err) => {
             console.error(chalk.red("Proxy error:"), err.message);
             res.writeHead(502);
             res.end("Bad gateway — is the Next.js dev server still starting up?");

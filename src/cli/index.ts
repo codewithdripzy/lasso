@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import chalk from "chalk";
 import { Command } from "commander";
-import { startBridge } from "./bridge";
+import { restartBridge, startBridge } from "./bridge";
 import { startViteServer } from "./server/vite"
 import { startNextServer } from "./server/next";
 import { detectFramework } from "./utils/framework";
@@ -24,6 +24,21 @@ program.name("lasso").description("Select UI in your running app, describe a cha
 function projectEnv() {
     return readProjectEnv(process.cwd());
 }
+
+const bridge = program.command("bridge").description("Manage the Lasso overlay bridge");
+
+bridge.command("restart")
+    .description("Reset the active bridge connection and reconnect the overlay")
+    .option("--port <port>", "Bridge port", "3056")
+    .action(async (options: { port: string }) => {
+        const result = await restartBridge(Number(options.port));
+        if (!result.ok) {
+            console.error(chalk.red("✗") + ` ${result.error}`);
+            process.exitCode = 1;
+            return;
+        }
+        console.log(chalk.green("✓") + " Lasso bridge restarted. The overlay will reconnect automatically.");
+    });
 
 // prettier-ignore
 program.command("init")

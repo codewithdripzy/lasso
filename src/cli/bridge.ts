@@ -10,7 +10,7 @@ import { answerQuestion, detectLocalAgents, proposeChanges, generateCommitMessag
 import type { CollabConfig } from "./project";
 import { serverUrlFrom } from "./auth";
 
-const DEFAULT_BRIDGE_PORT = 3056;
+export const DEFAULT_BRIDGE_PORT = 3056;
 const execFileAsync = promisify(execFile);
 type GitState = { isRepo: boolean; branch?: string; status?: string[]; hasChanges?: boolean; hasRemote?: boolean; remote?: string };
 
@@ -42,6 +42,17 @@ export type ServerBridgeMessage =
   | { type: "applied"; message: string }
   | { type: "undone"; message: string }
   | { type: "transcribe_result"; requestId: string; success: boolean; text?: string; provider?: string; error?: string };
+
+export async function restartBridge(port = DEFAULT_BRIDGE_PORT): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/__lasso/bridge/restart`, { method: "POST" });
+    const body = await response.json().catch(() => ({})) as { ok?: boolean; error?: string };
+    if (!response.ok || !body.ok) return { ok: false, error: body.error || "The bridge rejected the restart request." };
+    return { ok: true };
+  } catch {
+    return { ok: false, error: `No Lasso bridge is listening on 127.0.0.1:${port}. Start your project with ${chalk.cyan("lasso dev")} first.` };
+  }
+}
 
 async function gitCommand(cwd: string, args: string[]) {
   const result = await execFileAsync("git", args, { cwd, maxBuffer: 1024 * 1024 });
@@ -144,6 +155,17 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
   })();
   let activeAgentController: AbortController | null = null;
   let localAgents = new Set<LocalAgent>();
+
+  bridgeServer.on("request", (req, res) => {
+    if (req.method !== "POST" || req.url?.split("?", 1)[0] !== "/__lasso/bridge/restart") return;
+
+    activeAgentController?.abort();
+    activeAgentController = null;
+    for (const socket of wss.clients) socket.close(1000, "Bridge restarted by the CLI");
+
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: true }));
+  });
 
   async function localModels() {
     const base = process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL || "http://localhost:11434/api";

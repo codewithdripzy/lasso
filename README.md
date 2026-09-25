@@ -186,6 +186,17 @@ Point the overlay at a different realtime server with any of
 `LASSO_REALTIME_URL`, `REALTIME_URL`, or `NEXT_PUBLIC_REALTIME_URL`
 (default: `http://localhost:3007`).
 
+If the overlay connection gets stuck while `lasso dev` is running, reset it
+without restarting your framework with:
+
+```bash
+lasso bridge restart
+```
+
+The command closes the current overlay WebSocket, cancels any active agent
+request, and lets the overlay reconnect to the existing bridge. Use
+`--port <port>` when the bridge is running on a custom port.
+
 ---
 
 ## Local domains with Lasso Host
