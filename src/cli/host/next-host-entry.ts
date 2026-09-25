@@ -22,6 +22,34 @@ function freePort(): Promise<number> {
   });
 }
 
+function waitForNext(nextPort: number, timeoutMs = 60_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+
+  return new Promise((resolve, reject) => {
+    const check = () => {
+      const request = http.get({
+        hostname: "127.0.0.1",
+        port: nextPort,
+        path: "/",
+        headers: { connection: "close" },
+      }, (response) => {
+        response.resume();
+        response.once("end", resolve);
+      });
+
+      request.once("error", () => {
+        if (Date.now() >= deadline) {
+          reject(new Error(`Next.js did not become ready on port ${nextPort} within ${timeoutMs / 1000}s.`));
+          return;
+        }
+        setTimeout(check, 250);
+      });
+    };
+
+    check();
+  });
+}
+
 void (async () => {
   const nextPort = await freePort();
   const nextBin = path.join(cwd, "node_modules", ".bin", "next");
@@ -66,6 +94,15 @@ void (async () => {
   });
 
   server.on("upgrade", (req, socket, head) => proxy.ws(req, socket, head));
+
+  try {
+    await waitForNext(nextPort);
+  } catch (error) {
+    bridge.close();
+    nextProcess.kill("SIGTERM");
+    throw error;
+  }
+
   server.listen(publicPort, "127.0.0.1");
 
   const shutdown = () => {
