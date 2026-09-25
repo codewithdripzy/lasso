@@ -105,16 +105,52 @@ async function contextFor(cwd: string, element: AgentInput["element"]): Promise<
   return snippets.join("\n\n---\n\n");
 }
 
-function jsonFrom(text: string): { summary: string; changes: SourceChange[] } {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] || text;
-  const parsed = JSON.parse(fenced.trim()) as { summary?: string; changes?: SourceChange[] };
-  if (!Array.isArray(parsed.changes)) throw new Error("The agent returned no reviewable changes.");
-  for (const change of parsed.changes) {
-    if (!change.filePath || typeof change.oldString !== "string" || typeof change.newString !== "string") {
-      throw new Error("The agent returned an invalid file change.");
+function jsonObjectCandidates(text: string): string[] {
+  const candidates: string[] = [];
+  for (let start = 0; start < text.length; start += 1) {
+    if (text[start] !== "{") continue;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < text.length; index += 1) {
+      const character = text[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === '"') inString = false;
+        continue;
+      }
+      if (character === '"') {
+        inString = true;
+      } else if (character === "{") {
+        depth += 1;
+      } else if (character === "}" && --depth === 0) {
+        candidates.push(text.slice(start, index + 1));
+        break;
+      }
     }
   }
-  return { summary: parsed.summary || "The proposed source changes are ready for review.", changes: parsed.changes };
+  return candidates;
+}
+
+function jsonFrom(text: string): { summary: string; changes: SourceChange[] } {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  const candidates = [...(fenced ? [fenced] : []), ...jsonObjectCandidates(text)];
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate.trim()) as { summary?: string; changes?: SourceChange[] };
+      if (!Array.isArray(parsed.changes)) continue;
+      for (const change of parsed.changes) {
+        if (!change.filePath || typeof change.oldString !== "string" || typeof change.newString !== "string") {
+          throw new Error("The agent returned an invalid file change.");
+        }
+      }
+      return { summary: parsed.summary || "The proposed source changes are ready for review.", changes: parsed.changes };
+    } catch (error) {
+      if (error instanceof Error && error.message === "The agent returned an invalid file change.") throw error;
+    }
+  }
+  throw new Error("The agent returned no valid reviewable changes. Progress output may have been mixed with the final JSON.");
 }
 
 function extractLocalAgentText(raw: string, provider: LocalAgent): string {
