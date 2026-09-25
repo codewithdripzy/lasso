@@ -217,6 +217,10 @@ project is served at `http://app.lasso:<port>` or the secure
   domain (reuse, generate, or change one); never duplicates.
 - `lasso unregister [domain]` — remove the current directory’s `.lasso`
   registration, or pass a domain explicitly.
+
+For Next.js projects, `lasso init` and `lasso register` automatically add the
+project’s `.lasso` domain to `allowedDevOrigins` in `next.config.*`, allowing
+HMR and development assets to work through the secure Host URL.
 - `lasso projects` — list registered domains and running state.
 - `lasso daemon install/uninstall` — attach a macOS LaunchAgent (auto-start on
   login) and configure the system DNS resolver so bare `app.lasso` works.

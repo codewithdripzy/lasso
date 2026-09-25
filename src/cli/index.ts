@@ -14,6 +14,7 @@ import { hostProxyPort, hostHttpsPort, hostDnsPort } from "./host/paths";
 import { spawnDaemon, daemonStatus, stopDaemon, enableAutoStart, disableAutoStart, daemonPortMessage, daemonHttpsPortMessage } from "./host/install";
 import { listHostProjects, registerWithHost, restartHostProject, unregisterFromHost } from "./host/client";
 import { loadRegistry, findByDirectory, generateUniqueDomain, validateDomain } from "./host/registry";
+import { ensureNextAllowedDevOrigin } from "./next-config";
 import packageJson from "../../package.json";
 
 const VERSION = packageJson.version;
@@ -285,6 +286,12 @@ program.command("register [domain]")
                 require("node:fs").writeFileSync(path.join(cwd, LASSO_CONFIG_FILE), JSON.stringify({ id: config.id, domain }, null, 2) + "\n");
                 console.log(chalk.dim(`  Added domain to ${LASSO_CONFIG_FILE}.`));
             }
+        }
+
+        if (detectFramework(cwd) === "next") {
+            const injected = ensureNextAllowedDevOrigin(cwd, domain);
+            if (!injected.ok) console.warn(chalk.yellow("!") + ` Could not add ${domain} to Next.js allowedDevOrigins: ${injected.reason}`);
+            else if (injected.changed) console.log(chalk.green("✓") + ` Added ${chalk.cyan(domain)} to ${path.basename(injected.file!)}`);
         }
     });
 

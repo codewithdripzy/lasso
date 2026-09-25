@@ -9,6 +9,7 @@ import { loadCredentials, fetchWithTimeout } from "./auth";
 import { loadRegistry, findByDirectory, generateUniqueDomain } from "./host/registry";
 import { registerWithHost } from "./host/client";
 import { hostProxyPort } from "./host/paths";
+import { ensureNextAllowedDevOrigin } from "./next-config";
 
 const execFileAsync = promisify(execFile);
 
@@ -261,6 +262,12 @@ export async function initProject(cwd: string, fileEnv: Record<string, string>):
         const existing = findByDirectory(registry, cwd);
         const domain = existing ? existing.domain : generateUniqueDomain(cwd, registry);
         await registerWithHost(domain, cwd, projectId, hostProxyPort(fileEnv));
+
+        if (framework === "next") {
+            const injected = ensureNextAllowedDevOrigin(cwd, domain);
+            if (!injected.ok) console.warn(chalk.yellow("!") + ` Could not add ${domain} to Next.js allowedDevOrigins: ${injected.reason}`);
+            else if (injected.changed) console.log(chalk.green("✓") + ` Added ${chalk.cyan(domain)} to ${path.basename(injected.file!)}`);
+        }
 
         fs.writeFileSync(path.join(cwd, LASSO_CONFIG_FILE), JSON.stringify({ id: projectId, domain }, null, 2) + "\n");
 
