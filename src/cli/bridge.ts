@@ -36,6 +36,7 @@ export type ServerBridgeMessage =
   | { type: "config"; apiKeyConfigured: boolean; agentConfigured: boolean; models: ModelOption[]; collab?: CollabConfig | null }
   | { type: "git_state"; git: GitState }
   | { type: "git_result"; message?: string; error?: string }
+  | { type: "git_progress"; message: string }
   | { type: "git_commit_message"; message?: string; error?: string }
   | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string; detail?: string; changes?: SourceChange[] }
   | { type: "assistant_message"; taskId?: string; message: string }
@@ -300,8 +301,8 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       taskControllers.get(request.taskId)?.abort();
       const controller = new AbortController();
       taskControllers.set(request.taskId, controller);
-      if (statusMessage && socket.readyState === socket.OPEN) {
-        socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "working", message: statusMessage }));
+      if (socket.readyState === socket.OPEN) {
+        socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "working", message: statusMessage || "Starting agent…" }));
       }
       void proposeChanges(cwd, request, config, controller.signal, (message, detail) => {
         if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
@@ -356,6 +357,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         const selectedConfig: AgentConfig = localProvider
           ? { provider: cliProvider, model: msg.model }
           : { ...agentConfig!, provider: (msg.provider || agentConfig!.provider) as AgentConfig["provider"], model: msg.model };
+        socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "working", message: "Starting agent…" }));
         void answerQuestion(cwd, { question: msg.question, context: msg.context, element: msg.element, messages: msg.messages }, selectedConfig, controller.signal, (message, detail) => {
           if (!controller.signal.aborted && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "working", message, detail }));
         }).then((answer) => {
@@ -404,9 +406,9 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         const controller = new AbortController();
         activeAgentController?.abort();
         activeAgentController = controller;
-        socket.send(JSON.stringify({ type: "agent_status", status: "thinking", message: "Generating a commit message…" }));
+        socket.send(JSON.stringify({ type: "git_progress", message: "Generating a commit message…" }));
         void getGitState(cwd).then((git) => generateCommitMessage(cwd, git.status || [], selectedConfig, controller.signal, (message, detail) => {
-          if (!controller.signal.aborted && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "agent_status", status: "working", message, detail }));
+          if (!controller.signal.aborted && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "git_progress", message: detail ? `${message} · ${detail}` : message }));
         })).then((message) => {
           if (!controller.signal.aborted) socket.send(JSON.stringify({ type: "git_commit_message", message }));
         }).catch((error: unknown) => {

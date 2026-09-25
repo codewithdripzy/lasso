@@ -104,6 +104,10 @@ export function connectBridge() {
           setGeneratedCommitMessage(message.message || "", message.error);
         }
 
+        if (message.type === "git_progress" && message.message) {
+          setGitMessage(message.message);
+        }
+
         if (message.type === "agent_status" && message.status && message.message) {
           const taskId = message.taskId;
           const task = taskId ? getAgentTask(taskId) : undefined;
