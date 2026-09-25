@@ -14,6 +14,7 @@ import {
 import { setDragCardStatus, resetDrag } from "../drag/drag";
 import { elementKey } from "../toolbar/select";
 import { notifyAgent } from "../notifications";
+import { updateAgentTask } from "../tasks/tasks";
 import type { GitState, ModelOption, PendingChange } from "../types";
 
 export function reportRuntimeError(details: string) {
@@ -69,6 +70,7 @@ export function connectBridge() {
           message?: string;
           detail?: string;
           changes?: PendingChange[];
+          taskId?: string;
           collab?: { projectId?: string; realtimeUrl?: string; name?: string; version?: string; workspaceId?: string; token?: string; apiKey?: string };
         };
 
@@ -103,6 +105,9 @@ export function connectBridge() {
         }
 
         if (message.type === "agent_status" && message.status && message.message) {
+          const taskStatus = message.status === "error" ? "error" : message.status === "stopped" ? "stopped" : message.status;
+          updateAgentTask(message.taskId, { status: taskStatus, message: message.message, detail: message.detail, changes: message.changes });
+          if (message.taskId && message.taskId !== state.activeTaskId) return;
           setAgentStatus(message.status, message.message, message.detail);
           setDragCardStatus(message.status, message.message);
           if (message.status === "review" && message.changes?.length) {
@@ -118,12 +123,16 @@ export function connectBridge() {
         }
 
         if (message.type === "assistant_message" && message.message) {
+          updateAgentTask(message.taskId, { status: "complete", message: "Complete", response: message.message });
+          if (message.taskId && message.taskId !== state.activeTaskId) return;
           void notifyAgent("Agent complete", message.message);
           appendChat("assistant", message.message);
           resetAgentState();
         }
 
         if (message.type === "applied" || message.type === "undone") {
+          updateAgentTask(message.taskId, { status: "complete", message: message.message || "Done." });
+          if (message.taskId && message.taskId !== state.activeTaskId) return;
           void notifyAgent(message.type === "applied" ? "Changes applied" : "Change undone", message.message || "Done.");
           appendChat("assistant", message.message || "Done.");
           releaseHeldLock();

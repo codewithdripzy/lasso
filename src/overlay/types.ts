@@ -4,6 +4,20 @@ export type PendingChange = {
   newString: string;
 };
 
+export type AgentTaskStatus = "queued" | "thinking" | "working" | "review" | "complete" | "error" | "stopped";
+
+export type AgentTask = {
+  id: string;
+  instruction: string;
+  status: AgentTaskStatus;
+  message: string;
+  detail?: string;
+  response?: string;
+  changes?: PendingChange[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ChatMessage = {
   role: "user" | "assistant" | "error";
   content: string;

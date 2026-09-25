@@ -16,6 +16,7 @@ import { buildGitPanel } from "./git/git";
 import { buildTodoPanel } from "./todo/todo";
 import { buildNotepadPanel } from "./notepad/notepad";
 import { buildClipboardPanel } from "./clipboard/clipboard";
+import { buildTaskPanel } from "./tasks/tasks";
 import { buildDrag, resetDrag, setDragMode } from "./drag/drag";
 import {
   buildPrompt,
@@ -49,6 +50,7 @@ export function init() {
   buildTodoPanel();
   buildNotepadPanel();
   buildClipboardPanel();
+  buildTaskPanel();
   buildPrompt();
   buildDrag();
 

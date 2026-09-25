@@ -5,6 +5,7 @@ import openaiIcon from "@iconify-icons/logos/openai-icon";
 import terminalIcon from "@iconify-icons/logos/terminal";
 
 import { state, rememberModel } from "../state";
+import { createAgentTask } from "../tasks/tasks";
 import { requestAgentNotificationPermission } from "../notifications";
 import { getDOM } from "../dom";
 import { getElementGroup, getElementLabel, getSourceHint, elementKey, setSelectMode, updateSelectedVisual } from "../toolbar/select";
@@ -266,7 +267,7 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
     event.preventDefault();
     event.stopPropagation();
     if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
-      state.bridgeSocket.send(JSON.stringify({ type: "stop" }));
+        state.bridgeSocket.send(JSON.stringify({ type: "stop", taskId: state.activeTaskId || undefined }));
     }
     appendChat("assistant", "Agent stopped.");
     resetAgentState();
@@ -337,7 +338,7 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
   rev.querySelector<HTMLButtonElement>(".lasso-review-undo")!.addEventListener("click", () => {
     if (state.pendingChanges.length && rev.querySelector<HTMLButtonElement>(".lasso-review-apply")!.hidden) {
       if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
-        state.bridgeSocket.send(JSON.stringify({ type: "undo" }));
+        state.bridgeSocket.send(JSON.stringify({ type: "undo", taskId: state.activeTaskId || undefined }));
       }
       return;
     }
@@ -348,7 +349,7 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
   rev.querySelector<HTMLButtonElement>(".lasso-review-apply")!.addEventListener("click", () => {
     if (!state.bridgeSocket || state.bridgeSocket.readyState !== WebSocket.OPEN || !state.pendingChanges.length) return;
     requestAgentNotificationPermission();
-    state.bridgeSocket.send(JSON.stringify({ type: "apply", changes: state.pendingChanges }));
+    state.bridgeSocket.send(JSON.stringify({ type: "apply", taskId: state.activeTaskId || "", changes: state.pendingChanges }));
     appendChat("assistant", "Applying the reviewed change…");
   });
 
@@ -610,7 +611,7 @@ export function setAgentStatus(status: "thinking" | "working" | "review" | "erro
 
   sendButton.classList.toggle("loading", state.agentRunning);
   if (stopButton) stopButton.hidden = !state.agentRunning;
-  if (promptInput) promptInput.disabled = state.agentRunning;
+  if (promptInput) promptInput.disabled = false;
   const label = sendButton.querySelector("span");
   if (label) {
     label.textContent = status === "review" ? "Review" : status === "error" ? "Retry" : state.agentRunning ? "" : "Send";
@@ -629,7 +630,7 @@ function syncSendButtonState(): void {
   const hasInstruction = Boolean(promptInput.value.trim()) ||
     (sendButton.dataset.state === "retry" && Boolean(state.lastInstruction?.trim()));
   const isReviewAction = sendButton.dataset.state === "review";
-  sendButton.disabled = state.agentRunning || (!hasInstruction && !isReviewAction);
+  sendButton.disabled = !hasInstruction && !isReviewAction;
 }
 
 export function resetAgentState() {
@@ -791,6 +792,7 @@ export async function handleSend(event: MouseEvent) {
   }
 
   appendChat("user", instruction);
+  const task = createAgentTask(instruction);
   setAgentStatus("thinking", "Thinking…");
   state.lastInstruction = instruction;
   promptInput.value = "";
@@ -808,6 +810,7 @@ export async function handleSend(event: MouseEvent) {
   state.bridgeSocket.send(
     JSON.stringify({
       type: wantsAnswer ? "ask" : "edit",
+      taskId: task.id,
       question: wantsAnswer ? instruction : undefined,
       instruction,
       messages: state.chatHistory,

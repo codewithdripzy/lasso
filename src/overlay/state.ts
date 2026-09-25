@@ -9,6 +9,7 @@ import type {
   GitState,
   ModelOption,
   PendingChange,
+  AgentTask,
   ScreenshotContext,
 } from "./types";
 
@@ -91,6 +92,8 @@ export class OverlayState {
   chatHistory: ChatMessage[] = [];
   changesHistory: Array<{ summary: string; changes: PendingChange[]; createdAt: string }> = [];
   pendingChanges: PendingChange[] = [];
+  agentTasks: AgentTask[] = [];
+  activeTaskId: string | null = null;
   runtimeErrors: string[] = [];
   screenshotPromise: Promise<ScreenshotContext> = Promise.resolve({});
 

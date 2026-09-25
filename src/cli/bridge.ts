@@ -16,18 +16,18 @@ type GitState = { isRepo: boolean; branch?: string; status?: string[]; hasChange
 
 export type BridgeMessage =
   | { type: "hello"; from: "overlay" | "cli" }
-  | { type: "edit"; instruction: string; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "cli"; messages?: Array<{ role: string; content: string; createdAt?: string }>; changesHistory?: Array<{ summary: string; changes: SourceChange[]; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
-  | { type: "ask"; question: string; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "cli"; messages?: Array<{ role: string; content: string; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
+  | { type: "edit"; taskId: string; instruction: string; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "cli"; messages?: Array<{ role: string; content: string; createdAt?: string }>; changesHistory?: Array<{ summary: string; changes: SourceChange[]; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
+  | { type: "ask"; taskId: string; question: string; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "cli"; messages?: Array<{ role: string; content: string; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
   | { type: "runtime_error"; selectionId?: string; details: string }
-  | { type: "apply"; changes: SourceChange[] }
-  | { type: "undo" }
-  | { type: "stop" }
+  | { type: "apply"; taskId: string; changes: SourceChange[] }
+  | { type: "undo"; taskId?: string }
+  | { type: "stop"; taskId?: string }
   | { type: "git_status" }
   | { type: "git_generate_message"; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "cli" }
   | { type: "git_init" }
   | { type: "git_commit"; message: string }
   | { type: "git_push" }
-  | { type: "agent_status"; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string }
+  | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string }
   | { type: "transcribe"; requestId: string; audio: string; mimeType?: string; language?: string };
 
 type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" | "cli" };
@@ -37,10 +37,10 @@ export type ServerBridgeMessage =
   | { type: "git_state"; git: GitState }
   | { type: "git_result"; message?: string; error?: string }
   | { type: "git_commit_message"; message?: string; error?: string }
-  | { type: "agent_status"; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string; detail?: string; changes?: SourceChange[] }
-  | { type: "assistant_message"; message: string }
-  | { type: "applied"; message: string }
-  | { type: "undone"; message: string }
+  | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string; detail?: string; changes?: SourceChange[] }
+  | { type: "assistant_message"; taskId?: string; message: string }
+  | { type: "applied"; taskId?: string; message: string }
+  | { type: "undone"; taskId?: string; message: string }
   | { type: "transcribe_result"; requestId: string; success: boolean; text?: string; provider?: string; error?: string };
 
 export async function restartBridge(port = DEFAULT_BRIDGE_PORT): Promise<{ ok: boolean; error?: string }> {
@@ -172,10 +172,10 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
   const bridgeServer = http.createServer(); // dedicated, empty HTTP server
   const wss = new WebSocketServer({ server: bridgeServer });
   let overlaySocket: WebSocket | null = null;
-  let lastSnapshot: Array<{ filePath: string; content: string }> = [];
-  let lastEditRequest: Extract<BridgeMessage, { type: "edit" }> | null = null;
-  let lastEditConfig: AgentConfig | null = null;
-  let reviewRefreshAttempts = 0;
+  const taskSnapshots = new Map<string, Array<{ filePath: string; content: string }>>();
+  const editRequests = new Map<string, Extract<BridgeMessage, { type: "edit" }>>();
+  const editConfigs = new Map<string, AgentConfig>();
+  const reviewRefreshAttempts = new Map<string, number>();
   const envRoots = [cwd, path.join(cwd, "web"), path.join(cwd, "server")];
   const fileEnv = envRoots.reduce<Record<string, string>>((values, root) => ({
     ...values,
@@ -203,12 +203,15 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     };
   })();
   let activeAgentController: AbortController | null = null;
+  const taskControllers = new Map<string, AbortController>();
   let localAgents = new Set<LocalAgent>();
 
   bridgeServer.on("request", (req, res) => {
     if (req.method !== "POST" || req.url?.split("?", 1)[0] !== "/__lasso/bridge/restart") return;
 
     activeAgentController?.abort();
+    for (const controller of taskControllers.values()) controller.abort();
+    taskControllers.clear();
     activeAgentController = null;
     for (const socket of wss.clients) socket.close(1000, "Bridge restarted by the CLI");
 
@@ -294,37 +297,38 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     });
 
     const runEditReview = (request: Extract<BridgeMessage, { type: "edit" }>, config: AgentConfig, statusMessage?: string) => {
-      activeAgentController?.abort();
+      taskControllers.get(request.taskId)?.abort();
       const controller = new AbortController();
-      activeAgentController = controller;
+      taskControllers.set(request.taskId, controller);
       if (statusMessage && socket.readyState === socket.OPEN) {
-        socket.send(JSON.stringify({ type: "agent_status", status: "working", message: statusMessage }));
+        socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "working", message: statusMessage }));
       }
       void proposeChanges(cwd, request, config, controller.signal, (message, detail) => {
         if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
-          socket.send(JSON.stringify({ type: "agent_status", status: "working", message, detail }));
+          socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "working", message, detail }));
         }
       })
         .then((proposal) => {
           if (controller.signal.aborted || socket.readyState !== socket.OPEN) return;
           if (!proposalMatchesCurrentSource(cwd, proposal.changes)) {
-            if (reviewRefreshAttempts < 1) {
-              reviewRefreshAttempts += 1;
+            const refreshAttempts = reviewRefreshAttempts.get(request.taskId) || 0;
+            if (refreshAttempts < 1) {
+              reviewRefreshAttempts.set(request.taskId, refreshAttempts + 1);
               runEditReview(request, config, "The source changed while the proposal was being prepared. Refreshing the review…");
             } else {
-              socket.send(JSON.stringify({ type: "agent_status", status: "error", message: "The source is still changing. Stop the dev-server edit or try the request again." }));
+              socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "error", message: "The source is still changing. Stop the dev-server edit or try the request again." }));
             }
             return;
           }
-          socket.send(JSON.stringify({ type: "agent_status", status: "review", message: proposal.summary, changes: proposal.changes }));
+          socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "review", message: proposal.summary, changes: proposal.changes }));
         })
         .catch((error: unknown) => {
           if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
-            socket.send(JSON.stringify({ type: "agent_status", status: "error", message: error instanceof Error ? error.message : "The agent could not prepare a change." }));
+            socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "error", message: error instanceof Error ? error.message : "The agent could not prepare a change." }));
           }
         })
         .finally(() => {
-          if (activeAgentController === controller) activeAgentController = null;
+          if (taskControllers.get(request.taskId) === controller) taskControllers.delete(request.taskId);
         });
     };
 
@@ -339,50 +343,50 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         const localProvider = msg.provider === "cli";
         const cliProvider = msg.model.startsWith("claude-code:") ? "claude-code" : msg.model.startsWith("opencode:") ? "opencode" : "codex";
         if (!lassoKeyConfigured && !localProvider) {
-          socket.send(JSON.stringify({ type: "agent_status", status: "error", message: "Set your Lasso API key before asking the hosted agent a question." }));
+          socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "error", message: "Set your Lasso API key before asking the hosted agent a question." }));
           return;
         }
         if (!agentConfig && !localProvider) {
-          socket.send(JSON.stringify({ type: "agent_status", status: "error", message: "No hosted agent is configured. Select Claude Code/Codex or add a provider key." }));
+          socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "error", message: "No hosted agent is configured. Select Claude Code/Codex or add a provider key." }));
           return;
         }
-        activeAgentController?.abort();
+        taskControllers.get(msg.taskId)?.abort();
         const controller = new AbortController();
-        activeAgentController = controller;
+        taskControllers.set(msg.taskId, controller);
         const selectedConfig: AgentConfig = localProvider
           ? { provider: cliProvider, model: msg.model }
           : { ...agentConfig!, provider: (msg.provider || agentConfig!.provider) as AgentConfig["provider"], model: msg.model };
         void answerQuestion(cwd, { question: msg.question, context: msg.context, element: msg.element, messages: msg.messages }, selectedConfig, controller.signal, (message, detail) => {
-          if (!controller.signal.aborted && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "agent_status", status: "working", message, detail }));
+          if (!controller.signal.aborted && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "working", message, detail }));
         }).then((answer) => {
-          if (!controller.signal.aborted) socket.send(JSON.stringify({ type: "assistant_message", message: answer }));
+          if (!controller.signal.aborted) socket.send(JSON.stringify({ type: "assistant_message", taskId: msg.taskId, message: answer }));
         }).catch((error: unknown) => {
-          if (!controller.signal.aborted) socket.send(JSON.stringify({ type: "agent_status", status: "error", message: error instanceof Error ? error.message : "The agent could not answer." }));
+          if (!controller.signal.aborted) socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "error", message: error instanceof Error ? error.message : "The agent could not answer." }));
         }).finally(() => {
-          if (activeAgentController === controller) activeAgentController = null;
+          if (taskControllers.get(msg.taskId) === controller) taskControllers.delete(msg.taskId);
         });
       } else if (msg.type === "edit") {
         const localProvider = msg.provider === "cli";
         const cliProvider = msg.model.startsWith("claude-code:") ? "claude-code" : msg.model.startsWith("opencode:") ? "opencode" : "codex";
         if (!lassoKeyConfigured && !localProvider) {
-          socket.send(JSON.stringify({ type: "agent_status", status: "error", message: "Set VITE_LASSO_API_KEY or NEXT_LASSO_API_KEY in your app environment before sending an edit." }));
+          socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "error", message: "Set VITE_LASSO_API_KEY or NEXT_LASSO_API_KEY in your app environment before sending an edit." }));
           return;
         }
         if (!agentConfig && !localProvider) {
-          socket.send(JSON.stringify({ type: "agent_status", status: "error", message: "Add a supported agent key: GOOGLE_GENERATIVE_AI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY." }));
+          socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "error", message: "Add a supported agent key: GOOGLE_GENERATIVE_AI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY." }));
           return;
         }
         const selectedConfig: AgentConfig = localProvider
           ? { provider: cliProvider, model: msg.model }
           : { ...agentConfig!, provider: (msg.provider || agentConfig!.provider) as AgentConfig["provider"], model: msg.model };
-        lastEditRequest = msg;
-        lastEditConfig = selectedConfig;
-        reviewRefreshAttempts = 0;
+        editRequests.set(msg.taskId, msg);
+        editConfigs.set(msg.taskId, selectedConfig);
+        reviewRefreshAttempts.set(msg.taskId, 0);
         runEditReview(msg, selectedConfig);
       } else if (msg.type === "stop") {
-        activeAgentController?.abort();
-        activeAgentController = null;
-        socket.send(JSON.stringify({ type: "agent_status", status: "stopped", message: "Agent stopped." }));
+        if (msg.taskId) taskControllers.get(msg.taskId)?.abort();
+        else for (const controller of taskControllers.values()) controller.abort();
+        socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "stopped", message: "Agent stopped." }));
       } else if (msg.type === "runtime_error") {
         socket.send(JSON.stringify({ type: "agent_status", status: "error", message: `Runtime error detected${msg.selectionId ? ` for selection ${msg.selectionId}` : ""}: ${msg.details}` }));
       } else if (msg.type === "git_status") {
@@ -466,7 +470,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         }
       } else if (msg.type === "apply") {
         try {
-          lastSnapshot = [];
+          const snapshots: Array<{ filePath: string; content: string }> = [];
           const planned = new Map<string, { filePath: string; content: string; start: number; end: number; oldString: string; newString: string }[]>();
           for (const change of msg.changes) {
             const filePath = resolveProposedFile(cwd, change.filePath);
@@ -482,31 +486,38 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
 
           // Validate every change before writing any file, then apply each
           // file's replacements from the end toward the beginning.
+          taskSnapshots.set(msg.taskId, snapshots);
           for (const [filePath, changes] of planned) {
             const content = changes[0]!.content;
-            lastSnapshot.push({ filePath, content });
+            snapshots.push({ filePath, content });
             const nextContent = [...changes]
               .sort((a, b) => b.start - a.start)
               .reduce((value, change) => value.slice(0, change.start) + change.newString + value.slice(change.end), content);
             fs.writeFileSync(filePath, nextContent);
           }
-          socket.send(JSON.stringify({ type: "applied", message: `${msg.changes.length} file${msg.changes.length === 1 ? "" : "s"} updated. Your dev server will reload.` }));
+          socket.send(JSON.stringify({ type: "applied", taskId: msg.taskId, message: `${msg.changes.length} file${msg.changes.length === 1 ? "" : "s"} updated. Your dev server will reload.` }));
         } catch (error) {
-          for (const snapshot of lastSnapshot) fs.writeFileSync(snapshot.filePath, snapshot.content);
-          lastSnapshot = [];
+          // Validation happens before writes, but restore this task's snapshot
+          // if a filesystem error occurs during the write phase.
+          for (const snapshot of taskSnapshots.get(msg.taskId) || []) fs.writeFileSync(snapshot.filePath, snapshot.content);
+          taskSnapshots.delete(msg.taskId);
           const message = error instanceof Error ? error.message : "The change could not be applied.";
           const sourceChanged = message.includes("The source changed after the suggestion was generated");
-          if (sourceChanged && lastEditRequest && lastEditConfig && reviewRefreshAttempts < 1) {
-            runEditReview(lastEditRequest, lastEditConfig, "The source changed. Refreshing the review against the current file…");
+          const editRequest = editRequests.get(msg.taskId);
+          const editConfig = editConfigs.get(msg.taskId);
+          const refreshAttempts = reviewRefreshAttempts.get(msg.taskId) || 0;
+          if (sourceChanged && editRequest && editConfig && refreshAttempts < 1) {
+            reviewRefreshAttempts.set(msg.taskId, refreshAttempts + 1);
+            runEditReview(editRequest, editConfig, "The source changed. Refreshing the review against the current file…");
           } else {
             socket.send(JSON.stringify({ type: "agent_status", status: "error", message }));
           }
         }
       } else if (msg.type === "undo") {
-        for (const snapshot of lastSnapshot) fs.writeFileSync(snapshot.filePath, snapshot.content);
-        const count = lastSnapshot.length;
-        lastSnapshot = [];
-        socket.send(JSON.stringify({ type: "undone", message: count ? "The accepted change was reverted." : "There is no accepted change to undo." }));
+        const snapshots = taskSnapshots.get(msg.taskId || "") || [];
+        for (const snapshot of snapshots) fs.writeFileSync(snapshot.filePath, snapshot.content);
+        taskSnapshots.delete(msg.taskId || "");
+        socket.send(JSON.stringify({ type: "undone", taskId: msg.taskId, message: snapshots.length ? "The accepted change was reverted." : "There is no accepted change to undo." }));
       }
     });
 
