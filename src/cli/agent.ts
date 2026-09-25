@@ -175,15 +175,18 @@ function progressFromLine(raw: string, provider: LocalAgent): AgentProgressEvent
         const inp = toolBlock.input as Record<string, any> | undefined;
         const detail =
           inp?.file_path ?? inp?.path ?? inp?.command ?? inp?.query ?? inp?.url ?? "";
-        return detail
-          ? `Claude Code · ${toolName}  ${snippet(detail)}`
-          : `Claude Code · ${toolName}`;
+        return progressEvent(
+          detail
+            ? `Claude Code · ${toolName}  ${snippet(detail)}`
+            : `Claude Code · ${toolName}`,
+          detail,
+        );
       }
 
       // thinking blocks inside assistant messages
       const thinkBlock = event.message?.content?.find?.((p: any) => p.type === "thinking");
       if (thinkBlock?.thinking) {
-        return `Claude Code · ${snippet(thinkBlock.thinking)}`;
+        return progressEvent(`Claude Code · ${snippet(thinkBlock.thinking)}`, thinkBlock.thinking);
       }
 
       // top-level tool event fields (stream-json verbose format)
@@ -192,47 +195,61 @@ function progressFromLine(raw: string, provider: LocalAgent): AgentProgressEvent
         const inp = event.tool_input as Record<string, any> | undefined;
         const detail =
           inp?.file_path ?? inp?.path ?? inp?.command ?? inp?.query ?? inp?.url ?? "";
-        return detail
-          ? `Claude Code · ${tool}  ${snippet(detail)}`
-          : `Claude Code · ${tool}`;
+        return progressEvent(
+          detail
+            ? `Claude Code · ${tool}  ${snippet(detail)}`
+            : `Claude Code · ${tool}`,
+          detail,
+        );
       }
 
-      if (event.type === "result" || event.result) return "Claude Code · preparing the proposal";
-      if (event.type === "assistant") return "Claude Code · reasoning about the change";
+      if (event.type === "result" || event.result) {
+        return progressEvent("Claude Code · preparing the proposal");
+      }
+      if (event.type === "assistant") return progressEvent("Claude Code · reasoning about the change");
     } else if (provider === "codex") {
       const type: string = item?.type || event.type || "";
       if (type === "command_execution" || type === "command_execution_output") {
         const cmd: string = item?.command || event.command || "";
-        return cmd ? `Codex · Bash  ${snippet(cmd)}` : "Codex · running a command";
+        return progressEvent(cmd ? `Codex · Bash  ${snippet(cmd)}` : "Codex · running a command", cmd);
       }
       if (type === "file_read" || type === "read_file") {
         const fp: string = item?.path || event.path || "";
-        return fp ? `Codex · Read  ${snippet(fp)}` : "Codex · reading a file";
+        return progressEvent(fp ? `Codex · Read  ${snippet(fp)}` : "Codex · reading a file", fp);
       }
-      if (type === "agent_message" || type === "message") return "Codex · drafting the proposal";
+      if (type === "agent_message" || type === "message") {
+        return progressEvent("Codex · drafting the proposal");
+      }
       if (type === "reasoning") {
         const text: string = item?.content || event.content || "";
-        return text ? `Codex · ${snippet(text)}` : "Codex · reasoning";
+        return progressEvent(text ? `Codex · ${snippet(text)}` : "Codex · reasoning", text);
       }
-      if (type === "turn.started" || type === "turn_start") return "Codex · starting a turn";
-      if (type === "turn.completed" || type === "turn_complete") return "Codex · preparing the proposal";
+      if (type === "turn.started" || type === "turn_start") {
+        return progressEvent("Codex · starting a turn");
+      }
+      if (type === "turn.completed" || type === "turn_complete") {
+        return progressEvent("Codex · preparing the proposal");
+      }
     } else if (provider === "opencode") {
       const part = event.part as Record<string, any> | undefined;
-      if (event.type === "step-start") return "OpenCode · starting a step";
+      if (event.type === "step-start") return progressEvent("OpenCode · starting a step");
       if (part?.type === "tool") {
         const toolName: string = part.tool || "tool";
         const inp = part.input as Record<string, any> | undefined;
         const detail =
           inp?.file_path ?? inp?.path ?? inp?.command ?? inp?.query ?? inp?.url ?? "";
-        return detail
-          ? `OpenCode · ${toolName}  ${snippet(detail)}`
-          : `OpenCode · ${toolName}`;
+        return progressEvent(
+          detail
+            ? `OpenCode · ${toolName}  ${snippet(detail)}`
+            : `OpenCode · ${toolName}`,
+          detail,
+        );
       }
       if (part?.type === "text") {
         const text: string = part.text || "";
-        return text ? `OpenCode · ${snippet(text)}` : "OpenCode · drafting the response";
+        return progressEvent(text ? `OpenCode · ${snippet(text)}` : "OpenCode · drafting the response", text);
       }
-      if (event.type === "step-finish") return "OpenCode · finalizing the response";
+      if (event.type === "step-finish") return progressEvent("OpenCode · finalizing the response");
     }
   } catch {
     // Progress output is best-effort; the final parser reports malformed output.
@@ -285,7 +302,7 @@ async function proposeWithLocalAgent(cwd: string, instruction: string, context: 
     for (const line of lines) {
       stdout += `${line}\n`;
       const progress = progressFromLine(line, config.provider as LocalAgent);
-      if (progress) onProgress?.(progress);
+      if (progress) onProgress?.(progress.message, progress.detail);
     }
   };
   child.stdout.on("data", consume);
@@ -303,7 +320,7 @@ async function proposeWithLocalAgent(cwd: string, instruction: string, context: 
   if (pending.trim()) {
     stdout += pending;
     const progress = progressFromLine(pending, config.provider as LocalAgent);
-    if (progress) onProgress?.(progress);
+    if (progress) onProgress?.(progress.message, progress.detail);
   }
   if (exitCode !== 0) throw new Error(localAgentError(command, stderr, exitCode));
   return jsonFrom(extractLocalAgentText(stdout, config.provider as LocalAgent));
@@ -390,7 +407,7 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
       for (const line of lines) {
         output += `${line}\n`;
         const progress = progressFromLine(line, config.provider as LocalAgent);
-        if (progress) onProgress?.(progress);
+        if (progress) onProgress?.(progress.message, progress.detail);
       }
     };
     child.stdout.on("data", consume);
@@ -403,7 +420,7 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
     if (pending.trim()) {
       output += pending;
       const progress = progressFromLine(pending, config.provider as LocalAgent);
-      if (progress) onProgress?.(progress);
+      if (progress) onProgress?.(progress.message, progress.detail);
     }
     if (code !== 0) throw new Error(localAgentError(command, stderr, code));
     return extractLocalAgentText(output, config.provider as LocalAgent).trim();

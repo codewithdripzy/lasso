@@ -583,18 +583,19 @@ function renderChatText(container: HTMLElement, text: string): void {
   }
 }
 
-export function setAgentStatus(status: "thinking" | "working" | "review" | "error" | "stopped", message: string) {
+export function setAgentStatus(status: "thinking" | "working" | "review" | "error" | "stopped", message: string, detail?: string) {
   if (!agentStatusElement || !agentStatusMessage || !sendButton) return;
 
+  const logMessage = detail?.trim() || message.trim();
   const lastLog = agentLogLines[agentLogLines.length - 1];
   if (
     agentStatusElement.dataset.status === status &&
     agentStatusMessage.textContent === message &&
     (status === "thinking" || status === "working") &&
-    (!message.trim() || lastLog === message.trim())
+    (!logMessage || lastLog === logMessage)
   ) return;
 
-  appendAgentLog(message);
+  appendAgentLog(logMessage);
   agentStatusElement.hidden = status === "review";
   agentStatusElement.dataset.status = status;
   agentStatusMessage.textContent = message;

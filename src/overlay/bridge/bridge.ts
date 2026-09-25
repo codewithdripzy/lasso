@@ -67,6 +67,7 @@ export function connectBridge() {
           error?: string;
           status?: "thinking" | "working" | "review" | "error" | "stopped";
           message?: string;
+          detail?: string;
           changes?: PendingChange[];
           collab?: { projectId?: string; realtimeUrl?: string; name?: string; version?: string; workspaceId?: string; token?: string; apiKey?: string };
         };
@@ -102,7 +103,7 @@ export function connectBridge() {
         }
 
         if (message.type === "agent_status" && message.status && message.message) {
-          setAgentStatus(message.status, message.message);
+          setAgentStatus(message.status, message.message, message.detail);
           setDragCardStatus(message.status, message.message);
           if (message.status === "review" && message.changes?.length) {
             void notifyAgent("Review requested", message.message);
