@@ -140,6 +140,18 @@ function prepareChange(content: string, change: SourceChange) {
   return { start, end: start + oldString.length, oldString, newString };
 }
 
+function proposalMatchesCurrentSource(cwd: string, changes: SourceChange[]): boolean {
+  try {
+    for (const change of changes) {
+      const filePath = resolveProposedFile(cwd, change.filePath);
+      prepareChange(fs.readFileSync(filePath, "utf8"), change);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function readEnvFile(cwd: string, filename: string) {
   try {
     return fs.readFileSync(path.join(cwd, filename), "utf8").split(/\r?\n/).reduce<Record<string, string>>((values, line) => {
@@ -281,6 +293,41 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "git_state", git }));
     });
 
+    const runEditReview = (request: Extract<BridgeMessage, { type: "edit" }>, config: AgentConfig, statusMessage?: string) => {
+      activeAgentController?.abort();
+      const controller = new AbortController();
+      activeAgentController = controller;
+      if (statusMessage && socket.readyState === socket.OPEN) {
+        socket.send(JSON.stringify({ type: "agent_status", status: "working", message: statusMessage }));
+      }
+      void proposeChanges(cwd, request, config, controller.signal, (message, detail) => {
+        if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
+          socket.send(JSON.stringify({ type: "agent_status", status: "working", message, detail }));
+        }
+      })
+        .then((proposal) => {
+          if (controller.signal.aborted || socket.readyState !== socket.OPEN) return;
+          if (!proposalMatchesCurrentSource(cwd, proposal.changes)) {
+            if (reviewRefreshAttempts < 1) {
+              reviewRefreshAttempts += 1;
+              runEditReview(request, config, "The source changed while the proposal was being prepared. Refreshing the review…");
+            } else {
+              socket.send(JSON.stringify({ type: "agent_status", status: "error", message: "The source is still changing. Stop the dev-server edit or try the request again." }));
+            }
+            return;
+          }
+          socket.send(JSON.stringify({ type: "agent_status", status: "review", message: proposal.summary, changes: proposal.changes }));
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
+            socket.send(JSON.stringify({ type: "agent_status", status: "error", message: error instanceof Error ? error.message : "The agent could not prepare a change." }));
+          }
+        })
+        .finally(() => {
+          if (activeAgentController === controller) activeAgentController = null;
+        });
+    };
+
     socket.on("message", async (raw) => {
       const msg: BridgeMessage = JSON.parse(raw.toString());
       if (msg.type === "edit" || msg.type === "ask") {
@@ -325,31 +372,13 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
           socket.send(JSON.stringify({ type: "agent_status", status: "error", message: "Add a supported agent key: GOOGLE_GENERATIVE_AI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY." }));
           return;
         }
-        activeAgentController?.abort();
-        const controller = new AbortController();
-        activeAgentController = controller;
         const selectedConfig: AgentConfig = localProvider
           ? { provider: cliProvider, model: msg.model }
           : { ...agentConfig!, provider: (msg.provider || agentConfig!.provider) as AgentConfig["provider"], model: msg.model };
         lastEditRequest = msg;
         lastEditConfig = selectedConfig;
         reviewRefreshAttempts = 0;
-        void proposeChanges(cwd, msg, selectedConfig, controller.signal, (message, detail) => {
-          if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
-            socket.send(JSON.stringify({ type: "agent_status", status: "working", message, detail }));
-          }
-        })
-          .then((proposal) => {
-            if (!controller.signal.aborted) socket.send(JSON.stringify({ type: "agent_status", status: "review", message: proposal.summary, changes: proposal.changes }));
-          })
-          .catch((error: unknown) => {
-            if (controller.signal.aborted) return;
-            const message = error instanceof Error ? error.message : "The agent could not prepare a change.";
-            socket.send(JSON.stringify({ type: "agent_status", status: "error", message }));
-          })
-          .finally(() => {
-            if (activeAgentController === controller) activeAgentController = null;
-          });
+        runEditReview(msg, selectedConfig);
       } else if (msg.type === "stop") {
         activeAgentController?.abort();
         activeAgentController = null;
@@ -468,29 +497,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
           const message = error instanceof Error ? error.message : "The change could not be applied.";
           const sourceChanged = message.includes("The source changed after the suggestion was generated");
           if (sourceChanged && lastEditRequest && lastEditConfig && reviewRefreshAttempts < 1) {
-            reviewRefreshAttempts += 1;
-            socket.send(JSON.stringify({ type: "agent_status", status: "working", message: "The source changed. Refreshing the review against the current file…" }));
-            activeAgentController?.abort();
-            const controller = new AbortController();
-            activeAgentController = controller;
-            void proposeChanges(cwd, lastEditRequest, lastEditConfig, controller.signal, (progress, detail) => {
-              if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
-                socket.send(JSON.stringify({ type: "agent_status", status: "working", message: progress, detail }));
-              }
-            })
-              .then((proposal) => {
-                if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
-                  socket.send(JSON.stringify({ type: "agent_status", status: "review", message: `Review refreshed: ${proposal.summary}`, changes: proposal.changes }));
-                }
-              })
-              .catch((refreshError: unknown) => {
-                if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
-                  socket.send(JSON.stringify({ type: "agent_status", status: "error", message: refreshError instanceof Error ? refreshError.message : "The refreshed review could not be prepared." }));
-                }
-              })
-              .finally(() => {
-                if (activeAgentController === controller) activeAgentController = null;
-              });
+            runEditReview(lastEditRequest, lastEditConfig, "The source changed. Refreshing the review against the current file…");
           } else {
             socket.send(JSON.stringify({ type: "agent_status", status: "error", message }));
           }
