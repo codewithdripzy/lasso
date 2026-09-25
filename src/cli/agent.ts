@@ -194,6 +194,36 @@ function extractLocalAgentText(raw: string, provider: LocalAgent): string {
   return texts.at(-1) || raw;
 }
 
+function extractLocalAgentProposal(raw: string, provider: LocalAgent): { summary: string; changes: SourceChange[] } {
+  const outputs: string[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    try {
+      const event = JSON.parse(line) as Record<string, any>;
+      const item = event.item as Record<string, any> | undefined;
+      const part = event.part as Record<string, any> | undefined;
+      const values = provider === "claude-code"
+        ? [event.result, ...((event.message?.content || []) as Array<Record<string, any>>).map((entry) => entry.text)]
+        : provider === "opencode"
+          ? [part?.type === "text" ? part.text : undefined, event.text, event.output_text]
+          : [event.text, event.output_text, item?.text, item?.output_text, item?.message];
+      for (const value of values) if (typeof value === "string" && value.trim()) outputs.push(value);
+    } catch {
+      if (line.trim()) outputs.push(line);
+    }
+  }
+
+  // Tool events are interleaved with the final answer. Try text events in
+  // reverse order, then the complete stream as a final fallback.
+  for (const output of [...outputs.reverse(), raw]) {
+    try {
+      return jsonFrom(output);
+    } catch {
+      // Keep looking; this output may only be a progress or tool event.
+    }
+  }
+  throw new Error("The agent returned no valid reviewable changes. Progress output may have been mixed with the final JSON.");
+}
+
 function snippet(value: unknown, max = 80): string {
   const s = String(value ?? "").trim().replace(/\s+/g, " ");
   return s.length > max ? `${s.slice(0, max)}…` : s;
@@ -324,7 +354,7 @@ function localCommand(provider: LocalAgent, model?: string, prompt?: string): { 
     return { command: "claude", args: ["-p", prompt || "", "--output-format", "stream-json", "--verbose", "--permission-mode", "plan", "--max-turns", "3", ...(selectedModel ? ["--model", selectedModel] : [])] };
   }
   if (provider === "opencode") {
-    return { command: "opencode", args: ["run", "--format", "json", ...(selectedModel ? ["--model", selectedModel] : []), prompt || ""] };
+  return { command: "opencode", args: ["run", "--format", "json", "--agent", "plan", ...(selectedModel ? ["--model", selectedModel] : []), prompt || ""] };
   }
   return { command: "codex", args: ["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", ...(selectedModel ? ["--model", selectedModel] : []), prompt || ""] };
 }
@@ -367,7 +397,7 @@ async function proposeWithLocalAgent(cwd: string, instruction: string, context: 
     if (progress) onProgress?.(progress.message, progress.detail);
   }
   if (exitCode !== 0) throw new Error(localAgentError(command, stderr, exitCode));
-  return jsonFrom(extractLocalAgentText(stdout, config.provider as LocalAgent));
+  return extractLocalAgentProposal(stdout, config.provider as LocalAgent);
 }
 
 export async function proposeChanges(cwd: string, input: AgentInput, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress) {

@@ -2152,8 +2152,13 @@ export function buildStyles(): string {
       display: none;
     }
 
+    .lasso-prompt-send.loading span {
+      display: none;
+    }
+
     .lasso-prompt-send.loading::before {
       content: "";
+      display: block;
       width: 12px;
       height: 12px;
       border: 2px solid rgba(0, 0, 0, 0.3);
