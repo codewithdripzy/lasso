@@ -126,7 +126,9 @@ export function init() {
       state.selectionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       state.chatHistory = [];
       state.changesHistory = [];
-      state.screenshotPromise = captureScreenshots(target);
+      // Capture visual context lazily when the user actually asks for a visual
+      // change. Selecting an element should keep the prompt responsive.
+      state.screenshotPromise = Promise.resolve({});
 
       // Hide hover visual, show selected visual
       dom.hoverBox.style.display = "none";

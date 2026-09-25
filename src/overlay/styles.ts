@@ -1802,6 +1802,16 @@ export function buildStyles(): string {
       background: rgba(242, 139, 130, 0.12);
     }
 
+    .lasso-chat-message code {
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: var(--lo-surface-2);
+      color: #a5b4fc;
+      font-family: var(--lo-font-mono);
+      font-size: 0.92em;
+      white-space: pre-wrap;
+    }
+
     /* CLI / Terminal Thinking Mode */
     .lasso-agent-status {
       display: flex;
@@ -1878,6 +1888,43 @@ export function buildStyles(): string {
       color: #f87171;
     }
 
+    .lasso-agent-status-badge.complete {
+      background: rgba(16, 185, 129, 0.16);
+      color: #34d399;
+    }
+
+    .lasso-agent-log-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 5px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: #64748b;
+      font: inherit;
+      font-size: 9.5px;
+      cursor: pointer;
+    }
+
+    .lasso-agent-log-toggle:hover {
+      background: rgba(255, 255, 255, 0.06);
+      color: #cbd5e1;
+    }
+
+    .lasso-agent-log-toggle[hidden] {
+      display: none;
+    }
+
+    .lasso-agent-log-chevron {
+      display: inline-block;
+      transition: transform 140ms ease;
+    }
+
+    .lasso-agent-log-toggle[aria-expanded="true"] .lasso-agent-log-chevron {
+      transform: rotate(180deg);
+    }
+
     .lasso-agent-status-line {
       display: flex;
       align-items: center;
@@ -1893,13 +1940,52 @@ export function buildStyles(): string {
     }
 
     .lasso-agent-status-message {
+      flex: 1;
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
-    /* The status line is the single latest activity message. */
     .lasso-agent-log {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      max-height: 180px;
+      margin-top: 8px;
+      padding-top: 7px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      overflow: auto;
+      color: #64748b;
+      font-size: 10px;
+    }
+
+    .lasso-agent-log[hidden] {
+      display: none;
+    }
+
+    .lasso-agent-log-line {
+      display: flex;
+      gap: 5px;
+      line-height: 1.45;
+    }
+
+    .lasso-agent-log-prefix {
+      flex: 0 0 auto;
+      color: #475569;
+    }
+
+    .lasso-agent-log-text {
+      min-width: 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .lasso-agent-status[data-status="complete"] .lasso-agent-status-line {
+      animation: none;
+    }
+
+    .lasso-agent-status[data-status="complete"] .lasso-agent-cursor {
       display: none;
     }
 
@@ -1917,38 +2003,9 @@ export function buildStyles(): string {
       50% { opacity: 0; }
     }
 
-    .lasso-agent-log {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      margin-top: 6px;
-      max-height: 80px;
-      overflow-y: auto;
-      font-size: 10px;
-      color: #64748b;
-    }
-
-    .lasso-agent-log-line {
-      display: flex;
-      gap: 5px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      animation: lasso-agent-log-in 180ms ease-out both;
-    }
-
-    .lasso-agent-log-prefix {
-      color: #475569;
-    }
-
     @keyframes lasso-agent-line-pulse {
       0%, 100% { opacity: .72; }
       50% { opacity: 1; }
-    }
-
-    @keyframes lasso-agent-log-in {
-      from { opacity: 0; transform: translateY(3px); }
-      to { opacity: 1; transform: translateY(0); }
     }
 
     .lasso-prompt-actions {

@@ -25,6 +25,9 @@ let promptClose: HTMLButtonElement | null = null;
 let agentStatusElement: HTMLDivElement | null = null;
 let agentStatusMessage: HTMLSpanElement | null = null;
 let agentLogElement: HTMLDivElement | null = null;
+let agentLogToggle: HTMLButtonElement | null = null;
+let agentLogLines: string[] = [];
+let agentLogExpanded = false;
 let reviewPanel: HTMLDivElement | null = null;
 
 let modelBtn: HTMLButtonElement | null = null;
@@ -89,13 +92,17 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
           </div>
           <span class="lasso-agent-status-kicker">lasso-agent</span>
           <span class="lasso-agent-status-badge">active</span>
+          <button class="lasso-agent-log-toggle" type="button" aria-label="Show agent activity" aria-expanded="false" hidden>
+            <span>Activity</span>
+            <span class="lasso-agent-log-chevron">⌄</span>
+          </button>
         </div>
         <div class="lasso-agent-status-line">
           <span class="lasso-agent-terminal-prompt">❯</span>
           <span class="lasso-agent-status-message"></span>
           <span class="lasso-agent-cursor"></span>
         </div>
-        <div class="lasso-agent-log" aria-label="Agent activity"></div>
+        <div class="lasso-agent-log" aria-label="Agent activity" hidden></div>
       </div>
 
       <textarea class="lasso-prompt-input" placeholder="Ask anything about this element…" rows="1"></textarea>
@@ -151,9 +158,16 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
   agentStatusElement = el.querySelector<HTMLDivElement>(".lasso-agent-status")!;
   agentStatusMessage = el.querySelector<HTMLSpanElement>(".lasso-agent-status-message")!;
   agentLogElement = el.querySelector<HTMLDivElement>(".lasso-agent-log")!;
+  agentLogToggle = el.querySelector<HTMLButtonElement>(".lasso-agent-log-toggle")!;
   modelBtn = el.querySelector<HTMLButtonElement>(".lasso-prompt-model")!;
   modelName = el.querySelector<HTMLSpanElement>(".lasso-prompt-model-name")!;
   modelMenu = el.querySelector<HTMLDivElement>(".lasso-prompt-model-menu")!;
+
+  agentLogToggle.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setAgentLogExpanded(!agentLogExpanded);
+  });
 
   // Review panel
   const rev = document.createElement("div");
@@ -458,11 +472,79 @@ export async function captureScreenshots(el: Element): Promise<ScreenshotContext
   }
 }
 
+export async function captureElementScreenshot(el: Element): Promise<ScreenshotContext> {
+  const options = {
+    backgroundColor: null,
+    useCORS: true,
+    logging: false,
+    scale: Math.min(window.devicePixelRatio || 1, 1),
+    ignoreElements: (node: Element) => node.id === "lasso-root" || Boolean(node.closest?.("#lasso-root")),
+  };
+  try {
+    const canvas = await html2canvas(el as HTMLElement, options);
+    return { element: canvas.toDataURL("image/jpeg", 0.78) };
+  } catch (error) {
+    console.warn("[lasso] element screenshot unavailable", error);
+    return {};
+  }
+}
+
+function setAgentLogExpanded(expanded: boolean) {
+  agentLogExpanded = expanded && agentLogLines.length > 0;
+  if (agentLogElement) agentLogElement.hidden = !agentLogExpanded;
+  if (agentLogToggle) {
+    agentLogToggle.hidden = agentLogLines.length === 0;
+    agentLogToggle.setAttribute("aria-expanded", String(agentLogExpanded));
+    agentLogToggle.setAttribute("aria-label", agentLogExpanded ? "Hide agent activity" : "Show agent activity");
+  }
+}
+
+function clearAgentLog() {
+  agentLogLines = [];
+  agentLogExpanded = false;
+  if (agentLogElement) {
+    agentLogElement.replaceChildren();
+    agentLogElement.hidden = true;
+  }
+  if (agentLogToggle) {
+    agentLogToggle.hidden = true;
+    agentLogToggle.setAttribute("aria-expanded", "false");
+    agentLogToggle.setAttribute("aria-label", "Show agent activity");
+  }
+  if (agentStatusElement) {
+    agentStatusElement.hidden = true;
+    agentStatusElement.dataset.status = "idle";
+  }
+}
+
+function appendAgentLog(message: string) {
+  const value = message.trim();
+  if (!value) return;
+  const previous = agentLogLines[agentLogLines.length - 1];
+  if (previous === value) return;
+
+  agentLogLines.push(value);
+  if (agentLogElement) {
+    const line = document.createElement("div");
+    line.className = "lasso-agent-log-line";
+    const prefix = document.createElement("span");
+    prefix.className = "lasso-agent-log-prefix";
+    prefix.textContent = "›";
+    const text = document.createElement("span");
+    text.className = "lasso-agent-log-text";
+    text.textContent = value;
+    line.append(prefix, text);
+    agentLogElement.append(line);
+    if (agentLogExpanded) agentLogElement.scrollTop = agentLogElement.scrollHeight;
+  }
+  if (agentLogToggle) agentLogToggle.hidden = false;
+}
+
 export function appendChat(role: "user" | "assistant" | "error", text: string) {
   const thread = promptEl?.querySelector<HTMLDivElement>(".lasso-chat-thread");
   if (!thread || !text.trim()) return;
-  const previous = thread.lastElementChild;
-  if (previous?.textContent === text && previous.classList.contains(role)) return;
+  const previous = thread.lastElementChild as HTMLElement | null;
+  if (previous?.classList.contains(role) && previous.dataset.rawText === text) return;
 
   state.chatHistory.push({
     role,
@@ -473,23 +555,47 @@ export function appendChat(role: "user" | "assistant" | "error", text: string) {
 
   const item = document.createElement("div");
   item.className = `lasso-chat-message ${role}`;
-  item.textContent = text;
+  item.dataset.rawText = text;
+  renderChatText(item, text);
   thread.appendChild(item);
   while (thread.children.length > 6) thread.firstElementChild?.remove();
   thread.scrollTop = thread.scrollHeight;
 }
 
+function renderChatText(container: HTMLElement, text: string): void {
+  const codePattern = /(`+)([\s\S]*?)\1/g;
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(codePattern)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      container.append(document.createTextNode(text.slice(lastIndex, index)));
+    }
+
+    const code = document.createElement("code");
+    code.textContent = match[2] ?? "";
+    container.append(code);
+    lastIndex = index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    container.append(document.createTextNode(text.slice(lastIndex)));
+  }
+}
+
 export function setAgentStatus(status: "thinking" | "working" | "review" | "error" | "stopped", message: string) {
   if (!agentStatusElement || !agentStatusMessage || !sendButton) return;
 
-  // Deduplicate: skip no-op updates when already showing the same status+message
+  const lastLog = agentLogLines[agentLogLines.length - 1];
   if (
     agentStatusElement.dataset.status === status &&
     agentStatusMessage.textContent === message &&
-    (status === "thinking" || status === "working")
+    (status === "thinking" || status === "working") &&
+    (!message.trim() || lastLog === message.trim())
   ) return;
 
-  agentStatusElement.hidden = status === "review" || status === "error" || status === "stopped";
+  appendAgentLog(message);
+  agentStatusElement.hidden = status === "review";
   agentStatusElement.dataset.status = status;
   agentStatusMessage.textContent = message;
 
@@ -500,13 +606,6 @@ export function setAgentStatus(status: "thinking" | "working" | "review" | "erro
   }
 
   state.agentRunning = status === "thinking" || status === "working";
-
-  if (state.agentRunning && agentLogElement) {
-    const line = document.createElement("div");
-    line.className = "lasso-agent-log-line";
-    line.innerHTML = `<span class="lasso-agent-log-prefix">›</span> <span class="lasso-agent-log-text">${escapeHtml(message)}</span>`;
-    agentLogElement.replaceChildren(line);
-  }
 
   sendButton.classList.toggle("loading", state.agentRunning);
   if (stopButton) stopButton.hidden = !state.agentRunning;
@@ -524,12 +623,6 @@ export function setAgentStatus(status: "thinking" | "working" | "review" | "erro
   }
 }
 
-function escapeHtml(text: string): string {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 function syncSendButtonState(): void {
   if (!promptInput || !sendButton) return;
   const hasInstruction = Boolean(promptInput.value.trim()) ||
@@ -540,11 +633,19 @@ function syncSendButtonState(): void {
 
 export function resetAgentState() {
   state.agentRunning = false;
+  const hasLog = agentLogLines.length > 0;
   if (agentStatusElement) {
-    agentStatusElement.hidden = true;
-    agentStatusElement.dataset.status = "idle";
+    agentStatusElement.hidden = !hasLog;
+    agentStatusElement.dataset.status = hasLog ? "complete" : "idle";
   }
-  if (agentLogElement) agentLogElement.replaceChildren();
+  if (hasLog && agentStatusMessage) agentStatusMessage.textContent = "Agent complete";
+  if (hasLog) {
+    const badgeEl = agentStatusElement?.querySelector<HTMLSpanElement>(".lasso-agent-status-badge");
+    if (badgeEl) {
+      badgeEl.textContent = "done";
+      badgeEl.className = "lasso-agent-status-badge complete";
+    }
+  }
   if (sendButton) {
     sendButton.classList.remove("loading");
     sendButton.dataset.state = "idle";
@@ -659,6 +760,7 @@ export async function handleSend(event: MouseEvent) {
     return;
   }
 
+  clearAgentLog();
   requestAgentNotificationPermission();
 
   const isQuestion = /^(hi|hello|hey|thanks|thank you|what|why|how|when|where|who|which|is|are|does|do|can|could|would|should|tell me|explain|describe)\b/i.test(instruction) || /\?$/.test(instruction);
@@ -697,7 +799,10 @@ export async function handleSend(event: MouseEvent) {
   const attributes = Object.fromEntries(
     Array.from(state.selected.attributes).map((attr) => [attr.name, attr.value])
   );
-  const screenshots = await state.screenshotPromise;
+  const needsVisualContext = /\b(look|visual|appearance|color|colour|background|image|icon|spacing|layout|position|align|responsive|style|restyle|font|size)\b/i.test(instruction);
+  const screenshots = needsVisualContext && state.selected
+    ? await captureElementScreenshot(state.selected)
+    : await state.screenshotPromise;
 
   state.bridgeSocket.send(
     JSON.stringify({
@@ -755,6 +860,7 @@ export async function handleSend(event: MouseEvent) {
 
 export function openPromptForSelected(selected: Element) {
   if (!promptEl || !promptElement) return;
+  clearAgentLog();
   promptElement.textContent = getElementLabel(selected);
   positionPrompt(selected);
   promptEl.classList.add("visible");

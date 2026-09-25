@@ -28,7 +28,8 @@ export type AgentConfig = {
 };
 
 export type LocalAgent = "claude-code" | "codex" | "opencode";
-export type AgentProgress = (message: string) => void;
+export type AgentProgress = (message: string, detail?: string) => void;
+type AgentProgressEvent = { message: string; detail?: string };
 export type AgentAnswer = { question: string; context?: AgentInput["context"]; element: AgentInput["element"]; messages?: AgentInput["messages"] };
 
 export async function detectLocalAgents(): Promise<Set<LocalAgent>> {
@@ -46,8 +47,11 @@ export async function detectLocalAgents(): Promise<Set<LocalAgent>> {
 
 const ignored = new Set(["node_modules", ".git", ".next", "dist", "build", ".turbo"]);
 const sourceExtensions = /\.(tsx?|jsx?|vue|svelte|css|scss|html)$/i;
+const sourceFileCache = new Map<string, { expiresAt: number; files: string[] }>();
 
 async function sourceFiles(directory: string): Promise<string[]> {
+  const cached = sourceFileCache.get(directory);
+  if (cached && cached.expiresAt > Date.now()) return cached.files;
   const entries = await fs.readdir(directory, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries) {
@@ -55,26 +59,40 @@ async function sourceFiles(directory: string): Promise<string[]> {
     const fullPath = path.join(directory, entry.name);
     if (entry.isDirectory()) files.push(...(await sourceFiles(fullPath)));
     else if (sourceExtensions.test(entry.name)) files.push(fullPath);
-    if (files.length >= 80) break;
+    if (files.length >= 40) break;
   }
+  sourceFileCache.set(directory, { expiresAt: Date.now() + 5000, files });
   return files;
 }
 
 async function contextFor(cwd: string, element: AgentInput["element"]): Promise<string> {
-  const files = await sourceFiles(cwd);
   const needle = element.sourceHint || element.label.replace(/^[^.#]+[.#]?/, "");
-  const sourceFile = element.sourceHint ? path.basename(element.sourceHint.split(":")[0]) : "";
+  const hintedPath = element.sourceHint?.split(":")[0];
+  const sourceFile = hintedPath ? path.basename(hintedPath) : "";
+  if (hintedPath) {
+    const candidate = path.isAbsolute(hintedPath) ? hintedPath : path.resolve(cwd, hintedPath);
+    try {
+      const content = await fs.readFile(candidate, "utf8");
+      return `FILE: ${path.relative(cwd, candidate)}\n${content.slice(0, 16000)}`;
+    } catch {
+      // Fall back to the indexed search when the runtime source hint is stale.
+    }
+  }
+  const files = await sourceFiles(cwd);
   const snippets: string[] = [];
-  for (const file of files) {
-    if (snippets.length >= 8) break;
+  const results = await Promise.all(files.map(async (file) => {
     try {
       const content = await fs.readFile(file, "utf8");
       if (!needle || (sourceFile && file.endsWith(sourceFile)) || content.includes(needle) || content.includes(element.label)) {
-        snippets.push(`FILE: ${path.relative(cwd, file)}\n${content.slice(0, 12000)}`);
+        return `FILE: ${path.relative(cwd, file)}\n${content.slice(0, 8000)}`;
       }
     } catch {
       // A file can disappear while a dev server is rebuilding; skip it.
     }
+    return null;
+  }));
+  for (const result of results) {
+    if (result && snippets.length < 6) snippets.push(result);
   }
   return snippets.join("\n\n---\n\n");
 }
@@ -132,19 +150,23 @@ function extractLocalAgentText(raw: string, provider: LocalAgent): string {
   return texts.at(-1) || raw;
 }
 
-/** Truncate a detail string to a readable length. */
 function snippet(value: unknown, max = 80): string {
   const s = String(value ?? "").trim().replace(/\s+/g, " ");
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
-function progressFromLine(raw: string, provider: LocalAgent): string | null {
+function progressEvent(message: string, detail?: unknown): AgentProgressEvent {
+  const value = detail == null ? "" : String(detail).trim();
+  return value ? { message, detail: value } : { message };
+}
+
+function progressFromLine(raw: string, provider: LocalAgent): AgentProgressEvent | null {
   try {
     const event = JSON.parse(raw) as Record<string, any>;
     const item = event.item as Record<string, any> | undefined;
 
     if (provider === "claude-code") {
-      if (event.type === "system") return "Claude Code connected";
+      if (event.type === "system") return progressEvent("Claude Code connected");
 
       // tool_use blocks inside assistant messages
       const toolBlock = event.message?.content?.find?.((p: any) => p.type === "tool_use");
@@ -161,7 +183,7 @@ function progressFromLine(raw: string, provider: LocalAgent): string | null {
       // thinking blocks inside assistant messages
       const thinkBlock = event.message?.content?.find?.((p: any) => p.type === "thinking");
       if (thinkBlock?.thinking) {
-        return `Claude Code · ${snippet(thinkBlock.thinking, 100)}`;
+        return `Claude Code · ${snippet(thinkBlock.thinking)}`;
       }
 
       // top-level tool event fields (stream-json verbose format)
@@ -190,7 +212,7 @@ function progressFromLine(raw: string, provider: LocalAgent): string | null {
       if (type === "agent_message" || type === "message") return "Codex · drafting the proposal";
       if (type === "reasoning") {
         const text: string = item?.content || event.content || "";
-        return text ? `Codex · ${snippet(text, 100)}` : "Codex · reasoning";
+        return text ? `Codex · ${snippet(text)}` : "Codex · reasoning";
       }
       if (type === "turn.started" || type === "turn_start") return "Codex · starting a turn";
       if (type === "turn.completed" || type === "turn_complete") return "Codex · preparing the proposal";
@@ -208,7 +230,7 @@ function progressFromLine(raw: string, provider: LocalAgent): string | null {
       }
       if (part?.type === "text") {
         const text: string = part.text || "";
-        return text ? `OpenCode · ${snippet(text, 100)}` : "OpenCode · drafting the response";
+        return text ? `OpenCode · ${snippet(text)}` : "OpenCode · drafting the response";
       }
       if (event.type === "step-finish") return "OpenCode · finalizing the response";
     }
@@ -378,7 +400,11 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
       child.once("error", reject);
       child.once("close", (status) => resolve(status ?? 1));
     });
-    if (pending.trim()) output += pending;
+    if (pending.trim()) {
+      output += pending;
+      const progress = progressFromLine(pending, config.provider as LocalAgent);
+      if (progress) onProgress?.(progress);
+    }
     if (code !== 0) throw new Error(localAgentError(command, stderr, code));
     return extractLocalAgentText(output, config.provider as LocalAgent).trim();
   }
