@@ -79,6 +79,24 @@ function withLineEnding(value: string, lineEnding: "\n" | "\r\n") {
   return value.replace(/\r\n?|\n/g, lineEnding);
 }
 
+function resolveProposedFile(cwd: string, proposedPath: string): string {
+  const root = path.resolve(cwd);
+  const candidate = path.resolve(root, proposedPath);
+  if (candidate.startsWith(`${root}${path.sep}`) && fs.existsSync(candidate)) return candidate;
+
+  // Some React/Next source maps contain an absolute path from an older
+  // checkout. Rebase only the recognizable src/... suffix into this project.
+  const normalized = proposedPath.replace(/\\/g, "/");
+  const srcIndex = normalized.lastIndexOf("/src/");
+  if (srcIndex >= 0) {
+    const rebased = path.join(root, normalized.slice(srcIndex + 1));
+    if (rebased.startsWith(`${root}${path.sep}`) && fs.existsSync(rebased)) return rebased;
+  }
+
+  if (!candidate.startsWith(`${root}${path.sep}`)) throw new Error(`The proposed file is outside the current project: ${proposedPath}`);
+  throw new Error(`Could not find the proposed file in the current project: ${proposedPath}`);
+}
+
 function occurrenceCount(content: string, needle: string) {
   if (!needle) return 0;
   let count = 0;
@@ -416,8 +434,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
           lastSnapshot = [];
           const planned = new Map<string, { filePath: string; content: string; start: number; end: number; oldString: string; newString: string }[]>();
           for (const change of msg.changes) {
-            const filePath = path.resolve(cwd, change.filePath);
-            if (!filePath.startsWith(`${path.resolve(cwd)}${path.sep}`)) throw new Error("A proposed file was outside the project.");
+            const filePath = resolveProposedFile(cwd, change.filePath);
             const content = fs.readFileSync(filePath, "utf8");
             const prepared = prepareChange(content, change);
             const fileChanges = planned.get(filePath) || [];

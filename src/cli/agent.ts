@@ -66,16 +66,24 @@ async function sourceFiles(directory: string): Promise<string[]> {
 }
 
 async function contextFor(cwd: string, element: AgentInput["element"]): Promise<string> {
-  const needle = element.sourceHint || element.label.replace(/^[^.#]+[.#]?/, "");
+  const needle = element.label.replace(/^[^.#]+[.#]?/, "");
   const hintedPath = element.sourceHint?.split(":")[0];
   const sourceFile = hintedPath ? path.basename(hintedPath) : "";
   if (hintedPath) {
-    const candidate = path.isAbsolute(hintedPath) ? hintedPath : path.resolve(cwd, hintedPath);
-    try {
-      const content = await fs.readFile(candidate, "utf8");
-      return `FILE: ${path.relative(cwd, candidate)}\n${content.slice(0, 16000)}`;
-    } catch {
-      // Fall back to the indexed search when the runtime source hint is stale.
+    const candidates = [
+      path.isAbsolute(hintedPath) ? hintedPath : path.resolve(cwd, hintedPath),
+    ];
+    const normalizedHint = hintedPath.replace(/\\/g, "/");
+    const srcMarker = "/src/";
+    const srcIndex = normalizedHint.lastIndexOf(srcMarker);
+    if (srcIndex >= 0) candidates.push(path.join(cwd, normalizedHint.slice(srcIndex + 1)));
+    for (const candidate of candidates) {
+      try {
+        const content = await fs.readFile(candidate, "utf8");
+        return `FILE: ${path.relative(cwd, candidate)}\n${content.slice(0, 16000)}`;
+      } catch {
+        // The runtime source hint can point to a different checkout.
+      }
     }
   }
   const files = await sourceFiles(cwd);
