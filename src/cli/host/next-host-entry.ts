@@ -85,15 +85,17 @@ void (async () => {
     const chunks: Buffer[] = [];
     proxyRes.on("data", (chunk) => chunks.push(chunk as Buffer));
     proxyRes.on("end", () => {
-      const body = Buffer.concat(chunks).toString("utf8");
+      const body = Buffer.concat(chunks);
       const contentType = String(proxyRes.headers["content-type"] || "");
       const headers = { ...proxyRes.headers };
       delete headers["content-length"];
       delete headers["content-encoding"];
       res.writeHead(proxyRes.statusCode || 200, headers);
-      res.end(contentType.includes("text/html")
-        ? body.replace("</head>", `<script src="/__lasso/overlay.js?bridgePort=${bridgePort}"></script></head>`)
-        : body);
+      if (contentType.includes("text/html")) {
+        res.end(body.toString("utf8").replace("</head>", `<script src="/__lasso/overlay.js?bridgePort=${bridgePort}"></script></head>`));
+      } else {
+        res.end(body);
+      }
     });
   });
 
@@ -103,12 +105,23 @@ void (async () => {
       res.end(fs.readFileSync(bundlePath, "utf8"));
       return;
     }
-    proxy.web(req, res, { headers: { "accept-encoding": "identity" } }, (error) => {
-      if (!res.headersSent) {
-        res.writeHead(502, { "content-type": "text/plain" });
-        res.end(`Next.js is still starting: ${error.message}`);
-      }
-    });
+    const forward = (attempt = 0) => {
+      proxy.web(req, res, { headers: { "accept-encoding": "identity" } }, (error) => {
+        const retryable = (error as NodeJS.ErrnoException).code === "ECONNREFUSED" ||
+          (error as NodeJS.ErrnoException).code === "ECONNRESET" ||
+          (error as NodeJS.ErrnoException).code === "EPIPE";
+        if (!res.headersSent && req.method !== "POST" && retryable && attempt < 12) {
+          setTimeout(() => forward(attempt + 1), 250);
+          return;
+        }
+        console.error(`[lasso] Next proxy error for ${req.url}: ${error.message}`);
+        if (!res.headersSent) {
+          res.writeHead(502, { "content-type": "text/plain" });
+          res.end(`Next.js is still starting: ${error.message}`);
+        }
+      });
+    };
+    forward();
   });
 
   server.on("upgrade", (req, socket, head) => proxy.ws(req, socket, head));

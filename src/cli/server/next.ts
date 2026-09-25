@@ -40,7 +40,7 @@ export async function startNextServer(
         const chunks: Buffer[] = [];
         proxyRes.on("data", (chunk) => chunks.push(chunk));
         proxyRes.on("end", () => {
-            const body = Buffer.concat(chunks).toString("utf-8");
+            const body = Buffer.concat(chunks);
             const contentType = proxyRes.headers["content-type"] || "";
             const headers = { ...proxyRes.headers };
             delete headers["content-length"];
@@ -49,7 +49,7 @@ export async function startNextServer(
             res.writeHead(proxyRes.statusCode || 200, headers);
 
             if (contentType.includes("text/html")) {
-                res.end(body.replace("</head>", `<script src="/__lasso/overlay.js?bridgePort=3056"></script></head>`));
+                res.end(body.toString("utf-8").replace("</head>", `<script src="/__lasso/overlay.js?bridgePort=3056"></script></head>`));
             } else {
                 res.end(body);
             }

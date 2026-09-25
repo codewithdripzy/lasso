@@ -2,7 +2,8 @@ import fs from "node:fs";
 import net from "node:net";
 import http from "node:http";
 import path from "node:path";
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { promisify } from "node:util";
 import { detectFramework } from "../utils/framework";
 import { LOG_FILE } from "./paths";
 
@@ -19,6 +20,7 @@ export interface ProjectRuntime {
 
 const READY_TIMEOUT_MS = 60_000;
 const READY_POLL_MS = 500;
+const execFileAsync = promisify(execFile);
 
 export function pickFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -103,18 +105,54 @@ export interface StartRuntimeResult {
   runtime?: ProjectRuntime;
 }
 
+async function stopExistingNextDev(directory: string): Promise<void> {
+  if (process.platform === "win32") return;
+
+  const lockPath = path.join(directory, ".next", "dev", "lock");
+  let pid = 0;
+  try {
+    const lock = JSON.parse(fs.readFileSync(lockPath, "utf8")) as { pid?: number };
+    pid = Number(lock.pid);
+  } catch {
+    return;
+  }
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return;
+
+  try {
+    process.kill(pid, 0);
+    const { stdout } = await execFileAsync("ps", ["-p", String(pid), "-o", "command="], { maxBuffer: 16 * 1024 });
+    if (!/\bnext(?:-dev)?\b|next.*\bdev\b/i.test(stdout)) return;
+    process.kill(pid, "SIGTERM");
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      try {
+        process.kill(pid, 0);
+      } catch {
+        log(directory, `stopped previous Next.js process ${pid}`);
+        return;
+      }
+    }
+    process.kill(pid, "SIGKILL");
+    log(directory, `force-stopped previous Next.js process ${pid}`);
+  } catch {
+    // The lock may be stale or the process may have exited between checks.
+  }
+}
+
 /**
  * Starts the project's development server on a free port and waits until it
  * answers HTTP before returning. Reuses Lasso's existing framework detection —
  * the Host never guesses a package manager or hardcodes a runtime.
  */
-export async function startProjectRuntime(directory: string): Promise<StartRuntimeResult> {
+export async function startProjectRuntime(directory: string, options: { cleanupExisting?: boolean } = {}): Promise<StartRuntimeResult> {
   const port = await pickFreePort();
   const bridgePort = await pickFreePort();
   const plan = spawnCommand(directory, port, bridgePort);
   if (!plan) {
     return { ok: false, error: `${path.basename(directory)} is not a Vite or Next.js project, so Lasso Host can't start it automatically. Run its dev server yourself.` };
   }
+
+  if (options.cleanupExisting && plan.framework === "next") await stopExistingNextDev(directory);
 
   const child = spawn(plan.command, plan.args, {
     cwd: directory,

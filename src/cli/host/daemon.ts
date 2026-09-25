@@ -53,6 +53,7 @@ export class LassoHost {
   private dnsHandle: DnsServerHandle | null = null;
   private readonly resolver: DomainResolver;
   private readonly registry: HostRegistry;
+  private readonly cleanupOnStart = new Set<string>();
   private readonly running = new Map<string, ProjectRuntime>();
   private readonly starting = new Map<string, Promise<ProjectRuntime | null>>();
   private readonly crashLog = new Map<string, number[]>();
@@ -65,6 +66,7 @@ export class LassoHost {
     this.secureServer.on("upgrade", (req, socket, head) => this.handleUpgrade(req, socket, head));
     this.resolver = createDomainResolver();
     this.registry = loadRegistry();
+    for (const domain of Object.keys(this.registry)) this.cleanupOnStart.add(domain);
     this.log(`host starting (version ${opts.version || "unknown"})`);
   }
 
@@ -127,13 +129,14 @@ export class LassoHost {
     this.crashLog.set(domain, crashes);
 
     const startup = (async () => {
-      const result = await startProjectRuntime(project.directory);
+      const result = await startProjectRuntime(project.directory, { cleanupExisting: this.cleanupOnStart.delete(domain) });
       if (!result.ok || !result.runtime) {
         this.crashLog.set(domain, [...crashes, Date.now()]);
         throw new Error(result.error || `Could not start ${domain}.`);
       }
 
       const runtime = result.runtime;
+      this.crashLog.delete(domain);
       this.running.set(domain, runtime);
       runtime.child.on("exit", (code, signal) => {
         if (this.running.get(domain) === runtime) {
@@ -218,9 +221,12 @@ export class LassoHost {
         route: "POST /_host/restart",
         handler: async (_req, res) => {
           const stopped: string[] = [];
+          this.crashLog.clear();
           for (const [domain, runtime] of this.running) {
             runtime.child.kill("SIGTERM");
             this.running.delete(domain);
+            this.cleanupOnStart.add(domain);
+            this.crashLog.delete(domain);
             stopped.push(domain);
             this.log(`stopped ${domain} for restart`);
           }
@@ -234,6 +240,8 @@ export class LassoHost {
           const domain = String(body.domain || "").trim().toLowerCase();
           if (!domain) return writeJson(res, 400, { ok: false, error: "A project domain is required." });
           const runtime = this.running.get(domain);
+          this.cleanupOnStart.add(domain);
+          this.crashLog.delete(domain);
           if (runtime) {
             runtime.child.kill("SIGTERM");
             this.running.delete(domain);
