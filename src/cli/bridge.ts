@@ -161,6 +161,9 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
   const wss = new WebSocketServer({ server: bridgeServer });
   let overlaySocket: WebSocket | null = null;
   let lastSnapshot: Array<{ filePath: string; content: string }> = [];
+  let lastEditRequest: Extract<BridgeMessage, { type: "edit" }> | null = null;
+  let lastEditConfig: AgentConfig | null = null;
+  let reviewRefreshAttempts = 0;
   const envRoots = [cwd, path.join(cwd, "web"), path.join(cwd, "server")];
   const fileEnv = envRoots.reduce<Record<string, string>>((values, root) => ({
     ...values,
@@ -328,6 +331,9 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         const selectedConfig: AgentConfig = localProvider
           ? { provider: cliProvider, model: msg.model }
           : { ...agentConfig!, provider: (msg.provider || agentConfig!.provider) as AgentConfig["provider"], model: msg.model };
+        lastEditRequest = msg;
+        lastEditConfig = selectedConfig;
+        reviewRefreshAttempts = 0;
         void proposeChanges(cwd, msg, selectedConfig, controller.signal, (message, detail) => {
           if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
             socket.send(JSON.stringify({ type: "agent_status", status: "working", message, detail }));
@@ -459,7 +465,35 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         } catch (error) {
           for (const snapshot of lastSnapshot) fs.writeFileSync(snapshot.filePath, snapshot.content);
           lastSnapshot = [];
-          socket.send(JSON.stringify({ type: "agent_status", status: "error", message: error instanceof Error ? error.message : "The change could not be applied." }));
+          const message = error instanceof Error ? error.message : "The change could not be applied.";
+          const sourceChanged = message.includes("The source changed after the suggestion was generated");
+          if (sourceChanged && lastEditRequest && lastEditConfig && reviewRefreshAttempts < 1) {
+            reviewRefreshAttempts += 1;
+            socket.send(JSON.stringify({ type: "agent_status", status: "working", message: "The source changed. Refreshing the review against the current file…" }));
+            activeAgentController?.abort();
+            const controller = new AbortController();
+            activeAgentController = controller;
+            void proposeChanges(cwd, lastEditRequest, lastEditConfig, controller.signal, (progress, detail) => {
+              if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
+                socket.send(JSON.stringify({ type: "agent_status", status: "working", message: progress, detail }));
+              }
+            })
+              .then((proposal) => {
+                if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
+                  socket.send(JSON.stringify({ type: "agent_status", status: "review", message: `Review refreshed: ${proposal.summary}`, changes: proposal.changes }));
+                }
+              })
+              .catch((refreshError: unknown) => {
+                if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
+                  socket.send(JSON.stringify({ type: "agent_status", status: "error", message: refreshError instanceof Error ? refreshError.message : "The refreshed review could not be prepared." }));
+                }
+              })
+              .finally(() => {
+                if (activeAgentController === controller) activeAgentController = null;
+              });
+          } else {
+            socket.send(JSON.stringify({ type: "agent_status", status: "error", message }));
+          }
         }
       } else if (msg.type === "undo") {
         for (const snapshot of lastSnapshot) fs.writeFileSync(snapshot.filePath, snapshot.content);

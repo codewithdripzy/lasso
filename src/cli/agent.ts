@@ -330,7 +330,7 @@ function localCommand(provider: LocalAgent, model?: string, prompt?: string): { 
 }
 
 async function proposeWithLocalAgent(cwd: string, instruction: string, context: string, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress) {
-  const outputContract = `Return ONLY valid JSON in this exact shape: {"summary":"short explanation","changes":[{"filePath":"relative/path","oldString":"exact existing text","newString":"replacement text"}]}. Every oldString must occur exactly once. Do not edit files, run write commands, commit, or produce markdown fences.`;
+  const outputContract = `Return ONLY valid JSON in this exact shape: {"summary":"short explanation","changes":[{"filePath":"relative/path","oldString":"exact existing text","newString":"replacement text"}]}. Treat the supplied source context as read-only. Before returning, verify every oldString against that context. Use project-relative paths only. Do not edit files, run write commands, commit, or produce markdown fences.`;
   const prompt = `${instruction}\n\n${outputContract}\n\nLasso has already assembled this source context:\n${context || "No matching source context was found."}`;
   const local = localCommand(config.provider as LocalAgent, config.model, prompt);
   const command = local.command;
