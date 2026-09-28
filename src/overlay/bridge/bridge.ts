@@ -73,8 +73,9 @@ export function connectBridge() {
           changes?: PendingChange[];
           taskId?: string;
           prompt?: { message: string; kind: "permission" | "input"; options?: string[] };
-          folders?: string[];
           path?: string;
+          entries?: Array<{ name: string; path: string; type: "directory" | "file" }>;
+          project?: string;
           collab?: { projectId?: string; realtimeUrl?: string; name?: string; version?: string; workspaceId?: string; token?: string; apiKey?: string };
         };
 
@@ -118,11 +119,19 @@ export function connectBridge() {
         }
 
         if (message.type === "page_folders") {
-          window.dispatchEvent(new CustomEvent("lasso-page-folders", { detail: message.folders || [] }));
+          window.dispatchEvent(
+            new CustomEvent("lasso-page-folders", {
+              detail: { path: message.path || ".", entries: message.entries || [], project: message.project, error: message.error },
+            }),
+          );
           return;
         }
         if (message.type === "page_created") {
           window.dispatchEvent(new CustomEvent("lasso-page-created", { detail: { path: message.path || "", error: message.error } }));
+          return;
+        }
+        if (message.type === "page_folder_created") {
+          window.dispatchEvent(new CustomEvent("lasso-page-folder-created", { detail: { path: message.path || "", error: message.error } }));
           return;
         }
 

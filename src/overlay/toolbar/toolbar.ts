@@ -10,6 +10,7 @@ import { toggleTodoPanel } from "../todo/todo";
 import { toggleNotepadPanel } from "../notepad/notepad";
 import { toggleClipboardPanel } from "../clipboard/clipboard";
 import { toggleTaskPanel } from "../tasks/tasks";
+import { togglePagePanel } from "../pages/pages";
 
 // SVG comment-pin cursor — a crosshair with a speech bubble tip
 const COMMENT_CURSOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="32" viewBox="0 0 28 32"><defs><filter id="s" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="rgba(0,0,0,0.5)"/></filter></defs><g filter="url(#s)"><path d="M4 2h16a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H10l-6 6V5a3 3 0 0 1 3-3z" fill="#7C3AED"/><path d="M4 2h16a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H10l-6 6V5a3 3 0 0 1 3-3z" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="0.8"/><line x1="12" y1="7" x2="12" y2="15" stroke="white" stroke-width="1.8" stroke-linecap="round"/><line x1="8" y1="11" x2="16" y2="11" stroke="white" stroke-width="1.8" stroke-linecap="round"/></g></svg>`;
@@ -197,25 +198,16 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
   miniToolbar.className = "lasso-toolbar-mini";
   miniToolbar.innerHTML = `
     <button class="lasso-new-page-btn" type="button" aria-label="Create a new page" title="New page">
-      <span aria-hidden="true">+</span>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <path d="M14 2v6h6"/>
+        <path d="M12 12v6M9 15h6"/>
+      </svg>
       <span>New Page</span>
     </button>
   `;
-  const pagePanel = document.createElement("div");
-  pagePanel.className = "lasso-new-page-panel";
-  pagePanel.hidden = true;
-  pagePanel.innerHTML = `
-    <div class="lasso-new-page-header"><strong>New page</strong><button type="button" class="lasso-new-page-close" aria-label="Close">×</button></div>
-    <label>File name<input class="lasso-new-page-name" value="page.tsx" /></label>
-    <label>Folder<div class="lasso-page-folder-list"><span>Loading folders…</span></div></label>
-    <label>Starter content<textarea class="lasso-new-page-content" rows="5">export default function Page() {
-  return <main />;
-}</textarea></label>
-    <div class="lasso-new-page-status" aria-live="polite"></div>
-    <button type="button" class="lasso-new-page-create">Create page</button>
-  `;
 
-  dom.shadow.append(toolbar, miniToolbar, pagePanel, toolbarReopen, voiceBar);
+  dom.shadow.append(toolbar, miniToolbar, toolbarReopen, voiceBar);
 
   const tooltip = document.createElement("div");
   tooltip.className = "lasso-toolbar-tooltip";
@@ -269,57 +261,11 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
   const voiceBtn = toolbar.querySelector<HTMLButtonElement>(".voice-tool")!;
   const dismissBtn = toolbar.querySelector<HTMLButtonElement>(".lasso-toolbar-dismiss")!;
   const newPageBtn = miniToolbar.querySelector<HTMLButtonElement>(".lasso-new-page-btn")!;
-  const folderList = pagePanel.querySelector<HTMLDivElement>(".lasso-page-folder-list")!;
-  const pageStatus = pagePanel.querySelector<HTMLDivElement>(".lasso-new-page-status")!;
-  let selectedFolder = ".";
-
-  const requestFolders = () => {
-    if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
-      folderList.innerHTML = "<span>Loading folders…</span>";
-      state.bridgeSocket.send(JSON.stringify({ type: "list_page_folders" }));
-    } else {
-      folderList.innerHTML = "<span>Bridge is not connected.</span>";
-    }
-  };
-  window.addEventListener("lasso-page-folders", (event) => {
-    const folders = (event as CustomEvent<string[]>).detail || [];
-    folderList.replaceChildren();
-    for (const folder of folders) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = folder === "." ? "Project root" : folder;
-      button.className = folder === selectedFolder ? "selected" : "";
-      button.addEventListener("click", () => {
-        selectedFolder = folder;
-        folderList.querySelectorAll("button").forEach((item) => item.classList.toggle("selected", item === button));
-      });
-      folderList.appendChild(button);
-    }
-    folderList.querySelector<HTMLButtonElement>("button")?.click();
-  });
-  window.addEventListener("lasso-page-created", (event) => {
-    const result = (event as CustomEvent<{ path: string; error?: string }>).detail;
-    pageStatus.textContent = result.error || `Created ${result.path}`;
-    pageStatus.classList.toggle("error", Boolean(result.error));
-    if (!result.error) pagePanel.hidden = true;
-  });
 
   newPageBtn.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    pagePanel.hidden = false;
-    pageStatus.textContent = "";
-    pageStatus.classList.remove("error");
-    requestFolders();
-  });
-  pagePanel.querySelector<HTMLButtonElement>(".lasso-new-page-close")!.addEventListener("click", () => { pagePanel.hidden = true; });
-  pagePanel.querySelector<HTMLButtonElement>(".lasso-new-page-create")!.addEventListener("click", () => {
-    const fileName = pagePanel.querySelector<HTMLInputElement>(".lasso-new-page-name")!.value.trim();
-    const content = pagePanel.querySelector<HTMLTextAreaElement>(".lasso-new-page-content")!.value;
-    if (!fileName) { pageStatus.textContent = "Enter a file name."; pageStatus.classList.add("error"); return; }
-    if (state.bridgeSocket?.readyState !== WebSocket.OPEN) { pageStatus.textContent = "Bridge is not connected."; pageStatus.classList.add("error"); return; }
-    pageStatus.textContent = "Creating…";
-    state.bridgeSocket.send(JSON.stringify({ type: "create_page", folder: selectedFolder, fileName, content }));
+    togglePagePanel();
   });
 
   selectBtn.addEventListener("click", (e) => {

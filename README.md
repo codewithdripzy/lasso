@@ -90,10 +90,13 @@ Turn on Lasso Mode and interact with your application normally.
 ### Overlay toolbars
 
 The overlay includes a primary editing toolbar and a compact secondary toolbar.
-The secondary toolbar's **New Page** action opens a manual page-creation form where
-you can choose a project folder, enter a filename, edit starter content, and create
-the file explicitly. Lasso never chooses a source folder or overwrites an existing
-file without confirmation.
+The secondary toolbar's **New Page** action opens a project explorer. You type a page
+name and pick the folder it should live in — the tree loads lazily as you expand
+it, a filter box narrows deep trees, and the `+` button next to **Folder** creates
+a new nested folder inline. Clicking a file in the tree reuses its name so you only
+type the part that is missing. Starter content is generated from the extension, and
+Lasso never chooses a source folder for you or overwrites an existing file without
+confirmation.
 
 ### Source-aware editing
 
@@ -360,9 +363,10 @@ That's it.
 
 ### Create a page manually
 
-Use **New Page** in the secondary toolbar to open the page form. Select the target
-folder in the project explorer, choose a filename, edit the starter content if
-needed, and select **Create page**. The bridge validates that the folder stays
+Use **New Page** in the secondary toolbar to open the project explorer. Type a page
+name, expand the tree to pick the target folder, and select **Create page**. Use the
+`+` button beside **Folder** to create a nested folder without leaving the dialog,
+or the filter box to narrow a large tree. The bridge validates that the folder stays
 inside the project and refuses to overwrite an existing file.
 
 ---
@@ -491,8 +495,8 @@ The CLI:
 8. Shows you the diff
 9. Writes only after you accept
 
-The separate New Page workflow is also explicit: it writes only after you select
-a folder, confirm the filename/content form, and choose **Create page**.
+The separate New Page workflow is also explicit: it writes only after you pick
+a folder in the project explorer, type a name, and choose **Create page**.
 
 The goal is simple:
 

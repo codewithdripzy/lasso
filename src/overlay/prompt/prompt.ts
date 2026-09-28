@@ -181,32 +181,61 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
   promptEl = el;
 
   const agentPrompt = document.createElement("div");
-  agentPrompt.className = "lasso-agent-prompt";
+  agentPrompt.className = "lasso-agent-prompt-backdrop";
   agentPrompt.hidden = true;
   agentPrompt.innerHTML = `
-    <div class="lasso-agent-prompt-title">Agent needs your input</div>
-    <div class="lasso-agent-prompt-message"></div>
-    <input class="lasso-agent-prompt-input" type="text" placeholder="Type a response…" />
-    <div class="lasso-agent-prompt-actions">
-      <button type="button" data-agent-response="Allow">Allow</button>
-      <button type="button" data-agent-response="Deny">Deny</button>
-      <button type="button" data-agent-response="input">Send</button>
+    <div class="lasso-agent-prompt" role="dialog" aria-modal="true" aria-labelledby="lasso-agent-prompt-title">
+      <div class="lasso-agent-prompt-head">
+        <span class="lasso-agent-prompt-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3l7.5 3.2v5.1c0 4.4-3 8.4-7.5 9.7-4.5-1.3-7.5-5.3-7.5-9.7V6.2z"/>
+            <path d="M9.4 12.1l1.9 1.9 3.4-3.7"/>
+          </svg>
+        </span>
+        <div class="lasso-agent-prompt-headings">
+          <div class="lasso-agent-prompt-title" id="lasso-agent-prompt-title">Agent needs your input</div>
+          <div class="lasso-agent-prompt-subtitle"></div>
+        </div>
+        <button class="lasso-agent-prompt-close" type="button" aria-label="Deny and continue">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="lasso-agent-prompt-message" tabindex="0"></div>
+      <input class="lasso-agent-prompt-input" type="text" placeholder="Type a response…" hidden />
+      <div class="lasso-agent-prompt-actions"></div>
     </div>
   `;
   dom.shadow.appendChild(agentPrompt);
   agentPromptPanel = agentPrompt;
-  agentPrompt.querySelectorAll<HTMLButtonElement>("[data-agent-response]").forEach((button) => {
-    button.addEventListener("click", () => {
-      if (!agentPromptTaskId || state.bridgeSocket?.readyState !== WebSocket.OPEN) return;
-      const response = button.dataset.agentResponse === "input"
-        ? agentPrompt.querySelector<HTMLInputElement>(".lasso-agent-prompt-input")?.value.trim() || ""
-        : button.dataset.agentResponse || "";
-      if (!response) return;
-      state.bridgeSocket.send(JSON.stringify({ type: "agent_prompt_response", taskId: agentPromptTaskId, response }));
-      agentPromptTaskId = null;
-      agentPrompt.hidden = true;
-    });
+  agentPrompt.addEventListener("pointerdown", (event) => {
+    if (event.target === agentPrompt) respondToAgentPrompt("Deny");
   });
+  agentPrompt.addEventListener("keydown", (event) => {
+    const key = (event as KeyboardEvent).key;
+    if (key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      respondToAgentPrompt("Deny");
+    }
+  });
+  agentPrompt
+    .querySelector<HTMLButtonElement>(".lasso-agent-prompt-close")!
+    .addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      respondToAgentPrompt("Deny");
+    });
+  agentPrompt
+    .querySelector<HTMLInputElement>(".lasso-agent-prompt-input")!
+    .addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      event.stopPropagation();
+      const value = agentPrompt.querySelector<HTMLInputElement>(".lasso-agent-prompt-input")?.value.trim();
+      if (value) respondToAgentPrompt(value);
+    });
 
   promptInput = el.querySelector<HTMLTextAreaElement>(".lasso-prompt-input")!;
   promptElement = el.querySelector<HTMLSpanElement>(".lasso-prompt-element-name")!;
@@ -442,17 +471,70 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
 export function showAgentPrompt(taskId: string, prompt: { message: string; kind: "permission" | "input"; options?: string[] }): void {
   if (!agentPromptPanel) return;
   agentPromptTaskId = taskId;
+  const isPermission = prompt.kind === "permission";
   const message = agentPromptPanel.querySelector<HTMLDivElement>(".lasso-agent-prompt-message");
+  const subtitle = agentPromptPanel.querySelector<HTMLDivElement>(".lasso-agent-prompt-subtitle");
   const input = agentPromptPanel.querySelector<HTMLInputElement>(".lasso-agent-prompt-input");
-  if (message) message.textContent = prompt.message;
+  const actions = agentPromptPanel.querySelector<HTMLDivElement>(".lasso-agent-prompt-actions");
+
+  agentPromptPanel.dataset.kind = prompt.kind;
+  if (message) {
+    message.textContent = prompt.message.trim() || "The agent is waiting for a response before it can continue.";
+  }
+  if (subtitle) {
+    subtitle.textContent = isPermission
+      ? "Lasso is paused until you choose an option."
+      : "Type your answer and press Enter.";
+  }
   if (input) {
     input.value = "";
-    input.hidden = prompt.kind === "permission";
+    input.hidden = isPermission;
   }
-  agentPromptPanel.querySelector<HTMLButtonElement>('[data-agent-response="Allow"]')!.hidden = prompt.kind !== "permission";
-  agentPromptPanel.querySelector<HTMLButtonElement>('[data-agent-response="Deny"]')!.hidden = prompt.kind !== "permission";
+
+  if (actions) {
+    const options = isPermission
+      ? prompt.options?.length
+        ? prompt.options
+        : ["Allow", "Deny"]
+      : ["Send"];
+    actions.replaceChildren(
+      ...options.map((option) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.agentResponse = option;
+        button.textContent = option;
+        button.className = isDenyOption(option) ? "" : "primary";
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const typed = isPermission ? option : input?.value.trim() || "";
+          if (typed) respondToAgentPrompt(typed);
+        });
+        return button;
+      })
+    );
+  }
+
   agentPromptPanel.hidden = false;
-  if (prompt.kind === "input") input?.focus();
+  if (!isPermission) input?.focus();
+  else agentPromptPanel.querySelector<HTMLDivElement>(".lasso-agent-prompt-message")?.focus();
+}
+
+function isDenyOption(option: string): boolean {
+  return /^(deny|decline|no|cancel|reject|stop|abort)$/i.test(option.trim());
+}
+
+function respondToAgentPrompt(response: string): void {
+  const taskId = agentPromptTaskId;
+  if (!taskId || !agentPromptPanel) return;
+  agentPromptTaskId = null;
+  agentPromptPanel.hidden = true;
+  if (state.bridgeSocket?.readyState !== WebSocket.OPEN) {
+    appendChat("error", "The Lasso agent bridge disconnected before the response was sent.", taskId);
+    return;
+  }
+  state.bridgeSocket.send(JSON.stringify({ type: "agent_prompt_response", taskId, response }));
+  appendChat("assistant", `Responded to the agent: ${response}`, taskId);
 }
 
 export function refreshModelMenu() {

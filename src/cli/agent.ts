@@ -300,6 +300,77 @@ function snippet(value: unknown, max = 80): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
+const ANSI_PATTERN = /\u001B\[[0-9;?]*[ -/]*[@-~]/g;
+const LOG_FIELD_PATTERN = /([A-Za-z_][\w.-]*)=("(?:[^"\\]|\\.)*"|[^\s]*)/g;
+
+function cleanAgentText(value: string): string {
+  return value.replace(ANSI_PATTERN, "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Local agents (notably OpenCode) print structured logs such as
+ * `timestamp=… level=ERROR run=… message="Failed to fetch models.dev" cause="…"`.
+ * Those lines are machine diagnostics, never user-facing copy, so they are parsed
+ * into their fields instead of being shown verbatim.
+ */
+function parseAgentLogFields(line: string): Record<string, string> | null {
+  if (!/^\s*(?:timestamp|time|ts)=\S/.test(line)) return null;
+  const fields: Record<string, string> = {};
+  for (const match of line.matchAll(LOG_FIELD_PATTERN)) {
+    const key = match[1]!;
+    const raw = match[2] ?? "";
+    fields[key] = raw.startsWith('"')
+      ? raw.slice(1, -1).replace(/\\(["\\])/g, "$1")
+      : raw;
+  }
+  return fields;
+}
+
+// Filesystem failures that a permission request can never resolve.
+const AGENT_FAILURE_MARKERS =
+  /\b(?:EACCES|EPERM|ENOENT|EEXIST|EISDIR|ENOTDIR|ENOSPC|EMFILE|ENOTEMPTY)\b|\bCause\(\[Die\(/i;
+
+const AGENT_FAILURE_HINTS: Array<{ pattern: RegExp; message: string }> = [
+  {
+    pattern: /EACCES: permission denied[\s\S]*(?:locks?|state|storage|\.config|config\/)/i,
+    message:
+      "The local agent cannot write to its own state folder. Fix that folder's ownership (for example `sudo chown -R $(whoami) ~/.local/state/opencode`) and retry.",
+  },
+  {
+    pattern: /EACCES: permission denied/i,
+    message: "The local agent was denied access to a file or folder it needs. Check the permissions on its state directory, then retry.",
+  },
+  {
+    pattern: /failed to fetch models\.dev/i,
+    message: "The local agent could not reach models.dev to refresh its model list. Check the network or proxy it uses, then retry.",
+  },
+];
+
+function agentFailureHint(line: string): string | undefined {
+  return AGENT_FAILURE_HINTS.find((hint) => hint.pattern.test(line))?.message;
+}
+
+const PERMISSION_PROMPT_PATTERN =
+  /permission\s+(?:is\s+)?(?:required|requested|needed|denied)|needs?\s+(?:your\s+)?permission|permission\s+to\s+(?:run|edit|write|read|execute|create|delete|modify|access|apply)|approve\s+(?:this|the|tool|action|command)|authori[sz]e\s+(?:this|the|tool|action|command)|authentication\s+(?:is\s+)?required|(?:please\s+)?log\s?in|sign\s?in\s+(?:required|to\s+continue)|press\s+.{1,24}?to\s+(?:continue|approve|confirm)|waiting for (?:your )?(?:permission|approval|input|response)/i;
+
+/**
+ * Returns human-readable copy for a real approval/authentication request, or
+ * `null` when the line is anything else. A structured error log never becomes a
+ * permission prompt: Allow/Deny cannot fix a filesystem failure, and hiding the
+ * error behind those buttons is what made the prompt unreadable.
+ */
+function permissionPromptMessage(raw: string): string | null {
+  const line = cleanAgentText(raw);
+  if (!line) return null;
+  if (parseAgentLogFields(line) || AGENT_FAILURE_MARKERS.test(line)) return null;
+  if (!PERMISSION_PROMPT_PATTERN.test(line)) return null;
+  const detail = line
+    .replace(/^[A-Za-z0-9_.-]+:\s*/, "")
+    .replace(/^["'\s]+|["'\s]+$/g, "")
+    .trim();
+  return snippet(detail || line, 240);
+}
+
 function progressEvent(message: string, detail?: unknown): AgentProgressEvent {
   const value = detail == null ? "" : String(detail).trim();
   return value ? { message, detail: value } : { message };
@@ -419,6 +490,8 @@ function progressEventsFromRaw(raw: string, provider: LocalAgent): AgentProgress
 
 function localAgentError(command: string, stderr: string, exitCode: number): string {
   const output = stderr.trim();
+  const hint = agentFailureHint(output);
+  if (hint) return `${command === "opencode" ? "OpenCode" : command} could not finish: ${hint}`;
   if (command === "opencode" && /waiting for permission or authentication/i.test(output)) {
     return "OpenCode needs permission or authentication. Run OpenCode once in a terminal, approve the requested access or sign in, then retry in Lasso.";
   }
@@ -503,10 +576,12 @@ function runLocalCommand(
         for (const progress of progressEventsFromRaw(line, provider)) {
           onProgress?.(progress.message, progress.detail);
         }
-        if (/permission\s+(required|denied)|approve\s+(this|the|tool)|authentication\s+required|login\s+required|press\s+.+to\s+continue/i.test(line)) {
-          sendPrompt(line.replace(/\s+/g, " ").trim());
-        }
-        if (stream === "stderr" && line.trim()) {
+        const promptMessage = permissionPromptMessage(line);
+        if (promptMessage) {
+          sendPrompt(promptMessage);
+        } else if (stream === "stderr" && line.trim()) {
+          const hint = agentFailureHint(line);
+          if (hint) onProgress?.(`${label} · ${hint}`);
           if (provider === "opencode" && /quota exceeded|authentication failed|invalid api key|unauthorized|forbidden/i.test(line)) {
             onProgress?.("OpenCode · provider rejected the request; stopping this task…");
             child.kill("SIGTERM");
@@ -552,6 +627,8 @@ function runLocalCommand(
         for (const progress of progressEventsFromRaw(stderrTail, provider)) {
           onProgress?.(progress.message, progress.detail);
         }
+        const hint = agentFailureHint(stderrTail);
+        if (hint) onProgress?.(`${label} · ${hint}`);
         if (provider === "opencode" && /quota exceeded|authentication failed|invalid api key|unauthorized|forbidden/i.test(stderrTail)) {
           onProgress?.("OpenCode · provider rejected the request; stopping this task…");
         }

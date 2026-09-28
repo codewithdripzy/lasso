@@ -23,8 +23,9 @@ export type BridgeMessage =
   | { type: "undo"; taskId?: string }
   | { type: "stop"; taskId?: string }
   | { type: "agent_prompt_response"; taskId: string; response: string }
-  | { type: "list_page_folders" }
+  | { type: "list_page_folders"; path?: string }
   | { type: "create_page"; folder: string; fileName: string; content: string }
+  | { type: "create_page_folder"; parent: string; name: string }
   | { type: "git_status" }
   | { type: "git_generate_message"; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "cli" }
   | { type: "git_init" }
@@ -34,6 +35,7 @@ export type BridgeMessage =
   | { type: "transcribe"; requestId: string; audio: string; mimeType?: string; language?: string };
 
 type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" | "cli" };
+type PageEntry = { name: string; path: string; type: "directory" | "file" };
 
 export type ServerBridgeMessage =
   | { type: "config"; apiKeyConfigured: boolean; agentConfigured: boolean; models: ModelOption[]; collab?: CollabConfig | null }
@@ -43,8 +45,9 @@ export type ServerBridgeMessage =
   | { type: "git_commit_message"; message?: string; error?: string }
   | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string; detail?: string; changes?: SourceChange[] }
   | { type: "agent_prompt"; taskId: string; prompt: AgentPrompt }
-  | { type: "page_folders"; folders: string[] }
+  | { type: "page_folders"; path: string; entries: PageEntry[]; project?: string; error?: string }
   | { type: "page_created"; path: string; error?: string }
+  | { type: "page_folder_created"; path: string; error?: string }
   | { type: "assistant_message"; taskId?: string; message: string }
   | { type: "applied"; taskId?: string; message: string }
   | { type: "undone"; taskId?: string; message: string }
@@ -213,19 +216,34 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
   const taskControllers = new Map<string, AbortController>();
   let localAgents = new Set<LocalAgent>();
 
-  const pageFolders = (directory: string, relative = "", depth = 0): string[] => {
-    if (depth > 5) return [];
-    const folders = [relative || "."];
+  const pageIgnoredDirs = new Set(["node_modules", ".git", ".next", "dist", "build", ".turbo", "out", "coverage", ".vercel", ".cache"]);
+
+  const resolveInsideProject = (root: string, relative: string): string | null => {
+    const target = path.resolve(root, relative && relative !== "." ? relative : "");
+    return target === root || target.startsWith(`${root}${path.sep}`) ? target : null;
+  };
+
+  // Directories are returned first so the overlay can render an explorer-style
+  // tree that mirrors how VS Code orders folders above files.
+  const pageEntries = (root: string, relative: string): PageEntry[] => {
+    const directory = resolveInsideProject(root, relative);
+    if (!directory) return [];
+    let entries: PageEntry[] = [];
     try {
       for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-        if (!entry.isDirectory() || ["node_modules", ".git", ".next", "dist", "build", ".turbo"].includes(entry.name) || entry.name.startsWith(".")) continue;
-        const nextRelative = relative ? path.join(relative, entry.name) : entry.name;
-        folders.push(...pageFolders(path.join(directory, entry.name), nextRelative, depth + 1));
+        if (entry.name.startsWith(".") || (entry.isDirectory() && pageIgnoredDirs.has(entry.name))) continue;
+        entries.push({
+          name: entry.name,
+          path: relative && relative !== "." ? path.join(relative, entry.name) : entry.name,
+          type: entry.isDirectory() ? "directory" : "file",
+        });
       }
     } catch {
-      // Ignore folders that cannot be read.
+      // Folders that cannot be read are treated as empty.
     }
-    return folders;
+    return entries.sort((a, b) =>
+      a.type === b.type ? a.name.localeCompare(b.name) : a.type === "directory" ? -1 : 1
+    );
   };
 
   bridgeServer.on("request", (req, res) => {
@@ -366,19 +384,59 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         console.log("[lasso] received from overlay:", msg);
       }
       if (msg.type === "list_page_folders") {
-        socket.send(JSON.stringify({ type: "page_folders", folders: pageFolders(cwd).sort() }));
+        const requested = msg.path || ".";
+        const root = path.resolve(cwd);
+        const directory = resolveInsideProject(root, requested);
+        if (!directory) {
+          socket.send(JSON.stringify({ type: "page_folders", path: requested, entries: [], error: "That folder is outside the current project." }));
+          return;
+        }
+        socket.send(JSON.stringify({ type: "page_folders", path: requested, entries: pageEntries(root, requested), project: path.basename(root) }));
+        return;
+      }
+      if (msg.type === "create_page_folder") {
+        const root = path.resolve(cwd);
+        const name = path.basename(msg.name || "");
+        const parent = resolveInsideProject(root, msg.parent || ".");
+        if (!parent || !name || name !== msg.name || name === "." || name === "..") {
+          socket.send(JSON.stringify({ type: "page_folder_created", path: msg.name || "", error: "Enter a folder name without slashes or dots." }));
+          return;
+        }
+        const target = path.resolve(parent, name);
+        if (!target.startsWith(`${root}${path.sep}`)) {
+          socket.send(JSON.stringify({ type: "page_folder_created", path: name, error: "Choose a folder inside the current project." }));
+          return;
+        }
+        try {
+          fs.mkdirSync(target);
+          socket.send(JSON.stringify({ type: "page_folder_created", path: path.relative(root, target) }));
+        } catch (error) {
+          socket.send(JSON.stringify({
+            type: "page_folder_created",
+            path: path.relative(root, target),
+            error: error instanceof Error && error.message.includes("EEXIST") ? "A folder with that name already exists." : "The folder could not be created.",
+          }));
+        }
         return;
       }
       if (msg.type === "create_page") {
         const root = path.resolve(cwd);
-        const folder = msg.folder === "." ? root : path.resolve(root, msg.folder);
-        const fileName = path.basename(msg.fileName);
-        const target = path.resolve(folder, fileName);
-        if (!target.startsWith(`${root}${path.sep}`) || target === root || !fileName || fileName !== msg.fileName || !fs.existsSync(folder)) {
+        const folder = resolveInsideProject(root, msg.folder || ".");
+        // A page name may contain "/" so the overlay can create nested routes in
+        // one step, but every segment is validated and resolved inside the project.
+        const segments = (msg.fileName || "").split("/").map((segment) => segment.trim()).filter(Boolean);
+        const fileName = segments.pop() || "";
+        if (!folder || !fileName || segments.some((segment) => segment === "." || segment === "..") || fileName === "." || fileName === "..") {
+          socket.send(JSON.stringify({ type: "page_created", path: msg.fileName || "", error: "Choose a valid project folder and file name." }));
+          return;
+        }
+        const target = path.resolve(folder, ...segments, fileName);
+        if (!target.startsWith(`${root}${path.sep}`)) {
           socket.send(JSON.stringify({ type: "page_created", path: msg.fileName, error: "Choose a valid project folder and file name." }));
           return;
         }
         try {
+          fs.mkdirSync(path.dirname(target), { recursive: true });
           fs.writeFileSync(target, msg.content.slice(0, 200000), { encoding: "utf8", flag: "wx" });
           socket.send(JSON.stringify({ type: "page_created", path: path.relative(root, target) }));
         } catch (error) {

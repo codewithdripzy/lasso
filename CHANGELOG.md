@@ -20,6 +20,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   overlay prompt with Allow, Deny, or custom text.
 - **Secondary overlay toolbar**: added a New Page workflow with a project-folder
   explorer, filename/content form, path validation, and explicit file creation.
+- **Redesigned New Page dialog**: replaced the flat folder dropdown with a
+  VS Code-style lazy tree of the project. You type only a page name and pick a
+  folder; nested folders are created inline with a `+` button, folders load on
+  demand, a filter box narrows deep trees, and clicking a file reuses its name.
+  Selecting a folder no longer collapses it, and the starter file is generated
+  from the extension (`.tsx`, `.ts`, `.css`, `.json`, `.md`).
+- **Readable agent permission prompts**: the prompt no longer dumps raw local-agent
+  log lines. Filesystem failures such as `EACCES: permission denied` and
+  `Cause([Die([…])])` now surface as errors with a suggested fix, because
+  Allow/Deny can never resolve them. Only genuine approval and sign-in requests
+  open the Allow/Deny prompt.
+- **Clickable agent prompt**: the prompt panel opts back into pointer events, so
+  Allow, Deny, and custom options respond to clicks again; Enter submits typed
+  input and Escape sends Deny, matching the close button.
 - **Custom toolbar tooltips**: toolbar labels now use an accessible Lasso-styled
   tooltip on hover and keyboard focus instead of browser-native title popovers.
 - **Filtered agent progress**: useful tool/progress events remain visible while

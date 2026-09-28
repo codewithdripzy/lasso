@@ -17,6 +17,7 @@ import { buildTodoPanel } from "./todo/todo";
 import { buildNotepadPanel } from "./notepad/notepad";
 import { buildClipboardPanel } from "./clipboard/clipboard";
 import { buildTaskPanel } from "./tasks/tasks";
+import { buildPagePanel, isPagePanelOpen, closePagePanel } from "./pages/pages";
 import { buildDrag, resetDrag, setDragMode } from "./drag/drag";
 import {
   buildPrompt,
@@ -51,6 +52,7 @@ export function init() {
   buildNotepadPanel();
   buildClipboardPanel();
   buildTaskPanel();
+  buildPagePanel();
   buildPrompt();
   buildDrag();
 
@@ -146,6 +148,11 @@ export function init() {
 
     if (isPinThreadOpen()) {
       closePinThread();
+      return;
+    }
+
+    if (isPagePanelOpen()) {
+      closePagePanel();
       return;
     }
 

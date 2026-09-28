@@ -68,10 +68,10 @@ Three parties, all coordinating around one shared filesystem:
 ```
 
 Everything except the coding agent call runs locally. Edit proposals are never written to
-disk without an explicit accept from the user. The manual New Page workflow is a separate
-explicit write path: it creates only the filename/content the user confirms. The agent is
-the only party that ever leaves the machine, and only with the exact context the CLI
-assembled for it.
+disk without an explicit accept from the user. The New Page workflow is a separate explicit
+write path: it creates only the file at the folder the user selected in the project
+explorer. The agent is the only party that ever leaves the machine, and only with the
+exact context the CLI assembled for it.
 
 ## 4. Browser layer (capture only)
 
@@ -91,10 +91,13 @@ Responsibilities, and _only_ these:
   actions; acceptance is the transition that completes an edit task.
 - Keep a stable component conversation identity so repeated prompts reuse conversation
   and change history across DOM replacement during HMR.
-- Render the secondary toolbar, custom tooltips, and the manual New Page form with a
-  project-folder explorer.
+- Render the secondary toolbar, custom tooltips, and the New Page dialog with a lazy
+  project-folder tree. The tree is populated per-directory on expand; the CLI never
+  sends the whole project at once. Selecting a folder sets the write target, and a
+  new nested folder is created inline through its own bridge message.
 - Render task-scoped permission/input prompts and send explicit responses back over
-  the bridge.
+  the bridge. The prompt must re-enable pointer events on its panel, because the
+  overlay host disables them to keep the toolbar click-through.
 - **Never mutate the DOM.** All visual changes the user sees post-edit come from the
   framework's own HMR reload, not from this layer.
 
@@ -121,10 +124,17 @@ A Node process that wraps the user's existing dev server. Entry: `src/cli/index.
    on receipt.
 6. On accept: snapshot the file's prior content (for undo), then apply the diff.
 7. On undo: restore the snapshot, full stop — no re-generation needed, so retries are free.
-8. For New Page: list project-relative folders, validate the requested target against
-   the project root, and create the file only after the user confirms the form.
+8. For New Page: answer `list_page_folders` one directory at a time so the overlay can
+   build its tree lazily, skipping dot-entries and build/vendor directories. Every
+   request resolves against the project root, so `..` and absolute paths are refused.
+   Create a file only after the user confirms, and refuse to overwrite. Nested folder
+   creation arrives separately as `create_page_folder` and never accepts a slash or a
+   dotted name.
 9. For local agents: keep child-process stdin attached to its task and forward explicit
-   overlay responses when the agent requests permission or input.
+   overlay responses when the agent requests permission or input. Classify stderr
+   before prompting: a filesystem or transport failure is reported as an error with a
+   suggested fix, because Allow/Deny cannot resolve it. Only a genuine approval or
+   sign-in request becomes a prompt, and the text is cleaned of log prefixes first.
 
 ### 5.2 Source resolution strategies
 
