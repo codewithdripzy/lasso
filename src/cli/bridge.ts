@@ -343,9 +343,9 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       if (socket.readyState === socket.OPEN) {
         socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "working", message: statusMessage || "Working…" }));
       }
-      void proposeChanges(cwd, request, config, controller.signal, (message, detail) => {
+      void proposeChanges(cwd, request, config, controller.signal, (message, detail, level) => {
         if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
-          socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "working", message, detail }));
+          socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: level === "error" ? "error" : "working", message, detail }));
         }
       }, (prompt) => {
         if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
@@ -367,9 +367,12 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
           socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "review", message: proposal.summary, changes: proposal.changes }));
         })
         .catch((error: unknown) => {
-          if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
-            socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "error", message: error instanceof Error ? error.message : "The agent could not prepare a change." }));
+          if (socket.readyState !== socket.OPEN) return;
+          if (controller.signal.aborted) {
+            socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "stopped", message: "Agent stopped." }));
+            return;
           }
+          socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "error", message: error instanceof Error ? error.message : "The agent could not prepare a change." }));
         })
         .finally(() => {
           if (taskControllers.get(request.taskId) === controller) taskControllers.delete(request.taskId);
@@ -462,8 +465,8 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
           ? { provider: cliProvider, model: msg.model }
           : { ...agentConfig!, provider: (msg.provider || agentConfig!.provider) as AgentConfig["provider"], model: msg.model };
         socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "working", message: "Working…" }));
-        void answerQuestion(cwd, { taskId: msg.taskId, question: msg.question, context: msg.context, element: msg.element, messages: msg.messages }, selectedConfig, controller.signal, (message, detail) => {
-          if (!controller.signal.aborted && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "working", message, detail }));
+        void answerQuestion(cwd, { taskId: msg.taskId, question: msg.question, context: msg.context, element: msg.element, messages: msg.messages }, selectedConfig, controller.signal, (message, detail, level) => {
+          if (!controller.signal.aborted && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: level === "error" ? "error" : "working", message, detail }));
         }, (prompt) => {
           if (!controller.signal.aborted && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "agent_prompt", taskId: msg.taskId, prompt }));
         }).then((answer) => {

@@ -29,7 +29,8 @@ export type AgentConfig = {
 };
 
 export type LocalAgent = "claude-code" | "codex" | "opencode";
-export type AgentProgress = (message: string, detail?: string) => void;
+export type AgentProgressLevel = "working" | "error";
+export type AgentProgress = (message: string, detail?: string, level?: AgentProgressLevel) => void;
 export type AgentPrompt = { message: string; kind: "permission" | "input"; options?: string[] };
 export type AgentPromptHandler = (prompt: AgentPrompt) => void;
 type AgentProgressEvent = { message: string; detail?: string };
@@ -581,9 +582,9 @@ function runLocalCommand(
           sendPrompt(promptMessage);
         } else if (stream === "stderr" && line.trim()) {
           const hint = agentFailureHint(line);
-          if (hint) onProgress?.(`${label} · ${hint}`);
+          if (hint) onProgress?.(`${label} · ${hint}`, undefined, "error");
           if (provider === "opencode" && /quota exceeded|authentication failed|invalid api key|unauthorized|forbidden/i.test(line)) {
-            onProgress?.("OpenCode · provider rejected the request; stopping this task…");
+            onProgress?.("OpenCode · provider rejected the request; stopping this task…", undefined, "error");
             child.kill("SIGTERM");
           }
         }
@@ -628,9 +629,9 @@ function runLocalCommand(
           onProgress?.(progress.message, progress.detail);
         }
         const hint = agentFailureHint(stderrTail);
-        if (hint) onProgress?.(`${label} · ${hint}`);
+        if (hint) onProgress?.(`${label} · ${hint}`, undefined, "error");
         if (provider === "opencode" && /quota exceeded|authentication failed|invalid api key|unauthorized|forbidden/i.test(stderrTail)) {
-          onProgress?.("OpenCode · provider rejected the request; stopping this task…");
+          onProgress?.("OpenCode · provider rejected the request; stopping this task…", undefined, "error");
         }
       }
       resolve({ stdout, stderr, exitCode: code ?? 1 });
