@@ -10,6 +10,7 @@ import {
   resetAgentState,
   refreshModelMenu,
   syncModelMenu,
+  showAgentPrompt,
 } from "../prompt/prompt";
 import { setDragCardStatus, resetDrag } from "../drag/drag";
 import { elementKey } from "../toolbar/select";
@@ -71,6 +72,9 @@ export function connectBridge() {
           detail?: string;
           changes?: PendingChange[];
           taskId?: string;
+          prompt?: { message: string; kind: "permission" | "input"; options?: string[] };
+          folders?: string[];
+          path?: string;
           collab?: { projectId?: string; realtimeUrl?: string; name?: string; version?: string; workspaceId?: string; token?: string; apiKey?: string };
         };
 
@@ -106,6 +110,20 @@ export function connectBridge() {
 
         if (message.type === "git_progress" && message.message) {
           setGitMessage(message.message);
+        }
+
+        if (message.type === "agent_prompt" && message.taskId && message.prompt) {
+          showAgentPrompt(message.taskId, message.prompt);
+          return;
+        }
+
+        if (message.type === "page_folders") {
+          window.dispatchEvent(new CustomEvent("lasso-page-folders", { detail: message.folders || [] }));
+          return;
+        }
+        if (message.type === "page_created") {
+          window.dispatchEvent(new CustomEvent("lasso-page-created", { detail: { path: message.path || "", error: message.error } }));
+          return;
         }
 
         if (message.type === "agent_status" && message.status && message.message) {

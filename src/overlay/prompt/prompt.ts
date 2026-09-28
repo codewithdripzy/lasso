@@ -8,6 +8,7 @@ import { state, rememberModel } from "../state";
 import {
   appendTaskMessage,
   createAgentTask,
+  getComponentConversation,
   findReusableAgentTask,
   getAgentTask,
   onAgentTaskReviewRequested,
@@ -40,6 +41,8 @@ let agentLogToggle: HTMLButtonElement | null = null;
 let agentLogLines: string[] = [];
 let agentLogExpanded = false;
 let reviewPanel: HTMLDivElement | null = null;
+let agentPromptPanel: HTMLDivElement | null = null;
+let agentPromptTaskId: string | null = null;
 
 let modelBtn: HTMLButtonElement | null = null;
 let modelName: HTMLSpanElement | null = null;
@@ -68,6 +71,19 @@ function providerIcon(provider: ModelOption["provider"], active = false): string
   }
   const icon = providerIcons[provider];
   return `<span class="${active ? "lasso-model-active-icon" : "lasso-model-item-icon"} provider-${provider}" aria-hidden="true"><svg viewBox="0 0 ${icon.width} ${icon.height}" xmlns="http://www.w3.org/2000/svg" focusable="false">${icon.body}</svg></span>`;
+}
+
+function componentConversationId(element: Element): string {
+  const source = element.getAttribute("data-source") || element.getAttribute("data-lasso-source") || getSourceHint(element);
+  return `component:${source || elementKey(element)}`;
+}
+
+function loadComponentConversation(element: Element): void {
+  const selectionId = componentConversationId(element);
+  const conversation = getComponentConversation(selectionId);
+  state.selectionId = selectionId;
+  state.chatHistory = conversation.messages;
+  state.changesHistory = conversation.changesHistory;
 }
 
 export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement } {
@@ -163,6 +179,34 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
 
   dom.shadow.appendChild(el);
   promptEl = el;
+
+  const agentPrompt = document.createElement("div");
+  agentPrompt.className = "lasso-agent-prompt";
+  agentPrompt.hidden = true;
+  agentPrompt.innerHTML = `
+    <div class="lasso-agent-prompt-title">Agent needs your input</div>
+    <div class="lasso-agent-prompt-message"></div>
+    <input class="lasso-agent-prompt-input" type="text" placeholder="Type a response…" />
+    <div class="lasso-agent-prompt-actions">
+      <button type="button" data-agent-response="Allow">Allow</button>
+      <button type="button" data-agent-response="Deny">Deny</button>
+      <button type="button" data-agent-response="input">Send</button>
+    </div>
+  `;
+  dom.shadow.appendChild(agentPrompt);
+  agentPromptPanel = agentPrompt;
+  agentPrompt.querySelectorAll<HTMLButtonElement>("[data-agent-response]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!agentPromptTaskId || state.bridgeSocket?.readyState !== WebSocket.OPEN) return;
+      const response = button.dataset.agentResponse === "input"
+        ? agentPrompt.querySelector<HTMLInputElement>(".lasso-agent-prompt-input")?.value.trim() || ""
+        : button.dataset.agentResponse || "";
+      if (!response) return;
+      state.bridgeSocket.send(JSON.stringify({ type: "agent_prompt_response", taskId: agentPromptTaskId, response }));
+      agentPromptTaskId = null;
+      agentPrompt.hidden = true;
+    });
+  });
 
   promptInput = el.querySelector<HTMLTextAreaElement>(".lasso-prompt-input")!;
   promptElement = el.querySelector<HTMLSpanElement>(".lasso-prompt-element-name")!;
@@ -393,6 +437,22 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
   });
 
   return { prompt: el, review: rev };
+}
+
+export function showAgentPrompt(taskId: string, prompt: { message: string; kind: "permission" | "input"; options?: string[] }): void {
+  if (!agentPromptPanel) return;
+  agentPromptTaskId = taskId;
+  const message = agentPromptPanel.querySelector<HTMLDivElement>(".lasso-agent-prompt-message");
+  const input = agentPromptPanel.querySelector<HTMLInputElement>(".lasso-agent-prompt-input");
+  if (message) message.textContent = prompt.message;
+  if (input) {
+    input.value = "";
+    input.hidden = prompt.kind === "permission";
+  }
+  agentPromptPanel.querySelector<HTMLButtonElement>('[data-agent-response="Allow"]')!.hidden = prompt.kind !== "permission";
+  agentPromptPanel.querySelector<HTMLButtonElement>('[data-agent-response="Deny"]')!.hidden = prompt.kind !== "permission";
+  agentPromptPanel.hidden = false;
+  if (prompt.kind === "input") input?.focus();
 }
 
 export function refreshModelMenu() {
@@ -666,7 +726,7 @@ export function setAgentStatus(
   appendAgentLog(logMessage);
   if (taskId) recordTaskActivity(taskId, logMessage);
   const running = status === "thinking" || status === "working";
-  agentStatusElement.hidden = status === "review";
+  agentStatusElement.hidden = status === "review" || status === "complete";
   agentStatusElement.dataset.status = status;
   agentStatusMessage.textContent = message;
 
@@ -703,18 +763,9 @@ function syncSendButtonState(): void {
 
 export function resetAgentState() {
   state.agentRunning = false;
-  const hasLog = agentLogLines.length > 0;
   if (agentStatusElement) {
-    agentStatusElement.hidden = !hasLog;
-    agentStatusElement.dataset.status = hasLog ? "complete" : "idle";
-  }
-  if (hasLog && agentStatusMessage) agentStatusMessage.textContent = "Agent complete";
-  if (hasLog) {
-    const badgeEl = agentStatusElement?.querySelector<HTMLSpanElement>(".lasso-agent-status-badge");
-    if (badgeEl) {
-      badgeEl.textContent = "done";
-      badgeEl.className = "lasso-agent-status-badge complete";
-    }
+    agentStatusElement.hidden = true;
+    agentStatusElement.dataset.status = "idle";
   }
   if (sendButton) {
     sendButton.classList.remove("loading");
@@ -732,13 +783,17 @@ function hideReview(): void {
   if (reviewPanel) reviewPanel.hidden = true;
 }
 
-function resetPromptSession(): void {
+function resetPromptSession(element: Element | null = state.selected): void {
   state.promptTaskId = null;
-  state.chatHistory = [];
-  state.changesHistory = [];
   state.pendingChanges = [];
   state.lastInstruction = "";
-  state.selectionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  if (element) {
+    loadComponentConversation(element);
+  } else {
+    state.chatHistory = [];
+    state.changesHistory = [];
+    state.selectionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
   state.screenshotPromise = Promise.resolve({});
   hideReview();
   clearAgentLog();
@@ -938,7 +993,7 @@ export async function handleSend(event: MouseEvent) {
   const changesHistory = state.changesHistory.map((entry) => ({ ...entry, changes: entry.changes.map((change) => ({ ...change })) }));
   const task = createAgentTask(instruction, messages, changesHistory, selectedElement, selectionId);
   updateAgentTask(task.id, { status: "thinking", message: "Thinking…", activity: [...task.activity, "Thinking…"] });
-  resetPromptSession();
+  resetPromptSession(selectedElement);
   // resetPromptSession clears the previous conversation so another prompt can
   // start immediately; keep this request attached to the prompt surface.
   state.promptTaskId = task.id;
@@ -1019,7 +1074,7 @@ export async function handleSend(event: MouseEvent) {
 
 export function openPromptForSelected(selected: Element) {
   if (!promptEl || !promptElement) return;
-  resetPromptSession();
+  resetPromptSession(selected);
   promptElement.textContent = getElementLabel(selected);
   positionPrompt(selected);
   promptEl.classList.add("visible");

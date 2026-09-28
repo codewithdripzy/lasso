@@ -87,6 +87,14 @@ Turn on Lasso Mode and interact with your application normally.
 - Hover to see what will be selected
 - Select empty space to insert new UI
 
+### Overlay toolbars
+
+The overlay includes a primary editing toolbar and a compact secondary toolbar.
+The secondary toolbar's **New Page** action opens a manual page-creation form where
+you can choose a project folder, enter a filename, edit starter content, and create
+the file explicitly. Lasso never chooses a source folder or overwrites an existing
+file without confirmation.
+
 ### Source-aware editing
 
 Lasso doesn't stop at the DOM.
@@ -133,6 +141,20 @@ Accept ────────→ Write to source
 
 Accepted changes are written to the filesystem and your framework's normal development workflow takes over.
 
+### Agent tasks and review
+
+Multiple prompts can run concurrently from the **Agent Tasks** panel. Tasks are
+separated into **In progress** and **Completed** tabs. Edit tasks expose a Review
+action when a proposal is ready; accepting the diff applies the changes and moves
+the task to Completed. Conversation and change history are retained for the same
+component during the overlay session, including when the framework replaces its DOM
+node during HMR.
+
+Local CLI agents stream useful tool/progress events while they work. Infrastructure
+noise such as process IDs and heartbeat messages is hidden. If a local agent needs
+permission or input, Lasso presents a task-scoped prompt with Allow, Deny, or a
+custom response field.
+
 ### Bring your own agent
 
 Lasso's editing pipeline is agent-agnostic.
@@ -145,8 +167,8 @@ Use:
 
 Your selection and project context stay inside the Lasso pipeline while the actual coding agent can be swapped independently.
 
-When installed, Lasso automatically detects the `claude` and `codex` commands
-on your PATH and adds **Claude Code · Local** and **Codex · Local** to the
+When installed, Lasso automatically detects the `claude`, `codex`, and
+`opencode` commands on your PATH and adds the available local agents to the
 prompt model menu. Local agents run in read-only/planning mode and return a
 reviewable proposal; Lasso remains the only process that writes accepted
 changes to your source files.
@@ -336,6 +358,13 @@ Undo   → restore the previous snapshot
 
 That's it.
 
+### Create a page manually
+
+Use **New Page** in the secondary toolbar to open the page form. Select the target
+folder in the project explorer, choose a filename, edit the starter content if
+needed, and select **Create page**. The bridge validates that the folder stays
+inside the project and refuses to overwrite an existing file.
+
 ---
 
 ## Agent configuration
@@ -462,6 +491,9 @@ The CLI:
 8. Shows you the diff
 9. Writes only after you accept
 
+The separate New Page workflow is also explicit: it writes only after you select
+a folder, confirm the filename/content form, and choose **Create page**.
+
 The goal is simple:
 
 **Your development environment stays yours.**
@@ -504,6 +536,11 @@ The core visual editing pipeline is being built around:
 - Explicit accept/reject
 - Undo
 - Pluggable coding agents
+- Concurrent agent tasks with review/completed states
+- Component-scoped conversation and change history
+- Manual page creation with project-folder selection
+- Interactive permission/input prompts for local agents
+- Custom toolbar tooltips and filtered agent progress
 
 Expect breaking changes before `1.0`.
 

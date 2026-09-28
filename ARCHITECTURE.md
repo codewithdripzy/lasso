@@ -67,9 +67,11 @@ Three parties, all coordinating around one shared filesystem:
                                    └──────────────────────┘
 ```
 
-Everything except the coding agent call runs locally. Nothing is ever written to disk
-without an explicit accept from the user. The agent is the only party that ever leaves the
-machine, and only with the exact context the CLI assembled for it.
+Everything except the coding agent call runs locally. Edit proposals are never written to
+disk without an explicit accept from the user. The manual New Page workflow is a separate
+explicit write path: it creates only the filename/content the user confirms. The agent is
+the only party that ever leaves the machine, and only with the exact context the CLI
+assembled for it.
 
 ## 4. Browser layer (capture only)
 
@@ -85,6 +87,14 @@ Responsibilities, and _only_ these:
   edit quality even when the AI has the source.
 - Show the inline prompt box anchored to the selection (never a blocking `prompt()`).
 - Render the diff/accept/undo UI once the CLI streams a proposed change back.
+- Render concurrent Agent Tasks with In progress/Completed tabs and task-level review
+  actions; acceptance is the transition that completes an edit task.
+- Keep a stable component conversation identity so repeated prompts reuse conversation
+  and change history across DOM replacement during HMR.
+- Render the secondary toolbar, custom tooltips, and the manual New Page form with a
+  project-folder explorer.
+- Render task-scoped permission/input prompts and send explicit responses back over
+  the bridge.
 - **Never mutate the DOM.** All visual changes the user sees post-edit come from the
   framework's own HMR reload, not from this layer.
 
@@ -111,6 +121,10 @@ A Node process that wraps the user's existing dev server. Entry: `src/cli/index.
    on receipt.
 6. On accept: snapshot the file's prior content (for undo), then apply the diff.
 7. On undo: restore the snapshot, full stop — no re-generation needed, so retries are free.
+8. For New Page: list project-relative folders, validate the requested target against
+   the project root, and create the file only after the user confirms the form.
+9. For local agents: keep child-process stdin attached to its task and forward explicit
+   overlay responses when the agent requests permission or input.
 
 ### 5.2 Source resolution strategies
 

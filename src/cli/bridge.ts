@@ -6,7 +6,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import chalk from "chalk";
-import { answerQuestion, detectLocalAgents, proposeChanges, generateCommitMessage, type AgentConfig, type SourceChange, type LocalAgent } from "./agent";
+import { answerQuestion, detectLocalAgents, proposeChanges, generateCommitMessage, respondToAgentPrompt, type AgentConfig, type SourceChange, type LocalAgent, type AgentPrompt } from "./agent";
 import type { CollabConfig } from "./project";
 import { serverUrlFrom } from "./auth";
 
@@ -22,6 +22,9 @@ export type BridgeMessage =
   | { type: "apply"; taskId: string; changes: SourceChange[] }
   | { type: "undo"; taskId?: string }
   | { type: "stop"; taskId?: string }
+  | { type: "agent_prompt_response"; taskId: string; response: string }
+  | { type: "list_page_folders" }
+  | { type: "create_page"; folder: string; fileName: string; content: string }
   | { type: "git_status" }
   | { type: "git_generate_message"; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "cli" }
   | { type: "git_init" }
@@ -39,6 +42,9 @@ export type ServerBridgeMessage =
   | { type: "git_progress"; message: string }
   | { type: "git_commit_message"; message?: string; error?: string }
   | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string; detail?: string; changes?: SourceChange[] }
+  | { type: "agent_prompt"; taskId: string; prompt: AgentPrompt }
+  | { type: "page_folders"; folders: string[] }
+  | { type: "page_created"; path: string; error?: string }
   | { type: "assistant_message"; taskId?: string; message: string }
   | { type: "applied"; taskId?: string; message: string }
   | { type: "undone"; taskId?: string; message: string }
@@ -207,6 +213,21 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
   const taskControllers = new Map<string, AbortController>();
   let localAgents = new Set<LocalAgent>();
 
+  const pageFolders = (directory: string, relative = "", depth = 0): string[] => {
+    if (depth > 5) return [];
+    const folders = [relative || "."];
+    try {
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        if (!entry.isDirectory() || ["node_modules", ".git", ".next", "dist", "build", ".turbo"].includes(entry.name) || entry.name.startsWith(".")) continue;
+        const nextRelative = relative ? path.join(relative, entry.name) : entry.name;
+        folders.push(...pageFolders(path.join(directory, entry.name), nextRelative, depth + 1));
+      }
+    } catch {
+      // Ignore folders that cannot be read.
+    }
+    return folders;
+  };
+
   bridgeServer.on("request", (req, res) => {
     if (req.method !== "POST" || req.url?.split("?", 1)[0] !== "/__lasso/bridge/restart") return;
 
@@ -302,11 +323,15 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       const controller = new AbortController();
       taskControllers.set(request.taskId, controller);
       if (socket.readyState === socket.OPEN) {
-        socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "working", message: statusMessage || "Starting agent…" }));
+        socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "working", message: statusMessage || "Working…" }));
       }
       void proposeChanges(cwd, request, config, controller.signal, (message, detail) => {
         if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
           socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "working", message, detail }));
+        }
+      }, (prompt) => {
+        if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
+          socket.send(JSON.stringify({ type: "agent_prompt", taskId: request.taskId, prompt }));
         }
       })
         .then((proposal) => {
@@ -340,6 +365,27 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       } else {
         console.log("[lasso] received from overlay:", msg);
       }
+      if (msg.type === "list_page_folders") {
+        socket.send(JSON.stringify({ type: "page_folders", folders: pageFolders(cwd).sort() }));
+        return;
+      }
+      if (msg.type === "create_page") {
+        const root = path.resolve(cwd);
+        const folder = msg.folder === "." ? root : path.resolve(root, msg.folder);
+        const fileName = path.basename(msg.fileName);
+        const target = path.resolve(folder, fileName);
+        if (!target.startsWith(`${root}${path.sep}`) || target === root || !fileName || fileName !== msg.fileName || !fs.existsSync(folder)) {
+          socket.send(JSON.stringify({ type: "page_created", path: msg.fileName, error: "Choose a valid project folder and file name." }));
+          return;
+        }
+        try {
+          fs.writeFileSync(target, msg.content.slice(0, 200000), { encoding: "utf8", flag: "wx" });
+          socket.send(JSON.stringify({ type: "page_created", path: path.relative(root, target) }));
+        } catch (error) {
+          socket.send(JSON.stringify({ type: "page_created", path: path.relative(root, target), error: error instanceof Error && error.message.includes("EEXIST") ? "A file with that name already exists." : "The page could not be created." }));
+        }
+        return;
+      }
       if (msg.type === "ask") {
         const localProvider = msg.provider === "cli";
         const cliProvider = msg.model.startsWith("claude-code:") ? "claude-code" : msg.model.startsWith("opencode:") ? "opencode" : "codex";
@@ -357,9 +403,11 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         const selectedConfig: AgentConfig = localProvider
           ? { provider: cliProvider, model: msg.model }
           : { ...agentConfig!, provider: (msg.provider || agentConfig!.provider) as AgentConfig["provider"], model: msg.model };
-        socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "working", message: "Starting agent…" }));
-        void answerQuestion(cwd, { question: msg.question, context: msg.context, element: msg.element, messages: msg.messages }, selectedConfig, controller.signal, (message, detail) => {
+        socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "working", message: "Working…" }));
+        void answerQuestion(cwd, { taskId: msg.taskId, question: msg.question, context: msg.context, element: msg.element, messages: msg.messages }, selectedConfig, controller.signal, (message, detail) => {
           if (!controller.signal.aborted && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "working", message, detail }));
+        }, (prompt) => {
+          if (!controller.signal.aborted && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "agent_prompt", taskId: msg.taskId, prompt }));
         }).then((answer) => {
           if (!controller.signal.aborted) socket.send(JSON.stringify({ type: "assistant_message", taskId: msg.taskId, message: answer }));
         }).catch((error: unknown) => {
@@ -385,6 +433,8 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         editConfigs.set(msg.taskId, selectedConfig);
         reviewRefreshAttempts.set(msg.taskId, 0);
         runEditReview(msg, selectedConfig);
+      } else if (msg.type === "agent_prompt_response") {
+        respondToAgentPrompt(msg.taskId, msg.response);
       } else if (msg.type === "stop") {
         if (msg.taskId) taskControllers.get(msg.taskId)?.abort();
         else for (const controller of taskControllers.values()) controller.abort();

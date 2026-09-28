@@ -4,7 +4,6 @@ import type { AgentTask, AgentTaskStatus, ChatMessage, PendingChange } from "../
 
 let panel: HTMLDivElement | null = null;
 let list: HTMLDivElement | null = null;
-let detail: HTMLDivElement | null = null;
 let badge: HTMLElement | null = null;
 
 type TaskSelectionListener = (task: AgentTask | null) => void;
@@ -38,6 +37,21 @@ export function findReusableAgentTask(instruction: string, element: Element | nu
     task.status !== "complete" && task.status !== "error" && task.status !== "stopped" &&
     normalizedInstruction(task.instruction) === normalized && task.element === (element || undefined)
   );
+}
+
+export function getComponentConversation(selectionId: string): {
+  messages: ChatMessage[];
+  changesHistory: Array<{ summary: string; changes: PendingChange[]; createdAt: string }>;
+} {
+  const task = state.agentTasks.find((candidate) => candidate.selectionId === selectionId);
+  if (!task) return { messages: [], changesHistory: [] };
+  return {
+    messages: task.messages.map((message) => ({ ...message })),
+    changesHistory: task.changesHistory.map((entry) => ({
+      ...entry,
+      changes: entry.changes.map((change) => ({ ...change })),
+    })),
+  };
 }
 
 export function onAgentTaskSelected(listener: TaskSelectionListener): () => void {
@@ -173,12 +187,10 @@ export function buildTaskPanel(): HTMLDivElement {
     </div>
     <div class="lasso-task-body">
       <div class="lasso-task-list"></div>
-      <div class="lasso-task-detail" hidden></div>
     </div>
   `;
   dom.shadow.appendChild(panel);
   list = panel.querySelector<HTMLDivElement>(".lasso-task-list");
-  detail = panel.querySelector<HTMLDivElement>(".lasso-task-detail");
   badge = panel.querySelector<HTMLElement>(".lasso-task-badge");
   panel.querySelector<HTMLButtonElement>(".lasso-task-close")!.addEventListener("click", () => toggleTaskPanel(false));
   panel.querySelectorAll<HTMLButtonElement>(".lasso-task-tab").forEach((tab) => {
@@ -197,7 +209,7 @@ export function buildTaskPanel(): HTMLDivElement {
 
 function renderTasks(): void {
   const panelEl = panel;
-  if (!panelEl || !list || !detail || !badge) return;
+  if (!panelEl || !list || !badge) return;
   const activeCount = state.agentTasks.filter((task) => task.status !== "complete" && task.status !== "error" && task.status !== "stopped").length;
   badge.hidden = state.agentTasks.length === 0;
   badge.textContent = String(activeCount || state.agentTasks.length);
@@ -227,47 +239,4 @@ function renderTasks(): void {
     }
   }
 
-  const selected = getAgentTask(state.activeTaskId);
-  if (!selected) {
-    detail.hidden = true;
-    return;
-  }
-  detail.hidden = false;
-  detail.replaceChildren();
-  const heading = document.createElement("div");
-  heading.className = "lasso-task-detail-heading";
-  heading.innerHTML = `<span class="lasso-task-detail-status ${selected.status}">${statusLabel[selected.status]}</span><button type="button" class="lasso-task-back">All tasks</button>`;
-  heading.querySelector("button")!.addEventListener("click", () => selectAgentTask(null));
-  const prompt = document.createElement("p");
-  prompt.className = "lasso-task-prompt";
-  prompt.textContent = selected.instruction;
-  const activity = document.createElement("p");
-  activity.className = "lasso-task-message";
-  activity.textContent = selected.response || selected.message;
-  detail.append(heading, prompt, activity);
-  if (selected.activity.length) {
-    const activityList = document.createElement("div");
-    activityList.className = "lasso-task-activity";
-    for (const entry of selected.activity.slice(-8)) {
-      const line = document.createElement("div");
-      line.textContent = entry;
-      activityList.appendChild(line);
-    }
-    detail.appendChild(activityList);
-  }
-  const pendingChanges = selected.pendingChanges.length ? selected.pendingChanges : selected.changes || [];
-  if (pendingChanges.length) {
-    const changes = document.createElement("div");
-    changes.className = "lasso-task-changes";
-    changes.textContent = `${pendingChanges.length} proposed file change${pendingChanges.length === 1 ? "" : "s"}`;
-    detail.appendChild(changes);
-    if (selected.status === "review") {
-      const review = document.createElement("button");
-      review.type = "button";
-      review.className = "lasso-task-apply";
-      review.textContent = "Review changes";
-      review.addEventListener("click", () => requestAgentTaskReview(selected.id));
-      detail.appendChild(review);
-    }
-  }
 }

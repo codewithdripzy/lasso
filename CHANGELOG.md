@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Agent task workflow**: concurrent prompts now appear in In progress and
+  Completed tabs. Review-ready tasks expose a Review action, and accepted changes
+  move the task to Completed.
+- **Component conversation continuity**: prompts reuse the latest conversation and
+  change history for a stable component identity across repeated prompts and DOM
+  replacement during HMR.
+- **Interactive local-agent prompts**: Claude Code, Codex, and OpenCode run with
+  piped stdin. Permission or input requests can be answered from a task-scoped
+  overlay prompt with Allow, Deny, or custom text.
+- **Secondary overlay toolbar**: added a New Page workflow with a project-folder
+  explorer, filename/content form, path validation, and explicit file creation.
+- **Custom toolbar tooltips**: toolbar labels now use an accessible Lasso-styled
+  tooltip on hover and keyboard focus instead of browser-native title popovers.
+- **Filtered agent progress**: useful tool/progress events remain visible while
+  process IDs, startup messages, and heartbeat logs are hidden.
 - Open-source documentation: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
   `SECURITY.md`, `SUPPORT.md`, `LICENSE` (ISC), and this changelog.
 - **Lasso Host** (`src/cli/host/`) — a user-level local domain server + runtime

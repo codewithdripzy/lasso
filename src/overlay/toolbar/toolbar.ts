@@ -193,7 +193,68 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
     </button>
   `;
 
-  dom.shadow.append(toolbar, toolbarReopen, voiceBar);
+  const miniToolbar = document.createElement("div");
+  miniToolbar.className = "lasso-toolbar-mini";
+  miniToolbar.innerHTML = `
+    <button class="lasso-new-page-btn" type="button" aria-label="Create a new page" title="New page">
+      <span aria-hidden="true">+</span>
+      <span>New Page</span>
+    </button>
+  `;
+  const pagePanel = document.createElement("div");
+  pagePanel.className = "lasso-new-page-panel";
+  pagePanel.hidden = true;
+  pagePanel.innerHTML = `
+    <div class="lasso-new-page-header"><strong>New page</strong><button type="button" class="lasso-new-page-close" aria-label="Close">×</button></div>
+    <label>File name<input class="lasso-new-page-name" value="page.tsx" /></label>
+    <label>Folder<div class="lasso-page-folder-list"><span>Loading folders…</span></div></label>
+    <label>Starter content<textarea class="lasso-new-page-content" rows="5">export default function Page() {
+  return <main />;
+}</textarea></label>
+    <div class="lasso-new-page-status" aria-live="polite"></div>
+    <button type="button" class="lasso-new-page-create">Create page</button>
+  `;
+
+  dom.shadow.append(toolbar, miniToolbar, pagePanel, toolbarReopen, voiceBar);
+
+  const tooltip = document.createElement("div");
+  tooltip.className = "lasso-toolbar-tooltip";
+  tooltip.hidden = true;
+  tooltip.setAttribute("role", "tooltip");
+  dom.shadow.appendChild(tooltip);
+
+  let tooltipTarget: HTMLElement | null = null;
+  const showTooltip = (target: HTMLElement) => {
+    const label = target.dataset.tooltip || target.getAttribute("title") || target.getAttribute("aria-label");
+    if (!label) return;
+    target.removeAttribute("title");
+    tooltipTarget = target;
+    tooltip.textContent = label;
+    tooltip.hidden = false;
+    const rect = target.getBoundingClientRect();
+    tooltip.style.left = `${rect.left + rect.width / 2}px`;
+    tooltip.style.top = `${rect.bottom + 8}px`;
+  };
+  const hideTooltip = (target?: HTMLElement) => {
+    if (!target || tooltipTarget === target) {
+      tooltip.hidden = true;
+      tooltipTarget = null;
+    }
+  };
+  toolbar.querySelectorAll<HTMLElement>("[title]").forEach((target) => {
+    target.dataset.tooltip = target.getAttribute("title") || "";
+    target.addEventListener("pointerenter", () => showTooltip(target));
+    target.addEventListener("pointerleave", () => hideTooltip(target));
+    target.addEventListener("focusin", () => showTooltip(target));
+    target.addEventListener("focusout", () => hideTooltip(target));
+  });
+  miniToolbar.querySelectorAll<HTMLElement>("[title]").forEach((target) => {
+    target.dataset.tooltip = target.getAttribute("title") || "";
+    target.addEventListener("pointerenter", () => showTooltip(target));
+    target.addEventListener("pointerleave", () => hideTooltip(target));
+    target.addEventListener("focusin", () => showTooltip(target));
+    target.addEventListener("focusout", () => hideTooltip(target));
+  });
 
   // Wire buttons
   const selectBtn = toolbar.querySelector<HTMLButtonElement>(".select-tool")!;
@@ -207,6 +268,59 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
   const clipboardBtn = toolbar.querySelector<HTMLButtonElement>(".clipboard-tool")!;
   const voiceBtn = toolbar.querySelector<HTMLButtonElement>(".voice-tool")!;
   const dismissBtn = toolbar.querySelector<HTMLButtonElement>(".lasso-toolbar-dismiss")!;
+  const newPageBtn = miniToolbar.querySelector<HTMLButtonElement>(".lasso-new-page-btn")!;
+  const folderList = pagePanel.querySelector<HTMLDivElement>(".lasso-page-folder-list")!;
+  const pageStatus = pagePanel.querySelector<HTMLDivElement>(".lasso-new-page-status")!;
+  let selectedFolder = ".";
+
+  const requestFolders = () => {
+    if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
+      folderList.innerHTML = "<span>Loading folders…</span>";
+      state.bridgeSocket.send(JSON.stringify({ type: "list_page_folders" }));
+    } else {
+      folderList.innerHTML = "<span>Bridge is not connected.</span>";
+    }
+  };
+  window.addEventListener("lasso-page-folders", (event) => {
+    const folders = (event as CustomEvent<string[]>).detail || [];
+    folderList.replaceChildren();
+    for (const folder of folders) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = folder === "." ? "Project root" : folder;
+      button.className = folder === selectedFolder ? "selected" : "";
+      button.addEventListener("click", () => {
+        selectedFolder = folder;
+        folderList.querySelectorAll("button").forEach((item) => item.classList.toggle("selected", item === button));
+      });
+      folderList.appendChild(button);
+    }
+    folderList.querySelector<HTMLButtonElement>("button")?.click();
+  });
+  window.addEventListener("lasso-page-created", (event) => {
+    const result = (event as CustomEvent<{ path: string; error?: string }>).detail;
+    pageStatus.textContent = result.error || `Created ${result.path}`;
+    pageStatus.classList.toggle("error", Boolean(result.error));
+    if (!result.error) pagePanel.hidden = true;
+  });
+
+  newPageBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    pagePanel.hidden = false;
+    pageStatus.textContent = "";
+    pageStatus.classList.remove("error");
+    requestFolders();
+  });
+  pagePanel.querySelector<HTMLButtonElement>(".lasso-new-page-close")!.addEventListener("click", () => { pagePanel.hidden = true; });
+  pagePanel.querySelector<HTMLButtonElement>(".lasso-new-page-create")!.addEventListener("click", () => {
+    const fileName = pagePanel.querySelector<HTMLInputElement>(".lasso-new-page-name")!.value.trim();
+    const content = pagePanel.querySelector<HTMLTextAreaElement>(".lasso-new-page-content")!.value;
+    if (!fileName) { pageStatus.textContent = "Enter a file name."; pageStatus.classList.add("error"); return; }
+    if (state.bridgeSocket?.readyState !== WebSocket.OPEN) { pageStatus.textContent = "Bridge is not connected."; pageStatus.classList.add("error"); return; }
+    pageStatus.textContent = "Creating…";
+    state.bridgeSocket.send(JSON.stringify({ type: "create_page", folder: selectedFolder, fileName, content }));
+  });
 
   selectBtn.addEventListener("click", (e) => {
     e.preventDefault();
@@ -277,11 +391,13 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
 
   dismissBtn.addEventListener("click", () => {
     toolbar.classList.add("dismissed");
+    miniToolbar.classList.add("dismissed");
     toolbarReopen.classList.add("visible");
   });
 
   toolbarReopen.addEventListener("click", () => {
     toolbar.classList.remove("dismissed");
+    miniToolbar.classList.remove("dismissed");
     toolbarReopen.classList.remove("visible");
   });
 

@@ -12,6 +12,7 @@ export type SourceChange = {
 };
 
 type AgentInput = {
+  taskId?: string;
   instruction: string;
   model: string;
   messages?: Array<{ role: string; content: string; createdAt?: string }>;
@@ -29,8 +30,19 @@ export type AgentConfig = {
 
 export type LocalAgent = "claude-code" | "codex" | "opencode";
 export type AgentProgress = (message: string, detail?: string) => void;
+export type AgentPrompt = { message: string; kind: "permission" | "input"; options?: string[] };
+export type AgentPromptHandler = (prompt: AgentPrompt) => void;
 type AgentProgressEvent = { message: string; detail?: string };
-export type AgentAnswer = { question: string; context?: AgentInput["context"]; element: AgentInput["element"]; messages?: AgentInput["messages"] };
+export type AgentAnswer = { taskId?: string; question: string; context?: AgentInput["context"]; element: AgentInput["element"]; messages?: AgentInput["messages"] };
+
+const activeAgentInputs = new Map<string, (value: string) => void>();
+
+export function respondToAgentPrompt(taskId: string, value: string): boolean {
+  const respond = activeAgentInputs.get(taskId);
+  if (!respond) return false;
+  respond(value);
+  return true;
+}
 
 export async function detectLocalAgents(): Promise<Set<LocalAgent>> {
   const found = new Set<LocalAgent>();
@@ -204,9 +216,41 @@ function extractLocalAgentText(raw: string, provider: LocalAgent): string {
   return texts.at(-1) || raw;
 }
 
+function collectTextFields(value: unknown, fields = new Set(["text", "output_text", "result", "content", "message", "output", "value"]), depth = 0): string[] {
+  if (depth > 8 || value == null) return [];
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap((entry) => collectTextFields(entry, fields, depth + 1));
+  if (typeof value !== "object") return [];
+  const output: string[] = [];
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (fields.has(key) && typeof entry === "string") output.push(entry);
+    if (typeof entry === "object" && entry !== null) output.push(...collectTextFields(entry, fields, depth + 1));
+  }
+  return output;
+}
+
+function findStructuredProposals(value: unknown, depth = 0): string[] {
+  if (depth > 8 || value == null || typeof value !== "object") return [];
+  if (!Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    if (Array.isArray(record.changes)) return [JSON.stringify(record)];
+    return Object.values(record).flatMap((entry) => findStructuredProposals(entry, depth + 1));
+  }
+  return value.flatMap((entry) => findStructuredProposals(entry, depth + 1));
+}
+
 function extractLocalAgentProposal(raw: string, provider: LocalAgent): { summary: string; changes: SourceChange[] } {
   const outputs: string[] = [];
-  for (const line of raw.split(/\r?\n/)) {
+  const lines = raw.split(/\r?\n/).filter((line) => line.trim());
+  const streamObjects = jsonObjectCandidates(raw).flatMap((candidate) => {
+    try {
+      return [JSON.parse(candidate) as Record<string, any>];
+    } catch {
+      return [];
+    }
+  });
+
+  for (const line of lines) {
     try {
       const event = JSON.parse(line) as Record<string, any>;
       const item = event.item as Record<string, any> | undefined;
@@ -214,11 +258,28 @@ function extractLocalAgentProposal(raw: string, provider: LocalAgent): { summary
       const values = provider === "claude-code"
         ? [event.result, ...((event.message?.content || []) as Array<Record<string, any>>).map((entry) => entry.text)]
         : provider === "opencode"
-          ? [part?.type === "text" ? part.text : undefined, event.text, event.output_text]
+          ? [...collectTextFields(event), part?.type === "text" ? part.text : undefined]
           : [event.text, event.output_text, item?.text, item?.output_text, item?.message];
       for (const value of values) if (typeof value === "string" && value.trim()) outputs.push(value);
     } catch {
       if (line.trim()) outputs.push(line);
+    }
+  }
+
+  // OpenCode can emit multiple JSON records on one physical line. The
+  // line-based pass above cannot see those records, so inspect each balanced
+  // JSON object as well and collect text nested in its final response event.
+  for (const event of streamObjects) {
+    outputs.push(...collectTextFields(event));
+    const part = event.part as Record<string, any> | undefined;
+    if (part?.type === "text" && typeof part.text === "string") outputs.push(part.text);
+  }
+
+  for (const proposal of streamObjects.flatMap((event) => findStructuredProposals(event)).reverse()) {
+    try {
+      return jsonFrom(proposal);
+    } catch {
+      // Continue through text candidates below.
     }
   }
 
@@ -231,7 +292,7 @@ function extractLocalAgentProposal(raw: string, provider: LocalAgent): { summary
       // Keep looking; this output may only be a progress or tool event.
     }
   }
-  throw new Error("The agent returned no valid reviewable changes. Progress output may have been mixed with the final JSON.");
+  throw new Error(`${provider === "opencode" ? "OpenCode" : "The agent"} did not return a reviewable proposal. It produced progress/tool events but no final JSON containing file changes.`);
 }
 
 function snippet(value: unknown, max = 80): string {
@@ -341,8 +402,26 @@ function progressFromLine(raw: string, provider: LocalAgent): AgentProgressEvent
   return null;
 }
 
+function progressEventsFromRaw(raw: string, provider: LocalAgent): AgentProgressEvent[] {
+  const records = (() => {
+    try {
+      JSON.parse(raw);
+      return [raw];
+    } catch {
+      return jsonObjectCandidates(raw);
+    }
+  })();
+  return records.flatMap((record) => {
+    const progress = progressFromLine(record, provider);
+    return progress ? [progress] : [];
+  });
+}
+
 function localAgentError(command: string, stderr: string, exitCode: number): string {
   const output = stderr.trim();
+  if (command === "opencode" && /waiting for permission or authentication/i.test(output)) {
+    return "OpenCode needs permission or authentication. Run OpenCode once in a terminal, approve the requested access or sign in, then retry in Lasso.";
+  }
   if (command === "codex" && output.includes("missing field `base_instructions`")) {
     return "Codex could not read its models cache because it uses an older cache format. Update Codex, then retry. Lasso already bypasses the repository trust check.";
   }
@@ -364,7 +443,7 @@ function localCommand(provider: LocalAgent, model?: string, prompt?: string): { 
     return { command: "claude", args: ["-p", prompt || "", "--output-format", "stream-json", "--verbose", "--permission-mode", "plan", "--max-turns", "3", ...(selectedModel ? ["--model", selectedModel] : [])] };
   }
   if (provider === "opencode") {
-    return { command: "opencode", args: ["run", "--format", "json", "--agent", "plan", ...(selectedModel ? ["--model", selectedModel] : []), prompt || ""] };
+    return { command: "opencode", args: ["run", "--format", "json", "--print-logs", "--log-level", "INFO", "--agent", "plan", ...(selectedModel ? ["--model", selectedModel] : []), prompt || ""] };
   }
   return { command: "codex", args: ["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", ...(selectedModel ? ["--model", selectedModel] : []), prompt || ""] };
 }
@@ -376,9 +455,11 @@ function runLocalCommand(
   provider: LocalAgent,
   signal?: AbortSignal,
   onProgress?: AgentProgress,
+  taskId?: string,
+  onPrompt?: AgentPromptHandler,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
     const label = provider === "opencode" ? "OpenCode" : provider === "codex" ? "Codex" : "Claude Code";
     let stdout = "";
     let stderr = "";
@@ -386,9 +467,19 @@ function runLocalCommand(
     let pendingStderr = "";
     let settled = false;
     let timedOut = false;
+    let promptShown = false;
+    const sendPrompt = (message: string, kind: AgentPrompt["kind"] = "permission") => {
+      if (!taskId || promptShown) return;
+      promptShown = true;
+      activeAgentInputs.set(taskId, (value) => {
+        promptShown = false;
+        activeAgentInputs.delete(taskId);
+        child.stdin.write(`${value}\n`);
+      });
+      onPrompt?.({ message, kind, options: kind === "permission" ? ["Allow", "Deny"] : undefined });
+    };
     const timeout = setTimeout(() => {
       timedOut = true;
-      onProgress?.(`${label} did not respond; stopping this task…`);
       child.kill("SIGTERM");
       setTimeout(() => child.kill("SIGKILL"), 3000).unref();
     }, 5 * 60 * 1000);
@@ -409,9 +500,13 @@ function runLocalCommand(
       if (stream === "stdout") pendingStdout = remainder;
       else pendingStderr = remainder;
       for (const line of lines) {
-        const progress = progressFromLine(line, provider);
-        if (progress) onProgress?.(progress.message, progress.detail);
-        else if (stream === "stderr" && line.trim()) {
+        for (const progress of progressEventsFromRaw(line, provider)) {
+          onProgress?.(progress.message, progress.detail);
+        }
+        if (/permission\s+(required|denied)|approve\s+(this|the|tool)|authentication\s+required|login\s+required|press\s+.+to\s+continue/i.test(line)) {
+          sendPrompt(line.replace(/\s+/g, " ").trim());
+        }
+        if (stream === "stderr" && line.trim()) {
           if (provider === "opencode" && /quota exceeded|authentication failed|invalid api key|unauthorized|forbidden/i.test(line)) {
             onProgress?.("OpenCode · provider rejected the request; stopping this task…");
             child.kill("SIGTERM");
@@ -422,11 +517,6 @@ function runLocalCommand(
 
     child.stdout.on("data", (chunk) => consume(chunk, "stdout"));
     child.stderr.on("data", (chunk) => consume(chunk, "stderr"));
-    child.once("spawn", () => onProgress?.(`${label} process started${child.pid ? ` · PID ${child.pid}` : ""}`));
-    const heartbeat = setInterval(() => {
-      if (!signal?.aborted) onProgress?.(`${label} is still running${child.pid ? ` · PID ${child.pid}` : ""}…`);
-    }, 15000);
-    heartbeat.unref();
 
     const abort = () => child.kill("SIGTERM");
     if (signal?.aborted) abort();
@@ -436,7 +526,7 @@ function runLocalCommand(
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      clearInterval(heartbeat);
+      if (taskId) activeAgentInputs.delete(taskId);
       signal?.removeEventListener("abort", abort);
       reject(error);
     });
@@ -444,7 +534,7 @@ function runLocalCommand(
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      clearInterval(heartbeat);
+      if (taskId) activeAgentInputs.delete(taskId);
       signal?.removeEventListener("abort", abort);
       if (timedOut) {
         reject(new Error(`${label} did not finish within 5 minutes. Check its login or approval prompt, then retry.`));
@@ -454,33 +544,36 @@ function runLocalCommand(
       const stderrTail = pendingStderr.trim();
       if (stdoutTail) {
         stdout += pendingStdout;
-        const progress = progressFromLine(stdoutTail, provider);
-        if (progress) onProgress?.(progress.message, progress.detail);
+        for (const progress of progressEventsFromRaw(stdoutTail, provider)) {
+          onProgress?.(progress.message, progress.detail);
+        }
       }
       if (stderrTail) {
-        const progress = progressFromLine(stderrTail, provider);
-        if (progress) onProgress?.(progress.message, progress.detail);
+        for (const progress of progressEventsFromRaw(stderrTail, provider)) {
+          onProgress?.(progress.message, progress.detail);
+        }
+        if (provider === "opencode" && /quota exceeded|authentication failed|invalid api key|unauthorized|forbidden/i.test(stderrTail)) {
+          onProgress?.("OpenCode · provider rejected the request; stopping this task…");
+        }
       }
       resolve({ stdout, stderr, exitCode: code ?? 1 });
     });
   });
 }
 
-async function proposeWithLocalAgent(cwd: string, instruction: string, context: string, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress) {
+async function proposeWithLocalAgent(cwd: string, instruction: string, context: string, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress, taskId?: string, onPrompt?: AgentPromptHandler) {
   const outputContract = `Return ONLY valid JSON in this exact shape: {"summary":"short explanation","changes":[{"filePath":"relative/path","oldString":"exact existing text","newString":"replacement text"}]}. Treat the supplied source context as read-only. Before returning, verify every oldString against that context. Use project-relative paths only. Do not edit files, run write commands, commit, or produce markdown fences.`;
   const prompt = `${instruction}\n\n${outputContract}\n\nLasso has already assembled this source context:\n${context || "No matching source context was found."}`;
   const local = localCommand(config.provider as LocalAgent, config.model, prompt);
   const command = local.command;
   const args = local.args;
-  const result = await runLocalCommand(cwd, command, args, config.provider as LocalAgent, signal, onProgress);
+  const result = await runLocalCommand(cwd, command, args, config.provider as LocalAgent, signal, onProgress, taskId, onPrompt);
   if (result.exitCode !== 0) throw new Error(localAgentError(command, result.stderr, result.exitCode));
   return extractLocalAgentProposal(result.stdout, config.provider as LocalAgent);
 }
 
-export async function proposeChanges(cwd: string, input: AgentInput, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress) {
-  onProgress?.("Reading source context…");
+export async function proposeChanges(cwd: string, input: AgentInput, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress, onPrompt?: AgentPromptHandler) {
   const context = await contextFor(cwd, input.element);
-  onProgress?.("Starting the coding agent…");
   const visualContext = input.context ? { ...input.context, screenshots: undefined } : undefined;
   const history = input.messages?.map((message) => `${message.role}: ${message.content}`).join("\n") || input.instruction;
   const priorChanges = input.changesHistory?.length ? JSON.stringify(input.changesHistory, null, 2) : "None";
@@ -489,7 +582,7 @@ export async function proposeChanges(cwd: string, input: AgentInput, config: Age
     : "";
   const instruction = `Selection context:\n${JSON.stringify(input.element, null, 2)}\n${JSON.stringify(visualContext, null, 2)}\n\nConversation history:\n${history}\n\nPrevious change history for this selection:\n${priorChanges}\n\nRelevant source context:\n${context || "No matching source context was found. Ask for a more specific selection rather than inventing a file."}${dragHint}\n\nReturn ONLY JSON: {"summary":"short explanation","changes":[{"filePath":"relative/path","oldString":"exact text","newString":"replacement text"}]}`;
   if (config.provider === "claude-code" || config.provider === "codex" || config.provider === "opencode") {
-    return proposeWithLocalAgent(cwd, instruction, context, config, signal, onProgress);
+    return proposeWithLocalAgent(cwd, instruction, context, config, signal, onProgress, input.taskId, onPrompt);
   }
   const system = "You are Lasso, a careful source-code editing agent. Return only valid JSON. Each oldString must occur exactly once in its file. Never rewrite whole files. Keep changes focused on the request.";
   const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : "claude-sonnet-4-20250514");
@@ -540,14 +633,14 @@ export async function proposeChanges(cwd: string, input: AgentInput, config: Age
   return jsonFrom(text);
 }
 
-export async function answerQuestion(cwd: string, input: AgentAnswer, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress): Promise<string> {
+export async function answerQuestion(cwd: string, input: AgentAnswer, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress, onPrompt?: AgentPromptHandler): Promise<string> {
   const context = await contextFor(cwd, input.element);
   const history = input.messages?.map((message) => `${message.role}: ${message.content}`).join("\n") || "None";
   const prompt = `Answer the user's question conversationally and directly. Do not propose file changes and do not return JSON. If the question is about the selected UI, use the selection and source context below.\n\nUser question:\n${input.question}\n\nSelected element:\n${JSON.stringify(input.element, null, 2)}\n\nVisual context:\n${JSON.stringify({ ...input.context, screenshots: undefined }, null, 2)}\n\nConversation:\n${history}\n\nRelevant source context:\n${context || "No matching source context was found."}`;
 
   if (config.provider === "claude-code" || config.provider === "codex" || config.provider === "opencode") {
     const local = localCommand(config.provider as LocalAgent, config.model, prompt);
-    const result = await runLocalCommand(cwd, local.command, local.args, config.provider as LocalAgent, signal, onProgress);
+    const result = await runLocalCommand(cwd, local.command, local.args, config.provider as LocalAgent, signal, onProgress, input.taskId, onPrompt);
     if (result.exitCode !== 0) throw new Error(localAgentError(local.command, result.stderr, result.exitCode));
     return extractLocalAgentText(result.stdout, config.provider as LocalAgent).trim();
   }
