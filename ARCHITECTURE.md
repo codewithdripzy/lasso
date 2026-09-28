@@ -170,38 +170,46 @@ context (source + screenshot + instruction)
   │ Agent adapter  │   interface: given context, return old/new string pairs
   └───────┬───────┘
           │
-   ┌──────┼───────────────────┬─────────────────────┐
-   ▼      ▼                   ▼                      ▼
- Built-in   Claude Code        User's own CLI coding   Any future
- agent      (headless/         agent (Cursor CLI,      adapter
- (default)  `claude -p`)       Aider, etc.)
+   ┌──────┼──────────────┬─────────────────┐
+   ▼      ▼              ▼                 ▼
+ Hosted   Claude Code     Codex             OpenCode
+ model    `claude -p`     `codex exec`      `opencode run`
 ```
 
-- **Built-in agent** (`agent: "builtin"`): default path, zero setup, calls a hosted model
-  directly (`@anthropic-ai/sdk`) with the assembled context and the old/new-string contract
-  from §5.3.
-- **Claude Code passthrough** (`agent: "claude-code"`): the CLI shells out to Claude Code
-  in headless/print mode (`claude -p`), passing the assembled context as the prompt and
-  parsing its file edits back into the same diff-preview pipeline. This lets a user keep
-  using their existing Claude Code setup (subscription, project memory, MCP tools) while
-  still getting the point-and-select UX.
-- **Bring-your-own-agent** (`agent: "custom"`): define the adapter interface once (context
-  in, old/new-string pairs out) and let power users wire in whatever CLI coding tool they
-  already trust. Lasso's value in this mode is entirely the capture + context-assembly
-  pipeline (§4–5), not the model itself.
+- **Hosted model** (`anthropic` | `openai` | `google` | `ollama`): the default path when
+  no local CLI is selected. Lasso calls the provider SDK directly (`@anthropic-ai/sdk`)
+  with the assembled context and the old/new-string contract from §5.3. The provider and
+  key come from `LASSO_AGENT_PROVIDER` plus the matching `*_API_KEY`, read from the
+  process environment or the project `.env`.
+- **Claude Code passthrough** (`claude-code`): the CLI shells out to Claude Code in
+  headless/print mode (`claude -p … --permission-mode plan --output-format
+stream-json --max-turns 3`), passing the assembled context as the prompt and parsing
+  its output back into the same diff-preview pipeline. This lets a user keep using their
+  existing Claude Code setup (subscription, project memory, MCP tools) while still
+  getting the point-and-select UX.
+- **Codex passthrough** (`codex`): `codex exec --json --sandbox read-only
+--skip-git-repo-check`. Lasso passes the repository trust check itself, so Codex's own
+  check is skipped, and the read-only sandbox keeps it from writing.
+- **OpenCode passthrough** (`opencode`): `opencode run --format json --print-logs
+--log-level INFO --agent plan`. The `plan` agent is read-only; `--print-logs` is why
+  diagnostics reach the bridge, which classifies them rather than surfacing raw output.
 
-Selection is a config choice, not an either/or product decision:
+Every local agent is invoked read-only, so it can only propose a patch. Lasso writes
+nothing until the user accepts the diff. If an agent asks for approval or input, the
+child's stdin stays attached and the request is surfaced as a task-scoped overlay prompt.
+
+Availability is detected rather than configured: at bridge start Lasso runs `which` for
+`claude`, `codex`, and `opencode`, and only detected agents appear in the model picker.
+OpenCode's model list is discovered with `opencode models`.
+
+Selection happens in the overlay model picker, not in `lasso.config.json`. That file
+carries only the project `id` and local `domain`:
 
 ```json
-// lasso.config.json (before `lasso init`)
+// lasso.config.json — the only project fields
 {
-  "agent": "builtin" // | "claude-code" | "custom"
-}
-
-// lasso.config.json (after `lasso init` — id is the only project field)
-{
-  "agent": "builtin",
-  "id": "proj_3f2a9c…" // workspace-scoped; commit it so teammates share the session
+  "id": "proj_3f2a9c…", // workspace-scoped; commit it so teammates share the session
+  "domain": "my-project.lasso"
 }
 ```
 

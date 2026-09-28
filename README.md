@@ -373,51 +373,48 @@ inside the project and refuses to overwrite an existing file.
 
 ## Agent configuration
 
-Create `lasso.config.json` in your project root:
+You choose the coding agent in the overlay's model picker, not in a config file.
+`lasso.config.json` only records your project `id` and local `domain` — it has no
+agent field.
 
-```json
-{
-  "agent": "builtin"
-}
-```
+### Local CLI agents
 
-### Built-in agent
+Lasso shells out to a coding CLI installed on your machine. Each one appears as its own
+group in the model picker **only when its binary is on the `PATH` that `lasso dev`
+sees**, so install it before starting the dev server (or restart afterwards):
 
-```json
-{
-  "agent": "builtin"
-}
-```
+| Agent                                                        | Binary     | Lasso runs                                                                     |
+| ------------------------------------------------------------ | ---------- | ----------------------------------------------------------------------------- |
+| [Claude Code](https://lasso.byorello.space/docs/claude-code) | `claude`   | `claude -p … --permission-mode plan --output-format stream-json --max-turns 3` |
+| [Codex](https://lasso.byorello.space/docs/codex)             | `codex`    | `codex exec --json --sandbox read-only --skip-git-repo-check`                  |
+| [OpenCode](https://lasso.byorello.space/docs/opencode)       | `opencode` | `opencode run --format json --print-logs --agent plan`                         |
 
-Uses Lasso's built-in agent through the Anthropic SDK.
+All three run read-only, so the agent proposes a patch and never writes to your project.
+Sign each CLI in once in a real terminal; Lasso inherits the credentials it stores for
+your user.
 
-Requires:
+### Hosted agents
+
+To use a hosted model instead, set the provider and key in your shell or in the project
+`.env` before running `lasso dev`:
 
 ```bash
+export LASSO_AGENT_PROVIDER=anthropic   # or openai, google, ollama
 export ANTHROPIC_API_KEY=your_key
+export LASSO_AGENT_MODEL=...            # optional
 ```
 
-### Claude Code
+Supported keys are `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+`GOOGLE_GENERATIVE_AI_API_KEY` (or `GEMINI_API_KEY`), and `OLLAMA_BASE_URL` with
+`OLLAMA_MODEL`. If `LASSO_AGENT_PROVIDER` is unset, Lasso picks a provider from whichever
+key it finds, defaulting to `anthropic`.
 
-```json
-{
-  "agent": "claude-code"
-}
-```
+Hosted agents additionally require your Lasso key from `lasso auth login`, and the
+credentials are never written to `lasso.config.json`.
 
-Lasso can delegate the coding task to Claude Code in headless mode while keeping the same selection → context → diff → accept workflow.
+### The adapter contract
 
-### Custom agent
-
-```json
-{
-  "agent": "custom"
-}
-```
-
-Build your own adapter for another coding agent.
-
-The adapter contract is intentionally simple:
+Whichever agent runs, the contract is the same:
 
 ```text
 Lasso context
