@@ -2885,6 +2885,9 @@ export function buildStyles(): string {
     .lasso-task-badge { min-width: 18px; padding: 2px 5px; border-radius: 999px; background: var(--lo-indigo); color: #fff; font-size: 10px; text-align: center; }
     .lasso-task-close, .lasso-task-back { border: 0; background: transparent; color: var(--lo-text-3); cursor: pointer; }
     .lasso-task-close { font-size: 20px; line-height: 20px; }
+    .lasso-task-tabs { display: flex; gap: 4px; margin: 10px 0 8px; padding: 3px; border-radius: var(--lo-radius-md); background: var(--lo-surface-2); }
+    .lasso-task-tab { flex: 1; padding: 6px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--lo-text-3); font: inherit; font-size: 11px; cursor: pointer; }
+    .lasso-task-tab.active { background: var(--lo-surface); color: var(--lo-text); box-shadow: 0 1px 3px rgba(0,0,0,.16); }
     .lasso-task-body { min-height: 90px; max-height: 470px; overflow: auto; }
     .lasso-task-list { display: flex; flex-direction: column; gap: 3px; }
     .lasso-task-row { width: 100%; display: flex; align-items: center; gap: 9px; padding: 9px; border: 0; border-radius: var(--lo-radius-md); background: transparent; color: var(--lo-text); text-align: left; cursor: pointer; }
@@ -2897,6 +2900,7 @@ export function buildStyles(): string {
     .lasso-task-row-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
     .lasso-task-row-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; }
     .lasso-task-row-copy small, .lasso-task-message { color: var(--lo-text-3); font-size: 11px; }
+    .lasso-task-review-label { margin-left: auto; padding: 4px 7px; border-radius: var(--lo-radius-full); background: color-mix(in srgb, #fbbf24 16%, transparent); color: #fbbf24; font-size: 10px; font-weight: 600; cursor: pointer; }
     .lasso-task-empty { padding: 25px 10px; color: var(--lo-text-3); font-size: 12px; text-align: center; }
     .lasso-task-detail { padding: 4px 2px; }
     .lasso-task-detail-heading { justify-content: space-between; margin-bottom: 12px; }

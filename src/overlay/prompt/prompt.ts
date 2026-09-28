@@ -8,9 +8,12 @@ import { state, rememberModel } from "../state";
 import {
   appendTaskMessage,
   createAgentTask,
+  findReusableAgentTask,
   getAgentTask,
+  onAgentTaskReviewRequested,
   onAgentTaskSelected,
   recordTaskActivity,
+  selectAgentTask,
   updateAgentTask,
 } from "../tasks/tasks";
 import { requestAgentNotificationPermission } from "../notifications";
@@ -60,6 +63,9 @@ const providerIcons = {
 };
 
 function providerIcon(provider: ModelOption["provider"], active = false): string {
+  if (provider === "cli") {
+    return `<span class="${active ? "lasso-model-active-icon" : "lasso-model-item-icon"} provider-cli" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false"><circle cx="12" cy="12" r="9" fill="currentColor" opacity=".16"/><circle cx="12" cy="9" r="3" fill="currentColor"/><path d="M6.5 18c.9-2.4 2.7-3.6 5.5-3.6s4.6 1.2 5.5 3.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>`;
+  }
   const icon = providerIcons[provider];
   return `<span class="${active ? "lasso-model-active-icon" : "lasso-model-item-icon"} provider-${provider}" aria-hidden="true"><svg viewBox="0 0 ${icon.width} ${icon.height}" xmlns="http://www.w3.org/2000/svg" focusable="false">${icon.body}</svg></span>`;
 }
@@ -192,7 +198,7 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
     <div class="lasso-review-files"></div>
     <div class="lasso-review-actions">
       <button class="lasso-review-undo" type="button">Keep editing</button>
-      <button class="lasso-review-apply primary" type="button">Apply changes</button>
+      <button class="lasso-review-apply primary" type="button">Accept &amp; apply</button>
     </div>
   `;
   dom.shadow.appendChild(rev);
@@ -201,6 +207,11 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
   onAgentTaskSelected((task) => {
     if (task) restoreTaskPrompt(task);
     else resetPromptSession();
+  });
+  onAgentTaskReviewRequested((task) => {
+    state.promptTaskId = task.id;
+    state.pendingChanges = [...(task.pendingChanges.length ? task.pendingChanges : task.changes || [])];
+    showReview(state.pendingChanges, task.message);
   });
 
   // Dragging prompt card
@@ -373,6 +384,11 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
     if (!taskId || !state.bridgeSocket || state.bridgeSocket.readyState !== WebSocket.OPEN || !state.pendingChanges.length) return;
     requestAgentNotificationPermission();
     state.bridgeSocket.send(JSON.stringify({ type: "apply", taskId, changes: state.pendingChanges }));
+    updateAgentTask(taskId, {
+      status: "working",
+      message: "Applying accepted changes…",
+      activity: [...(getAgentTask(taskId)?.activity || []), "Applying accepted changes…"],
+    });
     appendChat("assistant", "Applying the reviewed change…", taskId);
   });
 
@@ -739,7 +755,7 @@ function restoreTaskPrompt(task: AgentTask): void {
   state.promptTaskId = task.id;
   state.chatHistory = [...task.messages];
   state.changesHistory = task.changesHistory.map((entry) => ({ ...entry, changes: entry.changes.map((change) => ({ ...change })) }));
-  state.pendingChanges = [...task.pendingChanges];
+  state.pendingChanges = [...(task.pendingChanges.length ? task.pendingChanges : task.changes || [])];
   state.lastInstruction = task.lastInstruction;
   state.selectionId = task.selectionId;
   state.screenshotPromise = Promise.resolve({});
@@ -770,7 +786,6 @@ function restoreTaskPrompt(task: AgentTask): void {
 
   if (promptEl) promptEl.classList.add("visible");
   setSelectMode(false);
-  if (task.status === "review" && state.pendingChanges.length) showReview(state.pendingChanges, task.message);
   setAgentStatus(task.status, task.message, task.detail, task.id, false);
   requestAnimationFrame(() => promptInput?.focus());
 }
@@ -865,6 +880,10 @@ export function cancelPrompt(reenter: boolean) {
 export async function handleSend(event: MouseEvent) {
   event.preventDefault();
   event.stopPropagation();
+  if (sendButton?.dataset.state === "review") {
+    if (state.pendingChanges.length) showReview(state.pendingChanges, "Review the proposed source changes.");
+    return;
+  }
   const selectedElement = state.selected;
   if (!selectedElement || !promptInput || !sendButton) return;
 
@@ -909,6 +928,11 @@ export async function handleSend(event: MouseEvent) {
   const selectionId = state.selectionId;
   const model = state.selectedModel;
   const screenshotPromise = state.screenshotPromise;
+  const reusableTask = findReusableAgentTask(instruction, selectedElement);
+  if (reusableTask) {
+    selectAgentTask(reusableTask.id);
+    return;
+  }
   appendChat("user", instruction);
   const messages = state.chatHistory.map((message) => ({ ...message }));
   const changesHistory = state.changesHistory.map((entry) => ({ ...entry, changes: entry.changes.map((change) => ({ ...change })) }));

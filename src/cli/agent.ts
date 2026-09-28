@@ -49,17 +49,27 @@ const ignored = new Set(["node_modules", ".git", ".next", "dist", "build", ".tur
 const sourceExtensions = /\.(tsx?|jsx?|vue|svelte|css|scss|html)$/i;
 const sourceFileCache = new Map<string, { expiresAt: number; files: string[] }>();
 
-async function sourceFiles(directory: string): Promise<string[]> {
+async function sourceFiles(directory: string, budget = { remaining: 40 }): Promise<string[]> {
+  if (budget.remaining <= 0) return [];
   const cached = sourceFileCache.get(directory);
-  if (cached && cached.expiresAt > Date.now()) return cached.files;
+  if (cached && cached.expiresAt > Date.now()) {
+    const files = cached.files.slice(0, budget.remaining);
+    budget.remaining -= files.length;
+    return files;
+  }
   const entries = await fs.readdir(directory, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries) {
     if (ignored.has(entry.name) || entry.name.startsWith(".")) continue;
     const fullPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...(await sourceFiles(fullPath)));
-    else if (sourceExtensions.test(entry.name)) files.push(fullPath);
-    if (files.length >= 40) break;
+    if (budget.remaining <= 0) break;
+    if (entry.isDirectory()) {
+      const nested = await sourceFiles(fullPath, budget);
+      files.push(...nested);
+    } else if (sourceExtensions.test(entry.name)) {
+      files.push(fullPath);
+      budget.remaining -= 1;
+    }
   }
   sourceFileCache.set(directory, { expiresAt: Date.now() + 5000, files });
   return files;
@@ -354,9 +364,106 @@ function localCommand(provider: LocalAgent, model?: string, prompt?: string): { 
     return { command: "claude", args: ["-p", prompt || "", "--output-format", "stream-json", "--verbose", "--permission-mode", "plan", "--max-turns", "3", ...(selectedModel ? ["--model", selectedModel] : [])] };
   }
   if (provider === "opencode") {
-  return { command: "opencode", args: ["run", "--format", "json", "--agent", "plan", ...(selectedModel ? ["--model", selectedModel] : []), prompt || ""] };
+    return { command: "opencode", args: ["run", "--format", "json", "--agent", "plan", ...(selectedModel ? ["--model", selectedModel] : []), prompt || ""] };
   }
   return { command: "codex", args: ["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", ...(selectedModel ? ["--model", selectedModel] : []), prompt || ""] };
+}
+
+function runLocalCommand(
+  cwd: string,
+  command: string,
+  args: string[],
+  provider: LocalAgent,
+  signal?: AbortSignal,
+  onProgress?: AgentProgress,
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const label = provider === "opencode" ? "OpenCode" : provider === "codex" ? "Codex" : "Claude Code";
+    let stdout = "";
+    let stderr = "";
+    let pendingStdout = "";
+    let pendingStderr = "";
+    let settled = false;
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      onProgress?.(`${label} did not respond; stopping this task…`);
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGKILL"), 3000).unref();
+    }, 5 * 60 * 1000);
+    timeout.unref();
+
+    const consume = (chunk: Buffer | string, stream: "stdout" | "stderr") => {
+      const value = String(chunk);
+      if (stream === "stdout") {
+        stdout += value;
+        pendingStdout += value;
+      } else {
+        stderr += value;
+        pendingStderr += value;
+      }
+      const pending = stream === "stdout" ? pendingStdout : pendingStderr;
+      const lines = pending.split(/\r?\n/);
+      const remainder = lines.pop() || "";
+      if (stream === "stdout") pendingStdout = remainder;
+      else pendingStderr = remainder;
+      for (const line of lines) {
+        const progress = progressFromLine(line, provider);
+        if (progress) onProgress?.(progress.message, progress.detail);
+        else if (stream === "stderr" && line.trim()) {
+          if (provider === "opencode" && /quota exceeded|authentication failed|invalid api key|unauthorized|forbidden/i.test(line)) {
+            onProgress?.("OpenCode · provider rejected the request; stopping this task…");
+            child.kill("SIGTERM");
+          }
+        }
+      }
+    };
+
+    child.stdout.on("data", (chunk) => consume(chunk, "stdout"));
+    child.stderr.on("data", (chunk) => consume(chunk, "stderr"));
+    child.once("spawn", () => onProgress?.(`${label} process started${child.pid ? ` · PID ${child.pid}` : ""}`));
+    const heartbeat = setInterval(() => {
+      if (!signal?.aborted) onProgress?.(`${label} is still running${child.pid ? ` · PID ${child.pid}` : ""}…`);
+    }, 15000);
+    heartbeat.unref();
+
+    const abort = () => child.kill("SIGTERM");
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
+
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      clearInterval(heartbeat);
+      signal?.removeEventListener("abort", abort);
+      reject(error);
+    });
+    child.once("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      clearInterval(heartbeat);
+      signal?.removeEventListener("abort", abort);
+      if (timedOut) {
+        reject(new Error(`${label} did not finish within 5 minutes. Check its login or approval prompt, then retry.`));
+        return;
+      }
+      const stdoutTail = pendingStdout.trim();
+      const stderrTail = pendingStderr.trim();
+      if (stdoutTail) {
+        stdout += pendingStdout;
+        const progress = progressFromLine(stdoutTail, provider);
+        if (progress) onProgress?.(progress.message, progress.detail);
+      }
+      if (stderrTail) {
+        const progress = progressFromLine(stderrTail, provider);
+        if (progress) onProgress?.(progress.message, progress.detail);
+      }
+      resolve({ stdout, stderr, exitCode: code ?? 1 });
+    });
+  });
 }
 
 async function proposeWithLocalAgent(cwd: string, instruction: string, context: string, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress) {
@@ -365,43 +472,15 @@ async function proposeWithLocalAgent(cwd: string, instruction: string, context: 
   const local = localCommand(config.provider as LocalAgent, config.model, prompt);
   const command = local.command;
   const args = local.args;
-  const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
-  let stdout = "";
-  let stderr = "";
-  let pending = "";
-  const consume = (chunk: Buffer | string) => {
-    pending += String(chunk);
-    const lines = pending.split(/\r?\n/);
-    pending = lines.pop() || "";
-    for (const line of lines) {
-      stdout += `${line}\n`;
-      const progress = progressFromLine(line, config.provider as LocalAgent);
-      if (progress) onProgress?.(progress.message, progress.detail);
-    }
-  };
-  child.stdout.on("data", consume);
-  child.stderr.on("data", (chunk: Buffer | string) => {
-    stderr += String(chunk);
-  });
-  if (signal) {
-    if (signal.aborted) child.kill("SIGTERM");
-    signal.addEventListener("abort", () => child.kill("SIGTERM"), { once: true });
-  }
-  const exitCode = await new Promise<number>((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", (code) => resolve(code ?? 1));
-  });
-  if (pending.trim()) {
-    stdout += pending;
-    const progress = progressFromLine(pending, config.provider as LocalAgent);
-    if (progress) onProgress?.(progress.message, progress.detail);
-  }
-  if (exitCode !== 0) throw new Error(localAgentError(command, stderr, exitCode));
-  return extractLocalAgentProposal(stdout, config.provider as LocalAgent);
+  const result = await runLocalCommand(cwd, command, args, config.provider as LocalAgent, signal, onProgress);
+  if (result.exitCode !== 0) throw new Error(localAgentError(command, result.stderr, result.exitCode));
+  return extractLocalAgentProposal(result.stdout, config.provider as LocalAgent);
 }
 
 export async function proposeChanges(cwd: string, input: AgentInput, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress) {
+  onProgress?.("Reading source context…");
   const context = await contextFor(cwd, input.element);
+  onProgress?.("Starting the coding agent…");
   const visualContext = input.context ? { ...input.context, screenshots: undefined } : undefined;
   const history = input.messages?.map((message) => `${message.role}: ${message.content}`).join("\n") || input.instruction;
   const priorChanges = input.changesHistory?.length ? JSON.stringify(input.changesHistory, null, 2) : "None";
@@ -468,36 +547,9 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
 
   if (config.provider === "claude-code" || config.provider === "codex" || config.provider === "opencode") {
     const local = localCommand(config.provider as LocalAgent, config.model, prompt);
-    const command = local.command;
-    const args = local.args;
-    const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
-    let output = "";
-    let pending = "";
-    let stderr = "";
-    const consume = (chunk: Buffer | string) => {
-      pending += String(chunk);
-      const lines = pending.split(/\r?\n/);
-      pending = lines.pop() || "";
-      for (const line of lines) {
-        output += `${line}\n`;
-        const progress = progressFromLine(line, config.provider as LocalAgent);
-        if (progress) onProgress?.(progress.message, progress.detail);
-      }
-    };
-    child.stdout.on("data", consume);
-    child.stderr.on("data", (chunk: Buffer | string) => { stderr += String(chunk); });
-    if (signal) signal.addEventListener("abort", () => child.kill("SIGTERM"), { once: true });
-    const code = await new Promise<number>((resolve, reject) => {
-      child.once("error", reject);
-      child.once("close", (status) => resolve(status ?? 1));
-    });
-    if (pending.trim()) {
-      output += pending;
-      const progress = progressFromLine(pending, config.provider as LocalAgent);
-      if (progress) onProgress?.(progress.message, progress.detail);
-    }
-    if (code !== 0) throw new Error(localAgentError(command, stderr, code));
-    return extractLocalAgentText(output, config.provider as LocalAgent).trim();
+    const result = await runLocalCommand(cwd, local.command, local.args, config.provider as LocalAgent, signal, onProgress);
+    if (result.exitCode !== 0) throw new Error(localAgentError(local.command, result.stderr, result.exitCode));
+    return extractLocalAgentText(result.stdout, config.provider as LocalAgent).trim();
   }
 
   const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : "claude-sonnet-4-20250514");
