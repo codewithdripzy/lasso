@@ -60,6 +60,7 @@ export async function detectLocalAgents(): Promise<Set<LocalAgent>> {
 
 const ignored = new Set(["node_modules", ".git", ".next", "dist", "build", ".turbo"]);
 const sourceExtensions = /\.(tsx?|jsx?|vue|svelte|css|scss|html)$/i;
+const layoutFiles = /^(layout|_layout|_app|app|_document|document|template|_template)\.(tsx?|jsx?)$/i;
 const sourceFileCache = new Map<string, { expiresAt: number; files: string[] }>();
 
 async function sourceFiles(directory: string, budget = { remaining: 25 }): Promise<string[]> {
@@ -72,6 +73,9 @@ async function sourceFiles(directory: string, budget = { remaining: 25 }): Promi
   }
   const entries = await fs.readdir(directory, { withFileTypes: true });
   const files: string[] = [];
+  const layoutFilesList: string[] = [];
+  const otherFiles: string[] = [];
+  
   for (const entry of entries) {
     if (ignored.has(entry.name) || entry.name.startsWith(".")) continue;
     const fullPath = path.join(directory, entry.name);
@@ -80,10 +84,18 @@ async function sourceFiles(directory: string, budget = { remaining: 25 }): Promi
       const nested = await sourceFiles(fullPath, budget);
       files.push(...nested);
     } else if (sourceExtensions.test(entry.name)) {
-      files.push(fullPath);
-      budget.remaining -= 1;
+      if (layoutFiles.test(entry.name)) {
+        layoutFilesList.push(fullPath);
+      } else {
+        otherFiles.push(fullPath);
+      }
     }
   }
+  
+  // Prioritize layout files first, then other files
+  files.push(...layoutFilesList, ...otherFiles);
+  budget.remaining -= files.length;
+  
   sourceFileCache.set(directory, { expiresAt: Date.now() + 30000, files });
   return files;
 }

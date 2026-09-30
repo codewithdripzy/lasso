@@ -1066,20 +1066,38 @@ export async function handleSend(event: MouseEvent) {
   const model = state.selectedModel;
   const screenshotPromise = state.screenshotPromise;
   const reusableTask = findReusableAgentTask(instruction, selectedElement);
+  let task: ReturnType<typeof createAgentTask> | undefined;
+  
   if (reusableTask) {
     selectAgentTask(reusableTask.id);
-    return;
+    // If the task is completed, error, or stopped, restart it
+    if (reusableTask.status === "complete" || reusableTask.status === "error" || reusableTask.status === "stopped") {
+      updateAgentTask(reusableTask.id, { status: "thinking", message: "Thinking…", activity: [...reusableTask.activity, "Restarting…"] });
+      appendChat("user", instruction);
+      resetPromptSession(selectedElement);
+      state.promptTaskId = reusableTask.id;
+      state.lastInstruction = instruction;
+      task = reusableTask;
+    } else {
+      // Task is already in progress, just select it
+      return;
+    }
+  } else {
+    appendChat("user", instruction);
+    const messages = state.chatHistory.map((message) => ({ ...message }));
+    const changesHistory = state.changesHistory.map((entry) => ({ ...entry, changes: entry.changes.map((change) => ({ ...change })) }));
+    task = createAgentTask(instruction, messages, changesHistory, selectedElement, selectionId);
+    updateAgentTask(task.id, { status: "thinking", message: "Thinking…", activity: [...task.activity, "Thinking…"] });
+    resetPromptSession(selectedElement);
+    // resetPromptSession clears the previous conversation so another prompt can
+    // start immediately; keep this request attached to the prompt surface.
+    state.promptTaskId = task.id;
+    state.lastInstruction = instruction;
   }
-  appendChat("user", instruction);
+
+  // Prepare messages and changesHistory for the bridge
   const messages = state.chatHistory.map((message) => ({ ...message }));
   const changesHistory = state.changesHistory.map((entry) => ({ ...entry, changes: entry.changes.map((change) => ({ ...change })) }));
-  const task = createAgentTask(instruction, messages, changesHistory, selectedElement, selectionId);
-  updateAgentTask(task.id, { status: "thinking", message: "Thinking…", activity: [...task.activity, "Thinking…"] });
-  resetPromptSession(selectedElement);
-  // resetPromptSession clears the previous conversation so another prompt can
-  // start immediately; keep this request attached to the prompt surface.
-  state.promptTaskId = task.id;
-  state.lastInstruction = instruction;
 
   const rect = selectedElement.getBoundingClientRect();
   const computed = getComputedStyle(selectedElement);

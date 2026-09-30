@@ -35,7 +35,6 @@ function normalizedInstruction(value: string): string {
 export function findReusableAgentTask(instruction: string, element: Element | null): AgentTask | undefined {
   const normalized = normalizedInstruction(instruction);
   return state.agentTasks.find((task) =>
-    task.status !== "complete" && task.status !== "error" && task.status !== "stopped" &&
     normalizedInstruction(task.instruction) === normalized && task.element === (element || undefined)
   );
 }
