@@ -1,5 +1,6 @@
 import { getDOM } from "../dom";
 import { state } from "../state";
+import { bridge } from "../bridge/bridge";
 import type { AgentTask, AgentTaskStatus, ChatMessage, PendingChange } from "../types";
 
 let panel: HTMLDivElement | null = null;
@@ -161,6 +162,13 @@ export function requestAgentTaskReview(id: string): void {
   notifyTaskReviewRequested(task);
 }
 
+export function stopAgentTask(id: string): void {
+  const task = getAgentTask(id);
+  if (!task) return;
+  bridge.send({ type: "stop", taskId: id });
+  updateAgentTask(id, { status: "stopped", message: "Task stopped." });
+}
+
 export function toggleTaskPanel(force?: boolean): void {
   if (!panel) return;
   panel.hidden = force === undefined ? !panel.hidden : !force;
@@ -225,7 +233,8 @@ function renderTasks(): void {
       const button = document.createElement("button");
       button.type = "button";
       button.className = `lasso-task-row${task.id === state.activeTaskId ? " active" : ""}`;
-      button.innerHTML = `<span class="lasso-task-status ${task.status}"></span><span class="lasso-task-row-copy"><strong></strong><small>${statusLabel[task.status]}</small></span>${task.status === "review" ? '<span class="lasso-task-review-label">Review</span>' : ""}`;
+      const isRunning = task.status === "queued" || task.status === "thinking" || task.status === "working";
+      button.innerHTML = `<span class="lasso-task-status ${task.status}"></span><span class="lasso-task-row-copy"><strong></strong><small>${statusLabel[task.status]}</small></span>${task.status === "review" ? '<span class="lasso-task-review-label">Review</span>' : ""}${isRunning ? '<button class="lasso-task-stop" type="button" aria-label="Stop task">×</button>' : ""}`;
       button.querySelector("strong")!.textContent = task.instruction;
       button.addEventListener("click", () => selectAgentTask(task.id));
       if (task.status === "review") {
@@ -233,6 +242,13 @@ function renderTasks(): void {
         review.addEventListener("click", (event) => {
           event.stopPropagation();
           requestAgentTaskReview(task.id);
+        });
+      }
+      if (isRunning) {
+        const stopBtn = button.querySelector<HTMLButtonElement>(".lasso-task-stop")!;
+        stopBtn.addEventListener("click", (event) => {
+          event.stopPropagation();
+          stopAgentTask(task.id);
         });
       }
       list.appendChild(button);

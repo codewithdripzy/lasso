@@ -62,7 +62,7 @@ const ignored = new Set(["node_modules", ".git", ".next", "dist", "build", ".tur
 const sourceExtensions = /\.(tsx?|jsx?|vue|svelte|css|scss|html)$/i;
 const sourceFileCache = new Map<string, { expiresAt: number; files: string[] }>();
 
-async function sourceFiles(directory: string, budget = { remaining: 40 }): Promise<string[]> {
+async function sourceFiles(directory: string, budget = { remaining: 25 }): Promise<string[]> {
   if (budget.remaining <= 0) return [];
   const cached = sourceFileCache.get(directory);
   if (cached && cached.expiresAt > Date.now()) {
@@ -84,7 +84,7 @@ async function sourceFiles(directory: string, budget = { remaining: 40 }): Promi
       budget.remaining -= 1;
     }
   }
-  sourceFileCache.set(directory, { expiresAt: Date.now() + 5000, files });
+  sourceFileCache.set(directory, { expiresAt: Date.now() + 30000, files });
   return files;
 }
 
@@ -115,7 +115,7 @@ async function contextFor(cwd: string, element: AgentInput["element"]): Promise<
     try {
       const content = await fs.readFile(file, "utf8");
       if (!needle || (sourceFile && file.endsWith(sourceFile)) || content.includes(needle) || content.includes(element.label)) {
-        return `FILE: ${path.relative(cwd, file)}\n${content.slice(0, 8000)}`;
+        return `FILE: ${path.relative(cwd, file)}\n${content.slice(0, 6000)}`;
       }
     } catch {
       // A file can disappear while a dev server is rebuilding; skip it.
@@ -123,7 +123,7 @@ async function contextFor(cwd: string, element: AgentInput["element"]): Promise<
     return null;
   }));
   for (const result of results) {
-    if (result && snippets.length < 6) snippets.push(result);
+    if (result && snippets.length < 4) snippets.push(result);
   }
   return snippets.join("\n\n---\n\n");
 }

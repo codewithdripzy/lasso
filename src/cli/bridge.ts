@@ -154,7 +154,19 @@ function proposalMatchesCurrentSource(cwd: string, changes: SourceChange[]): boo
   try {
     for (const change of changes) {
       const filePath = resolveProposedFile(cwd, change.filePath);
-      prepareChange(fs.readFileSync(filePath, "utf8"), change);
+      const content = fs.readFileSync(filePath, "utf8");
+      // Try exact match first
+      try {
+        prepareChange(content, change);
+      } catch {
+        // If exact match fails, try with normalized whitespace
+        const normalizedContent = content.replace(/\s+/g, " ").trim();
+        const normalizedOldString = change.oldString.replace(/\s+/g, " ").trim();
+        const normalizedNewString = change.newString.replace(/\s+/g, " ").trim();
+        if (!normalizedContent.includes(normalizedOldString)) {
+          throw new Error("Source content does not match proposed change (even with normalized whitespace)");
+        }
+      }
     }
     return true;
   } catch {
@@ -356,11 +368,16 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
           if (controller.signal.aborted || socket.readyState !== socket.OPEN) return;
           if (!proposalMatchesCurrentSource(cwd, proposal.changes)) {
             const refreshAttempts = reviewRefreshAttempts.get(request.taskId) || 0;
-            if (refreshAttempts < 1) {
+            const MAX_REFRESH_ATTEMPTS = 3;
+            if (refreshAttempts < MAX_REFRESH_ATTEMPTS) {
               reviewRefreshAttempts.set(request.taskId, refreshAttempts + 1);
-              runEditReview(request, config, "The source changed while the proposal was being prepared. Refreshing the review…");
+              setTimeout(() => {
+                if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
+                  runEditReview(request, config, `The source changed while the proposal was being prepared. Refreshing the review… (${refreshAttempts + 1}/${MAX_REFRESH_ATTEMPTS})`);
+                }
+              }, 500 * (refreshAttempts + 1));
             } else {
-              socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "error", message: "The source is still changing. Stop the dev-server edit or try the request again." }));
+              socket.send(JSON.stringify({ type: "agent_status", taskId: request.taskId, status: "error", message: "The source is still changing after multiple refresh attempts. Stop the dev-server edit or try the request again." }));
             }
             return;
           }

@@ -44,6 +44,17 @@ export function initErrorListeners() {
   });
 }
 
+export function send(message: any) {
+  if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
+    state.bridgeSocket.send(JSON.stringify(message));
+  }
+}
+
+export const bridge = {
+  send,
+  connect: connectBridge,
+};
+
 export function connectBridge() {
   try {
     // The bridge is intentionally a loopback-only plain WebSocket server.
