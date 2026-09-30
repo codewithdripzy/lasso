@@ -104,6 +104,13 @@ async function contextFor(cwd: string, element: AgentInput["element"]): Promise<
   const needle = element.label.replace(/^[^.#]+[.#]?/, "");
   const hintedPath = element.sourceHint?.split(":")[0];
   const sourceFile = hintedPath ? path.basename(hintedPath) : "";
+  
+  // Extract unique class names and attributes from the element for better matching
+  const classMatches = element.html?.match(/class="([^"]+)"/);
+  const classNames = classMatches ? classMatches[1].split(/\s+/).filter((c: string) => c.length > 3) : [];
+  const hrefMatch = element.html?.match(/href="([^"]+)"/);
+  const href = hrefMatch ? hrefMatch[1] : "";
+  
   if (hintedPath) {
     const candidates = [
       path.isAbsolute(hintedPath) ? hintedPath : path.resolve(cwd, hintedPath),
@@ -121,22 +128,50 @@ async function contextFor(cwd: string, element: AgentInput["element"]): Promise<
       }
     }
   }
+  
   const files = await sourceFiles(cwd);
   const snippets: string[] = [];
+  const scoredFiles: Array<{ file: string; score: number; content: string }> = [];
+  
   const results = await Promise.all(files.map(async (file) => {
     try {
       const content = await fs.readFile(file, "utf8");
-      if (!needle || (sourceFile && file.endsWith(sourceFile)) || content.includes(needle) || content.includes(element.label)) {
-        return `FILE: ${path.relative(cwd, file)}\n${content.slice(0, 6000)}`;
+      let score = 0;
+      
+      // Score files based on relevance
+      if (sourceFile && file.endsWith(sourceFile)) score += 10;
+      if (content.includes(needle)) score += 5;
+      if (content.includes(element.label)) score += 5;
+      if (href && content.includes(href)) score += 8;
+      
+      // Check for class name matches
+      for (const className of classNames) {
+        if (content.includes(className)) score += 3;
+      }
+      
+      // Boost score for component files
+      if (file.includes("component") || file.includes("nav") || file.includes("header") || file.includes("layout")) {
+        score += 2;
+      }
+      
+      if (score > 0) {
+        return { file, score, content };
       }
     } catch {
       // A file can disappear while a dev server is rebuilding; skip it.
     }
     return null;
   }));
-  for (const result of results) {
-    if (result && snippets.length < 4) snippets.push(result);
+  
+  // Sort by score and take top files
+  const sortedResults = results.filter((r): r is NonNullable<typeof r> => r !== null).sort((a, b) => b.score - a.score);
+  
+  for (const result of sortedResults) {
+    if (snippets.length < 8) {
+      snippets.push(`FILE: ${path.relative(cwd, result.file)}\n${result.content.slice(0, 6000)}`);
+    }
   }
+  
   return snippets.join("\n\n---\n\n");
 }
 
