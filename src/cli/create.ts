@@ -88,8 +88,9 @@ async function runCreateCommand(
 
         if (framework === "next") {
             const tsFlag = typescript ? "--ts" : "--js";
+            const pmFlag = packageManager === "pnpm" ? "--use-pnpm" : packageManager === "yarn" ? "--use-yarn" : "--use-npm";
             command = "npx";
-            args = ["create-next-app@latest", projectName, tsFlag, "--tailwind", "--eslint", "--app", "--src-dir", "--import-alias", "@/*", "--no-git"];
+            args = ["create-next-app@latest", projectName, tsFlag, "--tailwind", "--eslint", "--app", "--src-dir", "--import-alias", "@/*", "--no-git", pmFlag];
         } else if (framework === "react") {
             command = "npx";
             args = ["create-react-app@latest", projectName, ...(typescript ? ["--template", "typescript"] : [])];
@@ -198,16 +199,17 @@ export async function createProject(options: CreateOptions): Promise<CreateResul
 
     if (!packageManager) {
         const detected = await detectPackageManager();
+        const choices = [
+            { title: "pnpm", value: "pnpm" },
+            { title: "npm", value: "npm" },
+            { title: "yarn", value: "yarn" },
+        ];
         const response = await prompts({
             type: "select",
             name: "packageManager",
             message: "Package manager:",
-            choices: [
-                { title: "pnpm", value: "pnpm" },
-                { title: "npm", value: "npm" },
-                { title: "yarn", value: "yarn" },
-            ],
-            initial: detected,
+            choices,
+            initial: Math.max(0, choices.findIndex((c) => c.value === detected)),
         });
         packageManager = response.packageManager as PackageManager;
     }
