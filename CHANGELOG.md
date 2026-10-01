@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **One-shot mode with global command bar**: Press ⌘K to open a command interface
+  anywhere in your app. Describe what you want to build (e.g., "Build a complete billing
+  system with invoices and payment tracking") and Lasso will plan, execute, and
+  validate the changes automatically. The agent runs through understand → plan →
+  execute → validate, with real-time progress visibility.
+- **`lasso create` command**: Create brand-new Lasso projects with framework scaffolding.
+  Supports Next.js, React, Vue, Svelte, and Solid with TypeScript and package manager
+  selection. Optionally describe your app during creation to trigger one-shot mode
+  automatically.
+- **`lasso doctor` command**: Diagnose configuration and integration problems.
+  Checks for `lasso.config.json`, API key configuration, framework detection, and
+  package.json presence.
+- **Scope management**: One-shot mode supports project-level (broad changes across
+  entire codebase) and component-level (targeted changes) scopes to prevent agents
+  from wandering through unrelated files.
 - **Agent task workflow**: concurrent prompts now appear in In progress and
   Completed tabs. Review-ready tasks expose a Review action, and accepted changes
   move the task to Completed.

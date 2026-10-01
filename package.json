@@ -1,6 +1,6 @@
 {
   "name": "@lasso-ai/cli",
-  "version": "1.1.6",
+  "version": "1.2.0",
   "description": "Select any part of your running app, describe a change, and let AI edit the real source code.",
   "type": "commonjs",
   "main": "dist/cli/index.js",
@@ -81,6 +81,7 @@
     "commander": "^15.0.0",
     "http-proxy": "^1.18.1",
     "open": "^11.0.4",
+    "prompts": "^2.4.2",
     "socket.io-client": "^4.8.3",
     "vite": "^7.0.0",
     "ws": "^8.21.3"
@@ -96,6 +97,7 @@
   "devDependencies": {
     "@types/http-proxy": "^1.17.17",
     "@types/node": "^26.6.1",
+    "@types/prompts": "^2.4.9",
     "@types/ws": "^8.5.13",
     "esbuild": "^0.24.0",
     "html2canvas": "^1.4.1",

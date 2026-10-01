@@ -9,8 +9,8 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 const PUBLIC_PORT = 3000; // what the user opens in the browser
 const INTERNAL_PORT = 3055; // where the real `next dev` actually runs
 
-function serveOverlayBundle(res: ServerResponse) {
-    const bundlePath = resolve(process.cwd(), "node_modules/lasso/dist/overlay.js");
+function serveOverlayBundle(res: ServerResponse, cwd: string) {
+    const bundlePath = resolve(cwd, "node_modules/lasso/dist/overlay.js");
     // when running from within the Lasso repo itself (not yet published),
     // this resolves relative to Lasso's own dist folder instead — adjust
     // the path to point at your actual dist/overlay.js location for now.
@@ -60,7 +60,7 @@ export async function startNextServer(
     //    proxy everything else through to Next
     const server = http.createServer((req: IncomingMessage, res: ServerResponse) => {
         if (req.url === "/__lasso/overlay.js") {
-            serveOverlayBundle(res);
+            serveOverlayBundle(res, cwd);
             return;
         }
 

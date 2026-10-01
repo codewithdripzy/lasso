@@ -32,7 +32,8 @@ export type BridgeMessage =
   | { type: "git_commit"; message: string }
   | { type: "git_push" }
   | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string }
-  | { type: "transcribe"; requestId: string; audio: string; mimeType?: string; language?: string };
+  | { type: "transcribe"; requestId: string; audio: string; mimeType?: string; language?: string }
+  | { type: "oneshot"; prompt: string; scope: "project" | "component"; model?: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "cli" };
 
 type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" | "cli" };
 type PageEntry = { name: string; path: string; type: "directory" | "file" };
@@ -598,6 +599,53 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
             error: error instanceof Error ? error.message : "Failed to contact transcription service",
           }));
         }
+      } else if (msg.type === "oneshot") {
+        console.log("[lasso] one-shot request:", msg.prompt, msg.scope);
+        
+        if (!lassoKeyConfigured && !agentConfig) {
+          socket.send(JSON.stringify({ type: "agent_status", status: "error", message: "Set your Lasso API key or configure an AI provider before using one-shot mode." }));
+          return;
+        }
+
+        const localProvider = msg.provider === "cli";
+        const cliProvider = msg.model?.startsWith("claude-code:") ? "claude-code" : msg.model?.startsWith("opencode:") ? "opencode" : "codex";
+        
+        const selectedConfig: AgentConfig = localProvider
+          ? { provider: cliProvider, model: msg.model || "claude-code:sonnet" }
+          : { ...agentConfig!, provider: (msg.provider || agentConfig!.provider) as AgentConfig["provider"], model: msg.model || agentConfig!.model };
+
+        const taskId = `oneshot-${Date.now()}`;
+        const controller = new AbortController();
+        taskControllers.set(taskId, controller);
+
+        socket.send(JSON.stringify({ type: "agent_status", taskId, status: "thinking", message: "Planning your request..." }));
+
+        // Import the one-shot agent function
+        const { runOneShotAgent } = await import("./oneshot.js");
+        
+        runOneShotAgent(cwd, msg.prompt, msg.scope, selectedConfig, controller.signal, (status: "thinking" | "working" | "review" | "error" | "stopped", message: string, detail?: string) => {
+          if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
+            socket.send(JSON.stringify({ type: "agent_status", taskId, status, message, detail }));
+          }
+        }, (prompt: { question: string; options?: string[] }) => {
+          if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
+            socket.send(JSON.stringify({ type: "agent_prompt", taskId, prompt }));
+          }
+        }).then((result: { ok: boolean; summary?: string; changes?: SourceChange[]; error?: string }) => {
+          if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
+            if (result.ok) {
+              socket.send(JSON.stringify({ type: "agent_status", taskId, status: "review", message: result.summary, changes: result.changes }));
+            } else {
+              socket.send(JSON.stringify({ type: "agent_status", taskId, status: "error", message: result.error || "One-shot agent failed" }));
+            }
+          }
+        }).catch((error: unknown) => {
+          if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
+            socket.send(JSON.stringify({ type: "agent_status", taskId, status: "error", message: error instanceof Error ? error.message : "One-shot agent encountered an error" }));
+          }
+        }).finally(() => {
+          if (taskControllers.get(taskId) === controller) taskControllers.delete(taskId);
+        });
       } else if (msg.type === "apply") {
         try {
           const snapshots: Array<{ filePath: string; content: string }> = [];

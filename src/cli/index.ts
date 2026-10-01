@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import os from "node:os";
 import path from "node:path";
+import fs from "node:fs";
 import chalk from "chalk";
 import { Command } from "commander";
 import { restartBridge, startBridge } from "./bridge";
@@ -15,6 +16,7 @@ import { spawnDaemon, daemonStatus, stopDaemon, enableAutoStart, disableAutoStar
 import { listHostProjects, registerWithHost, restartHostProject, unregisterFromHost } from "./host/client";
 import { loadRegistry, findByDirectory, generateUniqueDomain, validateDomain } from "./host/registry";
 import { ensureNextAllowedDevOrigin } from "./next-config";
+import { createProject } from "./create";
 import packageJson from "../../package.json";
 
 const VERSION = packageJson.version;
@@ -81,6 +83,18 @@ program.command("init")
         console.log("")
         console.log(chalk.dim(`Created:`));
         console.log(chalk.dim(`  ${LASSO_CONFIG_FILE} — commit it so teammates share this project.`));
+    });
+
+// prettier-ignore
+program.command("create [name]")
+    .description("Create a brand-new Lasso project with a framework scaffold")
+    .option("--prompt <prompt>", "Describe your app for one-shot building")
+    .action(async (name: string | undefined, options: { prompt?: string }) => {
+        const result = await createProject({ name, prompt: options.prompt });
+        if (!result.ok) {
+            console.error(chalk.red("✗") + ` ${result.error}`);
+            process.exit(1);
+        }
     });
 
 // prettier-ignore
@@ -364,6 +378,57 @@ auth.command("logout").description("Remove the Lasso credential from this machin
     authLogout();
     console.log(chalk.green("✓") + " Signed out. Revoke the key from the dashboard if you no longer need it.");
 });
+
+// prettier-ignore
+program.command("doctor")
+    .description("Diagnose configuration and integration problems")
+    .action(async () => {
+        const cwd = process.cwd();
+        console.log(chalk.bold("Lasso Doctor"));
+        console.log("");
+
+        // Check for lasso.config.json
+        const configPath = path.join(cwd, LASSO_CONFIG_FILE);
+        if (fs.existsSync(configPath)) {
+            console.log(chalk.green("✓") + ` ${LASSO_CONFIG_FILE} exists`);
+            try {
+                const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+                console.log(chalk.dim(`  Project ID: ${config.id}`));
+                if (config.domain) console.log(chalk.dim(`  Domain: ${config.domain}`));
+            } catch {
+                console.log(chalk.red("✗") + ` ${LASSO_CONFIG_FILE} is invalid`);
+            }
+        } else {
+            console.log(chalk.yellow("!") + ` ${LASSO_CONFIG_FILE} not found. Run ${chalk.cyan("lasso init")} to create it.`);
+        }
+
+        // Check for API key
+        const credentials = loadCredentials();
+        if (credentials) {
+            console.log(chalk.green("✓") + " Lasso API key configured");
+        } else {
+            console.log(chalk.yellow("!") + " No Lasso API key found. Run " + chalk.cyan("lasso auth login"));
+        }
+
+        // Check framework
+        const framework = detectFramework(cwd);
+        if (framework !== "unknown") {
+            console.log(chalk.green("✓") + ` Detected framework: ${framework}`);
+        } else {
+            console.log(chalk.yellow("!") + " Could not detect a supported framework");
+        }
+
+        // Check package.json
+        const pkgPath = path.join(cwd, "package.json");
+        if (fs.existsSync(pkgPath)) {
+            console.log(chalk.green("✓") + " package.json exists");
+        } else {
+            console.log(chalk.red("✗") + " package.json not found");
+        }
+
+        console.log("");
+        console.log(chalk.dim("Run ") + chalk.cyan("lasso dev") + chalk.dim(" to start development with Lasso."));
+    });
 
 // prettier-ignore
 program.command("dev", { isDefault: true }).description("Start your dev server with the Lasso overlay attached").action(async () => {

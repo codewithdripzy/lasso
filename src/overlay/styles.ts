@@ -3047,6 +3047,252 @@ export function buildStyles(): string {
     .lasso-agent-prompt-actions button { padding: 7px 13px; border: 0; border-radius: var(--lo-radius-full); background: var(--lo-surface-2); color: var(--lo-text); font: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer; transition: filter 120ms, transform 120ms; }
     .lasso-agent-prompt-actions button:hover { filter: brightness(1.12); }
     .lasso-agent-prompt-actions button:active { transform: scale(0.97); }
+
+    /* ==========================================================
+       COMMAND BAR (One-Shot Build Mode)
+       ========================================================== */
+
+    .lasso-command-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: rgba(8, 9, 11, 0.6);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      pointer-events: auto;
+    }
+
+    .lasso-command-backdrop[hidden] {
+      display: none;
+    }
+
+    .lasso-command-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 101;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      pointer-events: none;
+    }
+
+    .lasso-command-bar[hidden] {
+      display: none;
+    }
+
+    .lasso-command-card {
+      width: min(600px, calc(100vw - 48px));
+      max-height: calc(100vh - 48px);
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      border: 1px solid var(--lo-border);
+      border-radius: var(--lo-radius-xl);
+      background: rgba(24, 25, 29, 0.98);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      color: var(--lo-text);
+      box-shadow: 0 24px 56px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08);
+      pointer-events: auto;
+      animation: lasso-command-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes lasso-command-in {
+      from {
+        opacity: 0;
+        transform: translateY(12px) scale(0.98);
+      }
+      to {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    .lasso-command-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .lasso-command-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .lasso-command-brand-logo {
+      width: 28px;
+      height: 28px;
+    }
+
+    .lasso-command-brand-title {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    .lasso-command-close {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: var(--lo-radius-md);
+      background: transparent;
+      color: var(--lo-text-3);
+      cursor: pointer;
+      transition: background 120ms ease, color 120ms ease;
+    }
+
+    .lasso-command-close:hover {
+      background: var(--lo-surface-hover);
+      color: var(--lo-text);
+    }
+
+    .lasso-command-body {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .lasso-command-input {
+      width: 100%;
+      min-height: 80px;
+      padding: 12px 14px;
+      border: 1px solid var(--lo-border);
+      border-radius: var(--lo-radius-lg);
+      background: var(--lo-surface-2);
+      color: var(--lo-text);
+      font-family: inherit;
+      font-size: 13px;
+      line-height: 1.5;
+      resize: none;
+      outline: none;
+      transition: border-color 140ms ease, box-shadow 140ms ease;
+    }
+
+    .lasso-command-input:focus {
+      border-color: var(--lo-primary);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--lo-primary) 16%, transparent);
+    }
+
+    .lasso-command-input::placeholder {
+      color: var(--lo-text-3);
+    }
+
+    .lasso-command-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .lasso-command-icon-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .lasso-command-voice {
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: var(--lo-radius-md);
+      background: transparent;
+      color: var(--lo-text-3);
+      cursor: pointer;
+      transition: background 120ms ease, color 120ms ease;
+    }
+
+    .lasso-command-voice:hover {
+      background: var(--lo-surface-hover);
+      color: var(--lo-text);
+    }
+
+    .lasso-command-voice.recording {
+      color: #ea4335 !important;
+      background: rgba(234, 67, 53, 0.16) !important;
+      border: 1px solid rgba(234, 67, 53, 0.45) !important;
+      animation: lasso-pulse-recording 1.2s infinite ease-in-out;
+    }
+
+    .lasso-command-voice.transcribing {
+      color: #fbbc04 !important;
+      background: rgba(251, 188, 4, 0.16) !important;
+      border: 1px solid rgba(251, 188, 4, 0.45) !important;
+      animation: lasso-pulse-transcribing 0.9s infinite alternate ease-in-out;
+    }
+
+    .lasso-command-submit {
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 20px;
+      border: 0;
+      border-radius: var(--lo-radius-full);
+      background: var(--lo-primary);
+      color: #111214;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 140ms ease;
+    }
+
+    .lasso-command-submit:hover {
+      background: var(--lo-primary-hover);
+      transform: translateY(-1px);
+    }
+
+    .lasso-command-submit:active {
+      transform: scale(0.96);
+    }
+
+    .lasso-command-submit.primary {
+      background: var(--lo-primary);
+    }
+
+    .lasso-command-shortcuts {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding-top: 8px;
+      border-top: 1px solid var(--lo-border-subtle);
+    }
+
+    .lasso-command-shortcut {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--lo-text-3);
+      font-size: 11px;
+    }
+
+    .lasso-command-shortcut kbd {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 5px;
+      border: 1px solid var(--lo-border-subtle);
+      border-radius: 4px;
+      background: var(--lo-surface-2);
+      font-family: var(--lo-font-mono);
+      font-size: 10px;
+      font-weight: 500;
+    }
     .lasso-agent-prompt-actions button.primary { background: var(--lo-primary); color: #111214; font-weight: 600; }
 
     .lasso-todo-header {

@@ -31,6 +31,7 @@ import { connectBridge, initErrorListeners } from "./bridge/bridge";
 import { initCollabPagehide, sendPresenceUpdate, initCursorTracking } from "./collab/socket";
 import { renderRemoteBoxes } from "./collab/presence";
 import { updateLockChip } from "./collab/locks";
+import { buildCommandBar, openCommandBar, closeCommandBar, isCommandBarOpen } from "./commandbar/commandbar";
 
 console.log("[lasso] overlay initializing");
 
@@ -55,6 +56,7 @@ export function init() {
   buildPagePanel();
   buildPrompt();
   buildDrag();
+  buildCommandBar();
 
   // Connect local bridge & collab
   initErrorListeners();
@@ -136,9 +138,26 @@ export function init() {
     true
   );
 
-  // Keyboard shortcut listener (Escape to cancel)
+  // Keyboard shortcut listener (Escape to cancel, ⌘K for command bar)
   document.addEventListener("keydown", (event) => {
+    // ⌘K to open command bar
+    if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (isCommandBarOpen()) {
+        closeCommandBar();
+      } else {
+        openCommandBar();
+      }
+      return;
+    }
+
     if (event.key !== "Escape") return;
+
+    if (isCommandBarOpen()) {
+      closeCommandBar();
+      return;
+    }
 
     if (isPinComposeOpen()) {
       closePinCompose();

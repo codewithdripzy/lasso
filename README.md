@@ -78,6 +78,25 @@ Lasso works differently.
 
 ## Features
 
+### Two interaction modes
+
+Lasso now supports two equally powerful ways to build:
+
+**Visual Mode** (point-and-select)
+- Select a component in your running app
+- Describe the change you want
+- Review the diff
+- Accept to apply
+
+**One-Shot Mode** (⌘K command bar)
+- Press ⌘K anywhere to open the command bar
+- Describe what you want to build (e.g., "Build a complete billing system")
+- Lasso plans, executes, and validates automatically
+- Real-time progress visibility as the agent works
+
+These modes work together naturally: use one-shot to generate large features, then
+visual mode to refine specific parts.
+
 ### Visual selection
 
 Turn on Lasso Mode and interact with your application normally.
@@ -86,6 +105,17 @@ Turn on Lasso Mode and interact with your application normally.
 - Lasso-drag across multiple elements
 - Hover to see what will be selected
 - Select empty space to insert new UI
+
+### One-shot agent
+
+The one-shot agent follows a plan-execute-validate loop:
+
+1. **Understand**: Analyzes project structure, framework, and dependencies
+2. **Plan**: Generates execution steps (install, create, modify, delete, command)
+3. **Execute**: Runs each step with real-time progress updates
+4. **Validate**: Runs typecheck and build to verify changes
+
+Progress is visible throughout: "Step 1/5: Creating auth configuration", "Step 2/5: Adding login page", etc.
 
 ### Overlay toolbars
 
@@ -332,6 +362,33 @@ To enable team realtime collaboration, first run `lasso init` (once per repo)
 and set `LASSO_API_KEY` — see [Team collaboration](#team-collaboration-realtime) above.
 
 Your existing configuration files are **not modified**.
+
+### 2a. Create a new project
+
+Starting from scratch? Lasso can scaffold a new project for you:
+
+```bash
+lasso create my-app
+```
+
+You'll be prompted to choose:
+- Framework (Next.js, React, Vue, Svelte, Solid)
+- TypeScript preference
+- Package manager (pnpm, npm, yarn)
+
+Lasso then:
+- Creates the application scaffold
+- Installs dependencies
+- Connects Lasso automatically
+- Registers the project
+
+Optionally describe your app during creation to trigger one-shot mode:
+
+```bash
+lasso create my-app --prompt "A SaaS dashboard for managing customer invoices with billing and analytics"
+```
+
+Or describe it interactively after the scaffold is complete.
 
 ### 3. Select something
 

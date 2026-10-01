@@ -11,7 +11,7 @@ import { createRequire } from "node:module";
 // alert("Lasso overlay injected successfully!");
 // `;
 
-function lassoInjectPlugin(bridgePort = 3056) {
+function lassoInjectPlugin(bridgePort = 3056, cwd: string) {
   return {
     name: "lasso-inject",
     transformIndexHtml(html: string) {
@@ -19,7 +19,7 @@ function lassoInjectPlugin(bridgePort = 3056) {
     },
     configureServer(server: ViteDevServer) {
       server.middlewares.use("/__lasso/overlay.js", (req, res) => {
-        const bundlePath = resolve(process.cwd(), "node_modules/lasso/dist/overlay.js");
+        const bundlePath = resolve(cwd, "node_modules/lasso/dist/overlay.js");
         res.setHeader("Content-Type", "application/javascript");
         res.end(readFileSync(bundlePath, "utf-8"));
       });
@@ -43,7 +43,7 @@ export async function startViteServer(cwd: string) {
   const server = await createServer({
     root: cwd,
     server: { open: false },
-    plugins: [lassoInjectPlugin()],
+    plugins: [lassoInjectPlugin(3056, cwd)],
   });
 
   await server.listen();
