@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **One-shot mode as sidebar panel**: Changed one-shot mode from a centered modal to a right-side sidebar panel that only appears during one-shot mode. When users exit one-shot mode, they return to the normal edit mode with just the toolbar. This provides a cleaner, more integrated experience similar to modern AI editors.
+- **Mini toolbar positioning**: Adjusted the mini toolbar position to `left: calc(50% + 140px)` (reduced from 280px) to reduce overlap with the main toolbar. Added smooth transition and centered positioning when the main toolbar is dismissed. Mini toolbar is now hidden when one-shot sidebar is open to avoid UI clutter.
 
 ### Added
 

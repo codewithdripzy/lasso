@@ -63,7 +63,7 @@ export function buildStyles(): string {
 
     .lasso-toolbar-mini {
       position: fixed;
-      left: calc(50% + 280px);
+      left: calc(50% + 140px);
       bottom: 24px;
       display: inline-flex;
       align-items: center;
@@ -77,8 +77,21 @@ export function buildStyles(): string {
       -webkit-backdrop-filter: blur(20px);
       pointer-events: auto;
       z-index: 10;
+      transition: left 200ms ease, opacity 200ms ease;
     }
+
+    .lasso-toolbar.dismissed + .lasso-toolbar-mini {
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
     .lasso-toolbar-mini.dismissed { display: none; }
+
+    /* Hide mini toolbar when one-shot sidebar is open */
+    .lasso-command-sidebar:not([hidden]) ~ .lasso-toolbar-mini {
+      opacity: 0;
+      pointer-events: none;
+    }
     .lasso-new-page-btn {
       display: inline-flex;
       align-items: center;
