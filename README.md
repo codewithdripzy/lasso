@@ -200,7 +200,7 @@ Use:
 
 Your selection and project context stay inside the Lasso pipeline while the actual coding agent can be swapped independently.
 
-When installed, Lasso automatically detects the `claude`, `codex`, and
+When installed, Lasso automatically detects the `claude`, `codex`, `cursor`, and
 `opencode` commands on your PATH and adds the available local agents to the
 prompt model menu. Local agents run in read-only/planning mode and return a
 reviewable proposal; Lasso remains the only process that writes accepted
@@ -444,9 +444,10 @@ sees**, so install it before starting the dev server (or restart afterwards):
 | ------------------------------------------------------------ | ---------- | ----------------------------------------------------------------------------- |
 | [Claude Code](https://lasso.byorello.space/docs/claude-code) | `claude`   | `claude -p … --permission-mode plan --output-format stream-json --max-turns 3` |
 | [Codex](https://lasso.byorello.space/docs/codex)             | `codex`    | `codex exec --json --sandbox read-only --skip-git-repo-check`                  |
+| [Cursor](https://lasso.byorello.space/docs/cursor)           | `cursor`   | `cursor agent run --non-interactive --model "<model>"`                         |
 | [OpenCode](https://lasso.byorello.space/docs/opencode)       | `opencode` | `opencode run --format json --print-logs --agent plan`                         |
 
-All three run read-only, so the agent proposes a patch and never writes to your project.
+All four run read-only, so the agent proposes a patch and never writes to your project.
 Sign each CLI in once in a real terminal; Lasso inherits the credentials it stores for
 your user.
 
