@@ -22,13 +22,13 @@ type AgentInput = {
 };
 
 export type AgentConfig = {
-  provider: "anthropic" | "openai" | "google" | "ollama" | "claude-code" | "codex" | "opencode";
+  provider: "anthropic" | "openai" | "google" | "ollama" | "claude-code" | "codex" | "opencode" | "cursor";
   apiKey?: string;
   model?: string;
   baseUrl?: string;
 };
 
-export type LocalAgent = "claude-code" | "codex" | "opencode";
+export type LocalAgent = "claude-code" | "codex" | "opencode" | "cursor";
 export type AgentProgressLevel = "working" | "error";
 export type AgentProgress = (message: string, detail?: string, level?: AgentProgressLevel) => void;
 export type AgentPrompt = { message: string; kind: "permission" | "input"; options?: string[] };
@@ -47,7 +47,7 @@ export function respondToAgentPrompt(taskId: string, value: string): boolean {
 
 export async function detectLocalAgents(): Promise<Set<LocalAgent>> {
   const found = new Set<LocalAgent>();
-  for (const [name, command] of [["claude-code", "claude"], ["codex", "codex"], ["opencode", "opencode"]] as const) {
+  for (const [name, command] of [["claude-code", "claude"], ["codex", "codex"], ["opencode", "opencode"], ["cursor", "cursor"]] as const) {
     try {
       await execFileAsync(process.platform === "win32" ? "where.exe" : "which", [command]);
       found.add(name);
@@ -245,6 +245,28 @@ function extractLocalAgentText(raw: string, provider: LocalAgent): string {
     return results.at(-1) || raw;
   }
 
+  if (provider === "cursor") {
+    // Cursor uses similar output format to claude-code
+    try {
+      const payload = JSON.parse(raw) as { result?: string };
+      if (payload.result) return payload.result;
+    } catch {
+      // Stream-json output is handled below.
+    }
+    const results: string[] = [];
+    for (const line of raw.split(/\r?\n/)) {
+      try {
+        const event = JSON.parse(line) as Record<string, unknown>;
+        if (typeof event.result === "string") results.push(event.result);
+        const message = event.message as { content?: Array<{ type?: string; text?: string }> } | undefined;
+        for (const part of message?.content || []) if (part.type === "text" && part.text) results.push(part.text);
+      } catch {
+        // Ignore progress lines that are not JSON.
+      }
+    }
+    return results.at(-1) || raw;
+  }
+
   const texts: string[] = [];
   for (const line of raw.split(/\r?\n/)) {
     try {
@@ -303,7 +325,7 @@ function extractLocalAgentProposal(raw: string, provider: LocalAgent): { summary
       const event = JSON.parse(line) as Record<string, any>;
       const item = event.item as Record<string, any> | undefined;
       const part = event.part as Record<string, any> | undefined;
-      const values = provider === "claude-code"
+      const values = provider === "claude-code" || provider === "cursor"
         ? [event.result, ...((event.message?.content || []) as Array<Record<string, any>>).map((entry) => entry.text)]
         : provider === "opencode"
           ? [...collectTextFields(event), part?.type === "text" ? part.text : undefined]
@@ -340,7 +362,7 @@ function extractLocalAgentProposal(raw: string, provider: LocalAgent): { summary
       // Keep looking; this output may only be a progress or tool event.
     }
   }
-  throw new Error(`${provider === "opencode" ? "OpenCode" : "The agent"} did not return a reviewable proposal. It produced progress/tool events but no final JSON containing file changes.`);
+  throw new Error(`${provider === "opencode" ? "OpenCode" : provider === "cursor" ? "Cursor" : "The agent"} did not return a reviewable proposal. It produced progress/tool events but no final JSON containing file changes.`);
 }
 
 function snippet(value: unknown, max = 80): string {
@@ -429,8 +451,9 @@ function progressFromLine(raw: string, provider: LocalAgent): AgentProgressEvent
     const event = JSON.parse(raw) as Record<string, any>;
     const item = event.item as Record<string, any> | undefined;
 
-    if (provider === "claude-code") {
-      if (event.type === "system") return progressEvent("Claude Code connected");
+    if (provider === "claude-code" || provider === "cursor") {
+      const agentName = provider === "cursor" ? "Cursor" : "Claude Code";
+      if (event.type === "system") return progressEvent(`${agentName} connected`);
 
       // tool_use blocks inside assistant messages
       const toolBlock = event.message?.content?.find?.((p: any) => p.type === "tool_use");
@@ -441,8 +464,8 @@ function progressFromLine(raw: string, provider: LocalAgent): AgentProgressEvent
           inp?.file_path ?? inp?.path ?? inp?.command ?? inp?.query ?? inp?.url ?? "";
         return progressEvent(
           detail
-            ? `Claude Code · ${toolName}  ${snippet(detail)}`
-            : `Claude Code · ${toolName}`,
+            ? `${agentName} · ${toolName}  ${snippet(detail)}`
+            : `${agentName} · ${toolName}`,
           detail,
         );
       }
@@ -450,7 +473,7 @@ function progressFromLine(raw: string, provider: LocalAgent): AgentProgressEvent
       // thinking blocks inside assistant messages
       const thinkBlock = event.message?.content?.find?.((p: any) => p.type === "thinking");
       if (thinkBlock?.thinking) {
-        return progressEvent(`Claude Code · ${snippet(thinkBlock.thinking)}`, thinkBlock.thinking);
+        return progressEvent(`${agentName} · ${snippet(thinkBlock.thinking)}`, thinkBlock.thinking);
       }
 
       // top-level tool event fields (stream-json verbose format)
@@ -461,16 +484,16 @@ function progressFromLine(raw: string, provider: LocalAgent): AgentProgressEvent
           inp?.file_path ?? inp?.path ?? inp?.command ?? inp?.query ?? inp?.url ?? "";
         return progressEvent(
           detail
-            ? `Claude Code · ${tool}  ${snippet(detail)}`
-            : `Claude Code · ${tool}`,
+            ? `${agentName} · ${tool}  ${snippet(detail)}`
+            : `${agentName} · ${tool}`,
           detail,
         );
       }
 
       if (event.type === "result" || event.result) {
-        return progressEvent("Claude Code · preparing the proposal");
+        return progressEvent(`${agentName} · preparing the proposal`);
       }
-      if (event.type === "assistant") return progressEvent("Claude Code · reasoning about the change");
+      if (event.type === "assistant") return progressEvent(`${agentName} · reasoning about the change`);
     } else if (provider === "codex") {
       const type: string = item?.type || event.type || "";
       if (type === "command_execution" || type === "command_execution_output") {
@@ -539,9 +562,12 @@ function progressEventsFromRaw(raw: string, provider: LocalAgent): AgentProgress
 function localAgentError(command: string, stderr: string, exitCode: number): string {
   const output = stderr.trim();
   const hint = agentFailureHint(output);
-  if (hint) return `${command === "opencode" ? "OpenCode" : command} could not finish: ${hint}`;
+  if (hint) return `${command === "opencode" ? "OpenCode" : command === "cursor" ? "Cursor" : command} could not finish: ${hint}`;
   if (command === "opencode" && /waiting for permission or authentication/i.test(output)) {
     return "OpenCode needs permission or authentication. Run OpenCode once in a terminal, approve the requested access or sign in, then retry in Lasso.";
+  }
+  if (command === "cursor" && /waiting for permission or authentication/i.test(output)) {
+    return "Cursor needs permission or authentication. Run Cursor once in a terminal, approve the requested access or sign in, then retry in Lasso.";
   }
   if (command === "codex" && output.includes("missing field `base_instructions`")) {
     return "Codex could not read its models cache because it uses an older cache format. Update Codex, then retry. Lasso already bypasses the repository trust check.";
@@ -563,6 +589,9 @@ function localCommand(provider: LocalAgent, model?: string, prompt?: string): { 
   if (provider === "claude-code") {
     return { command: "claude", args: ["-p", prompt || "", "--output-format", "stream-json", "--verbose", "--permission-mode", "plan", "--max-turns", "3", ...(selectedModel ? ["--model", selectedModel] : [])] };
   }
+  if (provider === "cursor") {
+    return { command: "cursor", args: ["agent", "run", "--non-interactive", ...(selectedModel ? ["--model", selectedModel] : []), prompt || ""] };
+  }
   if (provider === "opencode") {
     return { command: "opencode", args: ["run", "--format", "json", "--print-logs", "--log-level", "INFO", "--agent", "plan", ...(selectedModel ? ["--model", selectedModel] : []), prompt || ""] };
   }
@@ -581,7 +610,7 @@ function runLocalCommand(
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
-    const label = provider === "opencode" ? "OpenCode" : provider === "codex" ? "Codex" : "Claude Code";
+    const label = provider === "opencode" ? "OpenCode" : provider === "codex" ? "Codex" : provider === "cursor" ? "Cursor" : "Claude Code";
     let stdout = "";
     let stderr = "";
     let pendingStdout = "";
@@ -680,6 +709,9 @@ function runLocalCommand(
         if (provider === "opencode" && /quota exceeded|authentication failed|invalid api key|unauthorized|forbidden/i.test(stderrTail)) {
           onProgress?.("OpenCode · provider rejected the request; stopping this task…", undefined, "error");
         }
+        if (provider === "cursor" && /quota exceeded|authentication failed|invalid api key|unauthorized|forbidden/i.test(stderrTail)) {
+          onProgress?.("Cursor · provider rejected the request; stopping this task…", undefined, "error");
+        }
       }
       resolve({ stdout, stderr, exitCode: code ?? 1 });
     });
@@ -706,7 +738,7 @@ export async function proposeChanges(cwd: string, input: AgentInput, config: Age
     ? `\n\nDRAG REPOSITIONING TASK:\nThe user dragged this element by dx: ${input.context.drag.delta?.dx ?? 0}px, dy: ${input.context.drag.delta?.dy ?? 0}px to target coordinates (left: ${input.context.drag.targetRect?.left ?? 0}px, top: ${input.context.drag.targetRect?.top ?? 0}px). Modify the source code (CSS classes, Tailwind classes, flex/grid alignment, margin offsets, or positioning properties) so the element is accurately rendered at this target position.`
     : "";
   const instruction = `Selection context:\n${JSON.stringify(input.element, null, 2)}\n${JSON.stringify(visualContext, null, 2)}\n\nConversation history:\n${history}\n\nPrevious change history for this selection:\n${priorChanges}\n\nRelevant source context:\n${context || "No matching source context was found. Ask for a more specific selection rather than inventing a file."}${dragHint}\n\nCRITICAL: You MUST return ONLY JSON with actual file changes. Do NOT explain what you see or describe the code. Always propose concrete edits when given an instruction. Return JSON format: {"summary":"brief action taken","changes":[{"filePath":"relative/path","oldString":"exact existing text","newString":"replacement text"}]}`;
-  if (config.provider === "claude-code" || config.provider === "codex" || config.provider === "opencode") {
+  if (config.provider === "claude-code" || config.provider === "codex" || config.provider === "opencode" || config.provider === "cursor") {
     return proposeWithLocalAgent(cwd, instruction, context, config, signal, onProgress, input.taskId, onPrompt);
   }
   const system = "You are Lasso, a source-code editing agent. Your ONLY job is to propose concrete file changes. NEVER explain, describe, or analyze code without proposing edits. ALWAYS return valid JSON with at least one change when the user requests a modification. Each oldString must occur exactly once in its file. Never rewrite whole files. Keep changes focused and minimal. If you cannot find the exact text to change, look harder at the provided context - do not give up and explain instead.";
@@ -763,7 +795,7 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
   const history = input.messages?.map((message) => `${message.role}: ${message.content}`).join("\n") || "None";
   const prompt = `Answer the user's question conversationally and directly. Do not propose file changes and do not return JSON. If the question is about the selected UI, use the selection and source context below.\n\nUser question:\n${input.question}\n\nSelected element:\n${JSON.stringify(input.element, null, 2)}\n\nVisual context:\n${JSON.stringify({ ...input.context, screenshots: undefined }, null, 2)}\n\nConversation:\n${history}\n\nRelevant source context:\n${context || "No matching source context was found."}`;
 
-  if (config.provider === "claude-code" || config.provider === "codex" || config.provider === "opencode") {
+  if (config.provider === "claude-code" || config.provider === "codex" || config.provider === "opencode" || config.provider === "cursor") {
     const local = localCommand(config.provider as LocalAgent, config.model, prompt);
     const result = await runLocalCommand(cwd, local.command, local.args, config.provider as LocalAgent, signal, onProgress, input.taskId, onPrompt);
     if (result.exitCode !== 0) throw new Error(localAgentError(local.command, result.stderr, result.exitCode));

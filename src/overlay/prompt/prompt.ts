@@ -611,6 +611,7 @@ function cliLabel(key: string): string {
   if (key === "claude-code") return "Claude Code";
   if (key === "codex") return "Codex";
   if (key === "opencode") return "OpenCode";
+  if (key === "cursor") return "Cursor";
   return key;
 }
 

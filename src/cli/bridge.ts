@@ -298,10 +298,31 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     }
   }
 
+  async function cursorModels() {
+    if (!localAgents.has("cursor")) return [];
+    try {
+      const result = await execFileAsync("cursor", ["model", "list"], { maxBuffer: 1024 * 1024 });
+      return result.stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith("Available models"))
+        .map((line) => {
+          const parts = line.split(/\s+/);
+          const id = parts[0]?.trim();
+          const name = parts.slice(1).join(" ").trim();
+          return id ? { id: `cursor:${id}`, label: `Cursor · ${name}`, provider: "cli" as const } : null;
+        })
+        .filter((model): model is { id: string; label: string; provider: "cli" } => model !== null);
+    } catch {
+      return [];
+    }
+  }
+
   const availableModels = async (collabConfig: CollabConfig | null = null) => {
     localAgents = await detectLocalAgents();
     const locals = await localModels();
     const discoveredOpenCodeModels = await openCodeModels();
+    const discoveredCursorModels = await cursorModels();
     if (locals.length && !agentConfig) {
       const base = process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL || "http://localhost:11434/api";
       agentConfig = { provider: "ollama", apiKey: "ollama", model: process.env.OLLAMA_MODEL || fileEnv.OLLAMA_MODEL, baseUrl: `${base.replace(/\/api\/?$/, "")}/v1` };
@@ -337,7 +358,15 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         { id: "opencode:anthropic/claude-sonnet-4-5", label: "OpenCode · Claude Sonnet", provider: "cli" as const },
         { id: "opencode:openai/gpt-5", label: "OpenCode · GPT-5", provider: "cli" as const },
       ] : []),
+      ...(localAgents.has("cursor") ? [
+        { id: "cursor:claude-sonnet-4.5", label: "Cursor · Claude Sonnet 4.5", provider: "cli" as const },
+        { id: "cursor:claude-opus-4", label: "Cursor · Claude Opus 4", provider: "cli" as const },
+        { id: "cursor:claude-3.5-sonnet", label: "Cursor · Claude 3.5 Sonnet", provider: "cli" as const },
+        { id: "cursor:gpt-4o", label: "Cursor · GPT-4o", provider: "cli" as const },
+        { id: "cursor:gpt-4o-mini", label: "Cursor · GPT-4o mini", provider: "cli" as const },
+      ] : []),
       ...discoveredOpenCodeModels,
+      ...discoveredCursorModels,
       ...locals,
     ];
 
@@ -509,7 +538,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       }
       if (msg.type === "ask") {
         const localProvider = msg.provider === "cli";
-        const cliProvider = msg.model.startsWith("claude-code:") ? "claude-code" : msg.model.startsWith("opencode:") ? "opencode" : "codex";
+        const cliProvider = msg.model?.startsWith("claude-code:") ? "claude-code" : msg.model?.startsWith("opencode:") ? "opencode" : msg.model?.startsWith("cursor:") ? "cursor" : "codex";
         if (!lassoKeyConfigured && !localProvider) {
           socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "error", message: "Set your Lasso API key before asking the hosted agent a question." }));
           return;
@@ -538,7 +567,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         });
       } else if (msg.type === "edit") {
         const localProvider = msg.provider === "cli";
-        const cliProvider = msg.model.startsWith("claude-code:") ? "claude-code" : msg.model.startsWith("opencode:") ? "opencode" : "codex";
+        const cliProvider = msg.model?.startsWith("claude-code:") ? "claude-code" : msg.model?.startsWith("opencode:") ? "opencode" : msg.model?.startsWith("cursor:") ? "cursor" : "codex";
         if (!lassoKeyConfigured && !localProvider) {
           socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "error", message: "Set VITE_LASSO_API_KEY or NEXT_LASSO_API_KEY in your app environment before sending an edit." }));
           return;
@@ -566,7 +595,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         socket.send(JSON.stringify({ type: "git_state", git: await getGitState(cwd) }));
       } else if (msg.type === "git_generate_message") {
         const localProvider = msg.provider === "cli";
-        const cliProvider = msg.model.startsWith("claude-code:") ? "claude-code" : msg.model.startsWith("opencode:") ? "opencode" : "codex";
+        const cliProvider = msg.model?.startsWith("claude-code:") ? "claude-code" : msg.model?.startsWith("opencode:") ? "opencode" : msg.model?.startsWith("cursor:") ? "cursor" : "codex";
         if (!agentConfig && !localProvider) {
           socket.send(JSON.stringify({ type: "git_commit_message", error: "No AI provider is configured." }));
           return;
@@ -650,7 +679,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         }
 
         const localProvider = msg.provider === "cli";
-        const cliProvider = msg.model?.startsWith("claude-code:") ? "claude-code" : msg.model?.startsWith("opencode:") ? "opencode" : "codex";
+        const cliProvider = msg.model?.startsWith("claude-code:") ? "claude-code" : msg.model?.startsWith("opencode:") ? "opencode" : msg.model?.startsWith("cursor:") ? "cursor" : "codex";
         
         const selectedConfig: AgentConfig = localProvider
           ? { provider: cliProvider, model: msg.model || "claude-code:sonnet" }
