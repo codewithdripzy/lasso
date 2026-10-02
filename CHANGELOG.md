@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Multiple access points for one-shot mode**: Added a Command button to the toolbar (⌘ icon) for opening the command bar, in addition to the existing ⌘K keyboard shortcut. The command bar now includes a model selector dropdown allowing users to choose their AI model before submitting a one-shot request.
+- **Model selector in command bar**: The one-shot command bar now displays the currently selected model with a dropdown to switch between available models. The selector is organized by provider (Anthropic, OpenAI, Google, Local Agents) for easy navigation.
 - **Cursor CLI support**: Added Cursor as a local agent option alongside Claude Code, Codex, and OpenCode. Users can now select Cursor models in the model dropdown if Cursor is installed on their system. Cursor uses similar output parsing to Claude Code with progress tracking and error handling.
-
 - **Model locking based on API key configuration**: Models are now locked with a lock icon in the dropdown when the user hasn't configured the provider's API key in their dashboard. Free plan users can only use models from providers with configured keys. Paid plan users have all models unlocked. CLI agents (Claude Code, Codex, OpenCode, Cursor) are always unlocked since users manage their own credentials.
 - **One-shot mode with global command bar**: Press ⌘K to open a command interface
   anywhere in your app. Describe what you want to build (e.g., "Build a complete billing

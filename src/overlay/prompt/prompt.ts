@@ -65,7 +65,7 @@ const providerIcons = {
   cli: terminalIcon,
 };
 
-function providerIcon(provider: ModelOption["provider"], active = false): string {
+export function providerIcon(provider: ModelOption["provider"], active = false): string {
   if (provider === "cli") {
     return `<span class="${active ? "lasso-model-active-icon" : "lasso-model-item-icon"} provider-cli" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false"><circle cx="12" cy="12" r="9" fill="currentColor" opacity=".16"/><circle cx="12" cy="9" r="3" fill="currentColor"/><path d="M6.5 18c.9-2.4 2.7-3.6 5.5-3.6s4.6 1.2 5.5 3.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>`;
   }

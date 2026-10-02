@@ -3,6 +3,7 @@ import { getDOM } from "../dom";
 import { LASSO_ICON_DATA_URL } from "../icons/lasso";
 import { startVoiceRecording, stopVoiceRecording, isRecordingVoice } from "../audio/transcribe";
 import { showActivity } from "../collab/presence";
+import { providerIcon } from "../prompt/prompt";
 
 let commandBarEl: HTMLDivElement | null = null;
 let commandInput: HTMLTextAreaElement | null = null;
@@ -10,6 +11,10 @@ let commandBackdrop: HTMLDivElement | null = null;
 let commandSubmit: HTMLButtonElement | null = null;
 let commandVoice: HTMLButtonElement | null = null;
 let commandClose: HTMLButtonElement | null = null;
+let commandModelBtn: HTMLButtonElement | null = null;
+let commandModelMenu: HTMLDivElement | null = null;
+let commandModelIcon: HTMLSpanElement | null = null;
+let commandModelLabel: HTMLSpanElement | null = null;
 let isOpen = false;
 
 export function buildCommandBar(): void {
@@ -40,6 +45,17 @@ export function buildCommandBar(): void {
       </div>
 
       <div class="lasso-command-body">
+        <div class="lasso-command-model-select">
+          <button class="lasso-command-model-btn" type="button" aria-label="Select model">
+            <span class="lasso-command-model-icon"></span>
+            <span class="lasso-command-model-label"></span>
+            <svg class="lasso-command-model-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 9l6 6 6-6"/>
+            </svg>
+          </button>
+          <div class="lasso-command-model-menu" hidden></div>
+        </div>
+
         <textarea 
           class="lasso-command-input" 
           placeholder="Describe what you want to build...&#10;&#10;Examples:&#10;• Build a settings page with profile, notifications and security sections&#10;• Add authentication with login and signup&#10;• Create a dashboard with customer table and analytics"
@@ -88,9 +104,48 @@ export function buildCommandBar(): void {
   commandSubmit = el.querySelector<HTMLButtonElement>(".lasso-command-submit")!;
   commandVoice = el.querySelector<HTMLButtonElement>(".lasso-command-voice")!;
   commandClose = el.querySelector<HTMLButtonElement>(".lasso-command-close")!;
+  commandModelBtn = el.querySelector<HTMLButtonElement>(".lasso-command-model-btn")!;
+  commandModelMenu = el.querySelector<HTMLDivElement>(".lasso-command-model-menu")!;
+  commandModelIcon = el.querySelector<HTMLSpanElement>(".lasso-command-model-icon")!;
+  commandModelLabel = el.querySelector<HTMLSpanElement>(".lasso-command-model-label")!;
 
   // Close on backdrop click
   backdrop.addEventListener("click", closeCommandBar);
+
+  // Model selector button
+  commandModelBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (commandModelMenu) commandModelMenu.hidden = !commandModelMenu.hidden;
+  });
+
+  // Model menu click handling
+  commandModelMenu.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const item = (event.target as HTMLElement).closest<HTMLButtonElement>(".lasso-command-model-item");
+    if (!item) return;
+
+    const found = state.MODELS.find((m) => m.id === item.dataset.model);
+    if (!found) return;
+
+    state.selectedModel = found;
+    // Update model button
+    if (commandModelIcon && commandModelLabel) {
+      commandModelIcon.innerHTML = providerIcon(found.provider, true);
+      commandModelLabel.textContent = found.label;
+    }
+    if (commandModelMenu) commandModelMenu.hidden = true;
+  });
+
+  // Close model menu on outside click
+  document.addEventListener("click", (event) => {
+    if (!commandModelMenu || commandModelMenu.hidden) return;
+    const path = event.composedPath ? event.composedPath() : [];
+    if (path.includes(commandModelBtn!) || path.includes(commandModelMenu)) return;
+    const target = event.target as Node;
+    if (commandModelBtn?.contains(target) || commandModelMenu?.contains(target)) return;
+    commandModelMenu.hidden = true;
+  });
 
   // Close button
   commandClose.addEventListener("click", (event) => {
@@ -184,6 +239,56 @@ export function openCommandBar(): void {
     commandInput.focus();
     autoResizeTextarea(commandInput);
   }
+
+  // Update model button with current selection
+  if (commandModelIcon && commandModelLabel && state.selectedModel) {
+    commandModelIcon.innerHTML = providerIcon(state.selectedModel.provider, true);
+    commandModelLabel.textContent = state.selectedModel.label;
+  }
+
+  populateModelMenu();
+}
+
+export function populateModelMenu(): void {
+  if (!commandModelMenu) return;
+  
+  commandModelMenu.innerHTML = "";
+  
+  const providers = ["all", ...Array.from(new Set(state.MODELS.map((m) => m.provider)))];
+  
+  for (const provider of providers) {
+    const section = document.createElement("div");
+    section.className = "lasso-command-model-section";
+    
+    if (provider !== "all") {
+      const header = document.createElement("div");
+      header.className = "lasso-command-model-section-header";
+      header.textContent = provider === "anthropic" ? "Anthropic" : 
+                           provider === "openai" ? "OpenAI" :
+                           provider === "google" ? "Google" :
+                           provider === "ollama" ? "Ollama" :
+                           provider === "cli" ? "Local Agents" : provider;
+      section.appendChild(header);
+    }
+    
+    const models = provider === "all" 
+      ? state.MODELS 
+      : state.MODELS.filter((m) => m.provider === provider);
+    
+    for (const model of models) {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "lasso-command-model-item";
+      item.dataset.model = model.id;
+      item.innerHTML = `${providerIcon(model.provider)}<span>${model.label}</span>`;
+      if (model.id === state.selectedModel.id) {
+        item.classList.add("selected");
+      }
+      section.appendChild(item);
+    }
+    
+    commandModelMenu.appendChild(section);
+  }
 }
 
 export function closeCommandBar(): void {
@@ -216,6 +321,8 @@ async function handleSubmit(): void {
       type: "oneshot",
       prompt,
       scope: "project",
+      model: state.selectedModel.id,
+      provider: state.selectedModel.provider === "cli" ? "cli" : undefined,
     }));
   }
 }
