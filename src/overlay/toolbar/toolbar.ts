@@ -154,6 +154,15 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
       <span class="lasso-tool-label">Command</span>
     </button>
 
+    <button class="lasso-tool-btn page-tool" type="button" aria-label="Create a new page" title="New page">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <path d="M14 2v6h6"/>
+        <path d="M12 12v6M9 15h6"/>
+      </svg>
+      <span class="lasso-tool-label">New Page</span>
+    </button>
+
     <div class="lasso-presence" style="display: none;">
       <div class="lasso-presence-avatars"></div>
       <span class="lasso-presence-count"></span>
@@ -205,16 +214,7 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
 
   const miniToolbar = document.createElement("div");
   miniToolbar.className = "lasso-toolbar-mini";
-  miniToolbar.innerHTML = `
-    <button class="lasso-new-page-btn" type="button" aria-label="Create a new page" title="New page">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-        <path d="M14 2v6h6"/>
-        <path d="M12 12v6M9 15h6"/>
-      </svg>
-      <span>New Page</span>
-    </button>
-  `;
+  miniToolbar.style.display = "none"; // Hidden since New Page is now in main toolbar
 
   dom.shadow.append(toolbar, miniToolbar, toolbarReopen, voiceBar);
 
@@ -249,13 +249,6 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
     target.addEventListener("focusin", () => showTooltip(target));
     target.addEventListener("focusout", () => hideTooltip(target));
   });
-  miniToolbar.querySelectorAll<HTMLElement>("[title]").forEach((target) => {
-    target.dataset.tooltip = target.getAttribute("title") || "";
-    target.addEventListener("pointerenter", () => showTooltip(target));
-    target.addEventListener("pointerleave", () => hideTooltip(target));
-    target.addEventListener("focusin", () => showTooltip(target));
-    target.addEventListener("focusout", () => hideTooltip(target));
-  });
 
   // Wire buttons
   const selectBtn = toolbar.querySelector<HTMLButtonElement>(".select-tool")!;
@@ -269,10 +262,10 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
   const clipboardBtn = toolbar.querySelector<HTMLButtonElement>(".clipboard-tool")!;
   const voiceBtn = toolbar.querySelector<HTMLButtonElement>(".voice-tool")!;
   const commandBtn = toolbar.querySelector<HTMLButtonElement>(".command-tool")!;
+  const pageBtn = toolbar.querySelector<HTMLButtonElement>(".page-tool")!;
   const dismissBtn = toolbar.querySelector<HTMLButtonElement>(".lasso-toolbar-dismiss")!;
-  const newPageBtn = miniToolbar.querySelector<HTMLButtonElement>(".lasso-new-page-btn")!;
 
-  newPageBtn.addEventListener("click", (event) => {
+  pageBtn.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     togglePagePanel();

@@ -62,54 +62,8 @@ export function buildStyles(): string {
     }
 
     .lasso-toolbar-mini {
-      position: fixed;
-      left: calc(50% + 140px);
-      bottom: 24px;
-      display: inline-flex;
-      align-items: center;
-      min-height: 48px;
-      padding: 6px;
-      border: 1px solid var(--lo-border);
-      border-radius: var(--lo-radius-full);
-      background: rgba(22, 23, 27, 0.94);
-      box-shadow: var(--lo-shadow-lg);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      pointer-events: auto;
-      z-index: 10;
-      transition: left 200ms ease, opacity 200ms ease;
+      display: none;
     }
-
-    .lasso-toolbar.dismissed + .lasso-toolbar-mini {
-      left: 50%;
-      transform: translateX(-50%);
-    }
-
-    .lasso-toolbar-mini.dismissed { display: none; }
-
-    /* Hide mini toolbar when one-shot sidebar is open */
-    .lasso-command-sidebar:not([hidden]) ~ .lasso-toolbar-mini {
-      opacity: 0;
-      pointer-events: none;
-    }
-    .lasso-new-page-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      height: 34px;
-      padding: 0 12px;
-      border: 0;
-      border-radius: var(--lo-radius-full);
-      background: var(--lo-primary);
-      color: #111214;
-      font: inherit;
-      font-size: 12px;
-      font-weight: 650;
-      cursor: pointer;
-      transition: transform 150ms ease, filter 150ms ease;
-    }
-    .lasso-new-page-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
-    .lasso-new-page-btn:active { transform: scale(.97); }
 
     /* ==========================================================
        NEW PAGE — nested project explorer
@@ -335,6 +289,16 @@ export function buildStyles(): string {
       background: rgba(129, 201, 149, 0.16);
     }
 
+    /* Page button */
+    .lasso-tool-btn.page-tool {
+      color: var(--lo-text-2);
+    }
+
+    .lasso-tool-btn.page-tool:hover {
+      color: var(--lo-primary);
+      background: rgba(129, 201, 149, 0.16);
+    }
+
     /* Badge on comment button */
     .lasso-comments-badge {
       display: none;
@@ -408,7 +372,6 @@ export function buildStyles(): string {
     }
 
     @media (max-width: 760px) {
-      .lasso-toolbar-mini { left: 50%; bottom: 82px; transform: translateX(-50%); }
       .lasso-new-page-panel { left: 50%; transform: translateX(-50%); }
     }
 
