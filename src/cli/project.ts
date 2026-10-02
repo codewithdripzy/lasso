@@ -28,6 +28,8 @@ export interface CollabConfig {
     workspaceId?: string;
     token?: string;
     apiKey?: string;
+    plan?: string;
+    configuredProviders?: string[];
 }
 
 export interface InitResult {
@@ -328,7 +330,7 @@ export async function resolveCollabSession(cwd: string, fileEnv: Record<string, 
         }
 
         const body = (await response.json()) as {
-            project?: { id?: string; name?: string; version?: string; workspaceId?: string };
+            project?: { id?: string; name?: string; version?: string; workspaceId?: string; plan?: string; configuredProviders?: string[] };
             session?: { id?: string };
             token?: string;
         };
@@ -341,6 +343,8 @@ export async function resolveCollabSession(cwd: string, fileEnv: Record<string, 
         config.registered = true;
         config.claimed = Boolean(body.session?.id);
         config.registeredAt = new Date().toISOString();
+        config.plan = body.project?.plan || "free";
+        config.configuredProviders = body.project?.configuredProviders || [];
 
         console.log(
             chalk.green("✓") +

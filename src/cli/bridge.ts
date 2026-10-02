@@ -298,7 +298,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     }
   }
 
-  const availableModels = async () => {
+  const availableModels = async (collabConfig: CollabConfig | null = null) => {
     localAgents = await detectLocalAgents();
     const locals = await localModels();
     const discoveredOpenCodeModels = await openCodeModels();
@@ -306,7 +306,11 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       const base = process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL || "http://localhost:11434/api";
       agentConfig = { provider: "ollama", apiKey: "ollama", model: process.env.OLLAMA_MODEL || fileEnv.OLLAMA_MODEL, baseUrl: `${base.replace(/\/api\/?$/, "")}/v1` };
     }
-    return [
+
+    const isPaidPlan = collabConfig?.plan && collabConfig.plan !== "free";
+    const configuredProviders = collabConfig?.configuredProviders || [];
+
+    const allModels = [
       { id: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5", provider: "anthropic" as const },
       { id: "claude-opus-4-1-20250805", label: "Claude Opus 4.1", provider: "anthropic" as const },
       { id: "gpt-4.1", label: "GPT-4.1", provider: "openai" as const },
@@ -336,14 +340,52 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       ...discoveredOpenCodeModels,
       ...locals,
     ];
+
+    // Lock models based on provider API key configuration
+    // Paid plans have all models unlocked
+    // Free plans only have models unlocked for providers with configured API keys
+    const providerKeyMapping: Record<string, string> = {
+      anthropic: "ANTHROPIC_API_KEY",
+      openai: "OPENAI_API_KEY",
+      google: "GOOGLE_GENERATIVE_AI_API_KEY",
+      ollama: "OLLAMA_BASE_URL",
+    };
+
+    return allModels.map((model) => {
+      if (model.provider === "cli") {
+        // CLI agents are always unlocked (user manages their own credentials)
+        return model;
+      }
+
+      if (isPaidPlan) {
+        // Paid plans have all hosted models unlocked
+        return model;
+      }
+
+      // Free plans: check if provider is configured
+      const envKey = providerKeyMapping[model.provider];
+      const isConfigured = configuredProviders.includes(model.provider) || 
+                          Boolean(process.env[envKey]) || 
+                          Boolean(fileEnv[envKey as keyof typeof fileEnv]);
+
+      if (!isConfigured) {
+        return {
+          ...model,
+          locked: true,
+          lockedReason: "Configure your API key in the dashboard to use this model",
+        };
+      }
+
+      return model;
+    });
   };
 
   wss.on("connection", (socket) => {
     overlaySocket = socket;
     console.log(chalk.green("✓") + " Overlay connected");
-    socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig) || localAgents.size > 0, models: [], collab: collabConfig?.registered ? collabConfig : null }));
-    void availableModels().then((models) => {
-      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig) || localAgents.size > 0, models, collab: collabConfig?.registered ? collabConfig : null }));
+    socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig) || localAgents.size > 0, models: [], collab: collabConfig?.registered ? { ...collabConfig, plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null }));
+    void availableModels(collabConfig).then((models) => {
+      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig) || localAgents.size > 0, models, collab: collabConfig?.registered ? { ...collabConfig, plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null }));
     });
     void getGitState(cwd).then((git) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "git_state", git }));

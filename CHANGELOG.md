@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Model locking based on API key configuration**: Models are now locked with a lock icon in the dropdown when the user hasn't configured the provider's API key in their dashboard. Free plan users can only use models from providers with configured keys. Paid plan users have all models unlocked. CLI agents (Claude Code, Codex, OpenCode) are always unlocked since users manage their own credentials.
 - **One-shot mode with global command bar**: Press ⌘K to open a command interface
   anywhere in your app. Describe what you want to build (e.g., "Build a complete billing
   system with invoices and payment tracking") and Lasso will plan, execute, and

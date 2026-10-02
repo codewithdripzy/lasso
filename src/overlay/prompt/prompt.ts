@@ -330,7 +330,7 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
       return;
     }
     const item = (event.target as HTMLElement).closest<HTMLButtonElement>(".lasso-prompt-model-item");
-    if (!item) return;
+    if (!item || item.classList.contains("locked")) return;
 
     const found = state.MODELS.find((m) => m.id === item.dataset.model);
     if (!found) return;
@@ -619,7 +619,17 @@ function modelItem(model: ModelOption): HTMLButtonElement {
   item.type = "button";
   item.className = "lasso-prompt-model-item";
   item.dataset.model = model.id;
-  item.innerHTML = `${providerIcon(model.provider)}<span>${model.label}</span><svg class="lasso-prompt-model-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`;
+  
+  if (model.locked) {
+    item.classList.add("locked");
+    item.disabled = true;
+    item.setAttribute("aria-disabled", "true");
+    item.setAttribute("title", model.lockedReason || "This model is locked");
+    item.innerHTML = `${providerIcon(model.provider)}<span>${model.label}</span><svg class="lasso-prompt-model-lock" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+  } else {
+    item.innerHTML = `${providerIcon(model.provider)}<span>${model.label}</span><svg class="lasso-prompt-model-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`;
+  }
+  
   return item;
 }
 

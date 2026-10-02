@@ -1810,6 +1810,15 @@ export function buildStyles(): string {
       background: var(--lo-surface-hover);
     }
 
+    .lasso-prompt-model-item.locked {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+
+    .lasso-prompt-model-item.locked:hover {
+      background: transparent;
+    }
+
     .lasso-prompt-model-item .lasso-prompt-model-check {
       flex-shrink: 0;
       color: var(--lo-primary);
@@ -1818,6 +1827,11 @@ export function buildStyles(): string {
 
     .lasso-prompt-model-item.selected .lasso-prompt-model-check {
       opacity: 1;
+    }
+
+    .lasso-prompt-model-item .lasso-prompt-model-lock {
+      flex-shrink: 0;
+      color: var(--lo-text-3);
     }
 
     .lasso-prompt-element {

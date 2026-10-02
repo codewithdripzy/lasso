@@ -87,7 +87,7 @@ export function connectBridge() {
           path?: string;
           entries?: Array<{ name: string; path: string; type: "directory" | "file" }>;
           project?: string;
-          collab?: { projectId?: string; realtimeUrl?: string; name?: string; version?: string; workspaceId?: string; token?: string; apiKey?: string };
+          collab?: { projectId?: string; realtimeUrl?: string; name?: string; version?: string; workspaceId?: string; token?: string; apiKey?: string; plan?: string; configuredProviders?: string[] };
         };
 
         if (message.type === "config") {
@@ -99,9 +99,19 @@ export function connectBridge() {
 
         if (message.type === "config" && message.models?.length) {
           state.MODELS = message.models;
-          state.selectedModel =
-            state.MODELS.find((m) => m.id === storedModelId()) || state.MODELS[0];
-          rememberModel(state.selectedModel);
+          // If the currently selected model is locked, select the first unlocked model
+          const currentLocked = state.selectedModel?.locked;
+          if (currentLocked) {
+            const firstUnlocked = state.MODELS.find((m) => !m.locked);
+            if (firstUnlocked) {
+              state.selectedModel = firstUnlocked;
+              rememberModel(state.selectedModel);
+            }
+          } else {
+            state.selectedModel =
+              state.MODELS.find((m) => m.id === storedModelId()) || state.MODELS.find((m) => !m.locked) || state.MODELS[0];
+            rememberModel(state.selectedModel);
+          }
           refreshModelMenu();
         }
 

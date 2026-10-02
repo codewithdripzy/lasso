@@ -55,6 +55,8 @@ export type ModelOption = {
   id: string;
   label: string;
   provider: "anthropic" | "openai" | "google" | "ollama" | "cli";
+  locked?: boolean;
+  lockedReason?: string;
 };
 
 export type GitState = {
@@ -75,6 +77,8 @@ export type CollabConfig = {
   workspaceId?: string;
   token?: string;
   apiKey?: string;
+  plan?: string;
+  configuredProviders?: string[];
 };
 
 export type CollabUser = {
