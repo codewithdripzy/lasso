@@ -164,6 +164,21 @@ export function connectCollab(config: CollabConfig) {
       if (payload.sessionId !== state.collabProjectId) return;
       const name = payload.user?.name || "A teammate";
       const status = payload.status || "";
+
+      if (status === "building" || status === "build") {
+        if (payload.user?.id && payload.user.id !== state.myUser?.id) {
+          state.buildModeUser = { id: payload.user.id, name };
+          showActivity(`⏸️ ${name} is in Build Mode. Editing is paused.`, "#fbbc04");
+          return;
+        }
+      } else if (status === "idle" || status === "done" || status === "complete") {
+        if (state.buildModeUser && (!payload.user?.id || state.buildModeUser.id === payload.user.id)) {
+          state.buildModeUser = null;
+          showActivity(`${name} finished building. Editing resumed.`, "#81c995");
+          return;
+        }
+      }
+
       const text = payload.summary
         ? `${name} is ${status === "idle" ? "done" : status.replace(/e?$/, "ing")} — ${payload.summary.slice(0, 90)}`
         : `${name} ${status === "idle" ? "finished working" : `is ${status}`}`;

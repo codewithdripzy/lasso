@@ -160,10 +160,17 @@ export async function runOneShotAgent(
 
     // Phase 2: Local agent generation fallback
     onProgress("thinking", "Generating implementation plan...", `Planning components for ${prompt}`);
-    const plan = await generatePlan(prompt, scope, projectStructure, framework, config, signal, messages);
+    const plan = await generatePlan(cwd, prompt, scope, projectStructure, framework, config, signal, messages);
 
     if (signal.aborted) {
       return { ok: false, error: "Operation was cancelled during planning" };
+    }
+
+    if (!plan.steps.length) {
+      return {
+        ok: false,
+        error: "Could not generate file modifications. Check your AI provider configuration or prompt clarity.",
+      };
     }
 
     onProgress("thinking", "Execution plan ready", `${plan.steps.length} steps identified`);
@@ -216,6 +223,26 @@ export async function runOneShotAgent(
     const reason = error instanceof Error ? error.message : "Unknown error";
     return { ok: false, error: `One-shot agent failed: ${reason}` };
   }
+}
+
+function extractJson(text: string): any {
+  try {
+    return JSON.parse(text);
+  } catch {}
+  const match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (match) {
+    try {
+      return JSON.parse(match[1]);
+    } catch {}
+  }
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    try {
+      return JSON.parse(text.slice(firstBrace, lastBrace + 1));
+    } catch {}
+  }
+  return null;
 }
 
 interface ProjectStructure {
@@ -318,29 +345,131 @@ interface ExecutionPlan {
 }
 
 async function generatePlan(
+  cwd: string,
   prompt: string,
   _scope: "project" | "component",
   structure: ProjectStructure,
-  _framework: string,
+  framework: string,
   config: AgentConfig,
   signal: AbortSignal,
   _messages?: ConversationMessage[]
 ): Promise<ExecutionPlan> {
   const steps: ExecutionPlan["steps"] = [];
 
-  // Determine key entry file
-  const candidateEntry =
-    structure.files.find((f) => /App\.(tsx|jsx|js|ts)$/i.test(f)) ||
-    structure.files.find((f) => /page\.(tsx|jsx|js|ts)$/i.test(f)) ||
-    structure.files.find((f) => /index\.(tsx|jsx|js|ts|html)$/i.test(f)) ||
-    "src/App.tsx";
+  // Identify relevant files to supply as context
+  const targetFiles = structure.files.filter((f) =>
+    /(App|page|index|layout|main)\.(tsx|jsx|js|ts|html)$/i.test(f) ||
+    /(style|index|globals|App)\.(css|scss)$/i.test(f)
+  ).slice(0, 4);
 
-  steps.push({
-    description: "Inspecting codebase context",
-    detail: `Identified primary target: ${candidateEntry}`,
-    type: "command",
-    command: "echo 'Inspecting codebase context'",
-  });
+  const fileSnippets = targetFiles.map((f) => {
+    try {
+      const content = fs.readFileSync(path.join(cwd, f), "utf8");
+      return `File: ${f}\n\`\`\`\n${content.slice(0, 6000)}\n\`\`\``;
+    } catch {
+      return "";
+    }
+  }).filter(Boolean).join("\n\n");
+
+  const systemPrompt = `You are Lasso's Agentic Coding Agent.
+Your job is to modify or create files to fulfill the user's software engineering prompt.
+Framework: ${framework}
+Available files: ${structure.files.slice(0, 30).join(", ")}
+
+CRITICAL: Return strictly valid JSON matching this schema:
+{
+  "steps": [
+    {
+      "type": "modify" or "create",
+      "target": "relative/file/path.tsx",
+      "description": "Short action title",
+      "detail": "Brief detail",
+      "content": "The full complete new or updated file content"
+    }
+  ]
+}`;
+
+  const userPrompt = `User Request: ${prompt}
+
+Existing code context:
+${fileSnippets || "No existing components found. Create appropriate files in src/."}
+
+Generate the implementation steps now.`;
+
+  if (!config.apiKey && config.provider !== "ollama") {
+    // If no key is configured, fallback to inspecting target
+    const candidateEntry = targetFiles[0] || "src/App.tsx";
+    steps.push({
+      description: "Inspecting codebase context",
+      detail: `Target: ${candidateEntry}`,
+      type: "command",
+      command: `echo 'Inspecting ${candidateEntry}'`,
+    });
+    return { steps };
+  }
+
+  try {
+    const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "meta/llama-3.1-70b-instruct" : "claude-3-7-sonnet-latest");
+    let text = "";
+
+    if (config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia") {
+      const baseUrl = config.baseUrl || (config.provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : "https://api.openai.com/v1");
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        signal,
+        headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey || ""}` },
+        body: JSON.stringify({
+          model,
+          temperature: 0.1,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json() as any;
+        text = json.choices?.[0]?.message?.content || "";
+      }
+    } else if (config.provider === "google") {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(config.apiKey || "")}`, {
+        method: "POST",
+        signal,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json() as any;
+        text = json.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
+      }
+    } else {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        signal,
+        headers: { "content-type": "application/json", "x-api-key": config.apiKey || "", "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({
+          model,
+          max_tokens: 4096,
+          system: systemPrompt,
+          messages: [{ role: "user", content: userPrompt }],
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json() as any;
+        text = json.content?.find((item: any) => item.type === "text")?.text || "";
+      }
+    }
+
+    const parsed = extractJson(text);
+    if (parsed && Array.isArray(parsed.steps) && parsed.steps.length > 0) {
+      return { steps: parsed.steps };
+    }
+  } catch (err) {
+    console.warn("[lasso] Local agent generation failed:", err);
+  }
 
   return { steps };
 }

@@ -1641,6 +1641,8 @@ export function buildStyles(): string {
       box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
       z-index: 30;
       scrollbar-width: thin;
+      overflow-x: hidden !important;
+      overflow-y: auto !important;
     }
 
     .lasso-prompt-model-menu[hidden] {
@@ -1657,9 +1659,21 @@ export function buildStyles(): string {
       background: rgba(24, 25, 29, 0.98);
       border-bottom: 1px solid var(--lo-border-subtle);
       margin-bottom: 4px;
+      overflow-x: auto !important;
+      overflow-y: hidden !important;
+      white-space: nowrap;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+      max-width: 100%;
+    }
+
+    .lasso-model-filters::-webkit-scrollbar {
+      display: none;
     }
 
     .lasso-model-filter {
+      flex-shrink: 0;
+      white-space: nowrap;
       border: 0;
       border-radius: var(--lo-radius-sm);
       padding: 4px 8px;
@@ -3133,6 +3147,7 @@ export function buildStyles(): string {
       gap: 6px;
     }
 
+    .lasso-command-history-btn,
     .lasso-command-new-chat,
     .lasso-command-close {
       width: 26px;
@@ -3148,10 +3163,118 @@ export function buildStyles(): string {
       transition: background 120ms ease, color 120ms ease;
     }
 
+    .lasso-command-history-btn:hover,
+    .lasso-command-history-btn.active,
     .lasso-command-new-chat:hover,
     .lasso-command-close:hover {
       background: var(--lo-surface-hover);
       color: var(--lo-text);
+    }
+
+    /* History popover */
+    .lasso-command-history-popover {
+      position: absolute;
+      top: 48px;
+      left: 12px;
+      right: 12px;
+      max-height: 380px;
+      overflow-y: auto;
+      background: rgba(22, 23, 28, 0.98);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid var(--lo-border);
+      border-radius: var(--lo-radius-lg);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.08);
+      z-index: 60;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .lasso-command-history-popover[hidden] {
+      display: none !important;
+    }
+
+    .lasso-command-history-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 8px 8px;
+      border-bottom: 1px solid var(--lo-border-subtle);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--lo-text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .lasso-command-history-empty {
+      padding: 18px 8px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--lo-text-3);
+    }
+
+    .lasso-command-history-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: var(--lo-radius-md);
+      background: transparent;
+      border: 0;
+      color: var(--lo-text);
+      cursor: pointer;
+      text-align: left;
+      transition: background 120ms ease;
+      width: 100%;
+    }
+
+    .lasso-command-history-item:hover {
+      background: var(--lo-surface-hover);
+    }
+
+    .lasso-command-history-item.active {
+      background: var(--lo-primary-soft);
+      color: var(--lo-primary);
+    }
+
+    .lasso-command-history-title {
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 220px;
+    }
+
+    .lasso-command-history-meta {
+      font-size: 11px;
+      color: var(--lo-text-3);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .lasso-command-history-scope {
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .lasso-command-history-scope.private {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--lo-text-3);
+    }
+
+    .lasso-command-history-scope.team {
+      background: rgba(99, 102, 241, 0.16);
+      color: #818cf8;
     }
 
     /* Body — scrollable conversation list */
@@ -3362,6 +3485,11 @@ export function buildStyles(): string {
       margin-top: 4px;
       padding-left: 8px;
       border-left: 2px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .lasso-command-thinking-steps[hidden],
+    .lasso-command-thought-wrapper .lasso-command-thinking-steps[hidden] {
+      display: none !important;
     }
 
     .lasso-command-thinking-step {
@@ -3722,7 +3850,8 @@ export function buildStyles(): string {
       min-width: 220px;
       max-width: 330px;
       max-height: min(380px, 50vh);
-      overflow-y: auto;
+      overflow-x: hidden !important;
+      overflow-y: auto !important;
       overscroll-behavior: contain;
       padding: 6px;
       border: 1px solid var(--lo-border);

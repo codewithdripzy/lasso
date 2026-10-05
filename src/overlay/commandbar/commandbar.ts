@@ -3,6 +3,7 @@ import { getDOM } from "../dom";
 import { LASSO_ICON_DATA_URL } from "../icons/lasso";
 import { startVoiceRecording, stopVoiceRecording, isRecordingVoice } from "../audio/transcribe";
 import { showActivity } from "../collab/presence";
+import { collabEmit } from "../collab/socket";
 import { providerIcon, buildModelMenuContent } from "../prompt/prompt";
 import { setSelectMode } from "../toolbar/select";
 import type { PendingChange } from "../types";
@@ -44,6 +45,8 @@ let commandSubmit: HTMLButtonElement | null = null;
 let commandVoice: HTMLButtonElement | null = null;
 let commandClose: HTMLButtonElement | null = null;
 let commandNewChat: HTMLButtonElement | null = null;
+let commandHistoryBtn: HTMLButtonElement | null = null;
+let commandHistoryPopover: HTMLDivElement | null = null;
 let commandModelBtn: HTMLButtonElement | null = null;
 let commandModelMenu: HTMLDivElement | null = null;
 let commandModelIcon: HTMLSpanElement | null = null;
@@ -114,6 +117,86 @@ async function loadConversationList(): Promise<void> {
   }
 }
 
+function formatDateAgo(dateStr?: string): string {
+  if (!dateStr) return "";
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function renderHistoryPopover(): void {
+  if (!commandHistoryPopover) return;
+  if (!conversationList || conversationList.length === 0) {
+    commandHistoryPopover.innerHTML = `
+      <div class="lasso-command-history-header">
+        <span>Recent Sessions</span>
+      </div>
+      <div class="lasso-command-history-empty">No previous sessions found</div>
+    `;
+    return;
+  }
+
+  commandHistoryPopover.innerHTML = `
+    <div class="lasso-command-history-header">
+      <span>Recent Sessions (${conversationList.length})</span>
+    </div>
+    ${conversationList
+      .map(
+        (conv) => `
+      <button class="lasso-command-history-item ${conv.id === activeConversationId ? "active" : ""}" type="button" data-conv-id="${conv.id}">
+        <span class="lasso-command-history-title" title="${escapeHtml(conv.title || "Untitled Session")}">${escapeHtml(conv.title || "Untitled Session")}</span>
+        <div class="lasso-command-history-meta">
+          <span class="lasso-command-history-scope ${conv.scope || "private"}">${conv.scope || "private"}</span>
+          <span>${formatDateAgo(conv.updatedAt)}</span>
+        </div>
+      </button>
+    `
+      )
+      .join("")}
+  `;
+}
+
+async function switchConversation(convId: string): Promise<void> {
+  if (activeThinkingInterval) {
+    clearInterval(activeThinkingInterval);
+    activeThinkingInterval = null;
+  }
+  activeTaskId = null;
+  updateSubmitButton(false);
+  activeConversationId = convId;
+  if (commandHistoryPopover) commandHistoryPopover.hidden = true;
+  commandHistoryBtn?.classList.remove("active");
+
+  const data = await apiFetch(`/agent/conversations/${convId}`);
+  if (data?.conversation?.messages && Array.isArray(data.conversation.messages)) {
+    commandMessages = data.conversation.messages.map((m: any, idx: number) => ({
+      id: m.id || `msg-${idx}`,
+      role: m.role || "user",
+      content: m.content || "",
+      timestamp: m.createdAt ? new Date(m.createdAt).getTime() : Date.now(),
+      thinking: m.thinking ? {
+        steps: Array.isArray(m.thinking) ? m.thinking : [],
+        durationSeconds: m.thinkingDurationSeconds || 3,
+        completed: true,
+        expanded: false,
+      } : undefined,
+      changes: m.changes || undefined,
+      changesApplied: m.changesApplied,
+      error: m.error,
+    }));
+  } else {
+    commandMessages = [];
+  }
+
+  renderMessages();
+  scrollToBottom();
+}
+
 function getUserGreetingName(): string {
   if (state.myUser?.name) {
     const first = state.myUser.name.trim().split(/\s+/)[0];
@@ -147,6 +230,12 @@ export function buildCommandBar(): void {
         <span class="lasso-command-brand-title">Build with AI</span>
       </div>
       <div class="lasso-command-header-actions">
+        <button class="lasso-command-history-btn" type="button" aria-label="Conversation history" title="Conversation history">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+        </button>
         <button class="lasso-command-new-chat" type="button" aria-label="New chat" title="New session">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 5v14M5 12h14"/>
@@ -159,6 +248,7 @@ export function buildCommandBar(): void {
         </button>
       </div>
     </div>
+    <div class="lasso-command-history-popover" hidden></div>
 
     <div class="lasso-command-body">
       <div class="lasso-command-empty">
@@ -212,6 +302,8 @@ export function buildCommandBar(): void {
   commandVoice = el.querySelector<HTMLButtonElement>(".lasso-command-voice")!;
   commandClose = el.querySelector<HTMLButtonElement>(".lasso-command-close")!;
   commandNewChat = el.querySelector<HTMLButtonElement>(".lasso-command-new-chat")!;
+  commandHistoryBtn = el.querySelector<HTMLButtonElement>(".lasso-command-history-btn")!;
+  commandHistoryPopover = el.querySelector<HTMLDivElement>(".lasso-command-history-popover")!;
   commandModelBtn = el.querySelector<HTMLButtonElement>(".lasso-command-model-btn")!;
   commandModelMenu = el.querySelector<HTMLDivElement>(".lasso-command-model-menu")!;
   commandModelIcon = el.querySelector<HTMLSpanElement>(".lasso-command-model-icon")!;
@@ -219,10 +311,40 @@ export function buildCommandBar(): void {
   commandMessagesEl = el.querySelector<HTMLDivElement>(".lasso-command-messages")!;
   commandEmptyEl = el.querySelector<HTMLDivElement>(".lasso-command-empty")!;
 
+  // History button
+  commandHistoryBtn.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!commandHistoryPopover) return;
+    const isHidden = commandHistoryPopover.hidden;
+    if (isHidden) {
+      if (commandModelMenu) commandModelMenu.hidden = true;
+      commandHistoryPopover.hidden = false;
+      commandHistoryBtn?.classList.add("active");
+      await loadConversationList();
+      renderHistoryPopover();
+    } else {
+      commandHistoryPopover.hidden = true;
+      commandHistoryBtn?.classList.remove("active");
+    }
+  });
+
+  // History popover item click
+  commandHistoryPopover.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    const item = (event.target as HTMLElement).closest<HTMLButtonElement>(".lasso-command-history-item");
+    if (!item?.dataset.convId) return;
+    await switchConversation(item.dataset.convId);
+  });
+
   // Model selector button
   commandModelBtn.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
+    if (commandHistoryPopover) {
+      commandHistoryPopover.hidden = true;
+      commandHistoryBtn?.classList.remove("active");
+    }
     if (commandModelMenu) commandModelMenu.hidden = !commandModelMenu.hidden;
   });
 
@@ -252,14 +374,27 @@ export function buildCommandBar(): void {
     if (commandModelMenu) commandModelMenu.hidden = true;
   });
 
-  // Close model menu on outside click
+  // Close menus/popovers on outside click
   document.addEventListener("click", (event) => {
-    if (!commandModelMenu || commandModelMenu.hidden) return;
     const path = event.composedPath ? event.composedPath() : [];
-    if (path.includes(commandModelBtn!) || path.includes(commandModelMenu)) return;
     const target = event.target as Node;
-    if (commandModelBtn?.contains(target) || commandModelMenu?.contains(target)) return;
-    commandModelMenu.hidden = true;
+
+    if (commandModelMenu && !commandModelMenu.hidden) {
+      if (!path.includes(commandModelBtn!) && !path.includes(commandModelMenu)) {
+        if (!commandModelBtn?.contains(target) && !commandModelMenu?.contains(target)) {
+          commandModelMenu.hidden = true;
+        }
+      }
+    }
+
+    if (commandHistoryPopover && !commandHistoryPopover.hidden) {
+      if (!path.includes(commandHistoryBtn!) && !path.includes(commandHistoryPopover)) {
+        if (!commandHistoryBtn?.contains(target) && !commandHistoryPopover?.contains(target)) {
+          commandHistoryPopover.hidden = true;
+          commandHistoryBtn?.classList.remove("active");
+        }
+      }
+    }
   });
 
   // Close button
@@ -535,6 +670,11 @@ async function handleSubmit(): Promise<void> {
     }
     activeTaskId = null;
     updateSubmitButton(false);
+    // Emit idle to unblock teammates
+    collabEmit("collab:action", {
+      sessionId: state.collabProjectId,
+      status: "idle",
+    });
     renderMessages();
     return;
   }
@@ -594,6 +734,13 @@ async function handleSubmit(): Promise<void> {
     });
   }
 
+  // Emit build mode start to pause teammates
+  collabEmit("collab:action", {
+    sessionId: state.collabProjectId,
+    status: "building",
+    summary: prompt.slice(0, 120),
+  });
+
   // Send request to bridge
   if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
     state.bridgeSocket.send(
@@ -610,6 +757,26 @@ async function handleSubmit(): Promise<void> {
           .map((m) => ({ role: m.role, content: m.content })),
       })
     );
+  } else {
+    // Bridge not connected — surface error immediately
+    if (activeThinkingInterval) {
+      clearInterval(activeThinkingInterval);
+      activeThinkingInterval = null;
+    }
+    const errMsg = commandMessages.find((m) => m.id === taskId);
+    if (errMsg) {
+      if (errMsg.thinking) {
+        errMsg.thinking.completed = true;
+        errMsg.thinking.expanded = false;
+      }
+      errMsg.error = "Agent not connected. Please start the Lasso CLI (lasso dev) and try again.";
+      errMsg.isStreaming = false;
+    }
+    activeTaskId = null;
+    updateSubmitButton(false);
+    collabEmit("collab:action", { sessionId: state.collabProjectId, status: "idle" });
+    renderMessages();
+    scrollToBottom();
   }
 }
 
@@ -690,6 +857,12 @@ export function handleCommandBarAgentStatus(message: any): void {
     activeTaskId = null;
     updateSubmitButton(false);
 
+    // Unblock teammates — Build Mode is over
+    collabEmit("collab:action", {
+      sessionId: state.collabProjectId,
+      status: "idle",
+    });
+
     // Persist the completed assistant message to the server conversation (non-blocking)
     if (activeConversationId) {
       const convId = activeConversationId;
@@ -724,6 +897,12 @@ export function handleCommandBarAgentStatus(message: any): void {
     targetMsg.isStreaming = false;
     activeTaskId = null;
     updateSubmitButton(false);
+
+    // Unblock teammates — Build Mode is over
+    collabEmit("collab:action", {
+      sessionId: state.collabProjectId,
+      status: "idle",
+    });
 
     renderMessages();
     scrollToBottom();

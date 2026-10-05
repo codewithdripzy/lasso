@@ -125,6 +125,7 @@ export class OverlayState {
   lockMap = new Map<string, CollabLock>();
   heldLockElements = new Set<string>();
   spotlightUserId: string | null = null;
+  buildModeUser: { id: string; name: string } | null = null;
 
   // Comments
   commentThreads = new Map<string, CommentThread>();

@@ -4,6 +4,7 @@ import type { ElementGroup, GroupConfig } from "../types";
 import { setCommentMode } from "./toolbar";
 import { setDragMode } from "../drag/drag";
 import { closeCommandBar } from "../commandbar/commandbar";
+import { showActivity } from "../collab/presence";
 
 export const GROUPS: Record<ElementGroup, GroupConfig> = {
   layout: {
@@ -186,6 +187,10 @@ export function updateSelectedVisual() {
 }
 
 export function setSelectMode(active: boolean) {
+  if (active && state.buildModeUser) {
+    showActivity(`⏸️ ${state.buildModeUser.name} is in Build Mode. Editing is paused.`, "#fbbc04");
+    return;
+  }
   state.selectMode = active;
   if (active) {
     state.previewMode = false;

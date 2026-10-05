@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import chalk from "chalk";
 import { answerQuestion, detectLocalAgents, proposeChanges, generateCommitMessage, respondToAgentPrompt, type AgentConfig, type SourceChange, type LocalAgent, type AgentPrompt } from "./agent";
 import type { CollabConfig } from "./project";
+import { resolveLassoApiKey } from "./project";
 import { serverUrlFrom } from "./auth";
 
 export const DEFAULT_BRIDGE_PORT = 3056;
@@ -206,7 +207,16 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     ...readEnvFile(root, ".env.local"),
     ...readEnvFile(root, ".env.production"),
   }), {});
-  const lassoKeyConfigured = Boolean(process.env.VITE_LASSO_API_KEY || process.env.NEXT_LASSO_API_KEY || fileEnv.VITE_LASSO_API_KEY || fileEnv.NEXT_LASSO_API_KEY);
+  const resolvedLassoKey =
+    resolveLassoApiKey(fileEnv) ||
+    process.env.LASSO_API_KEY ||
+    fileEnv.LASSO_API_KEY ||
+    process.env.VITE_LASSO_API_KEY ||
+    process.env.NEXT_LASSO_API_KEY ||
+    fileEnv.VITE_LASSO_API_KEY ||
+    fileEnv.NEXT_LASSO_API_KEY ||
+    "";
+  const lassoKeyConfigured = Boolean(resolvedLassoKey);
   let agentConfig: AgentConfig | null = (() => {
     const provider = (process.env.LASSO_AGENT_PROVIDER || fileEnv.LASSO_AGENT_PROVIDER || process.env.AI_PROVIDER || fileEnv.AI_PROVIDER || "").toLowerCase();
     const keys = {
@@ -691,20 +701,36 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         }
       } else if (msg.type === "oneshot") {
         console.log("[lasso] one-shot request:", msg.prompt, msg.scope);
+        const taskId = msg.taskId || `oneshot-${Date.now()}`;
         
-        if (!lassoKeyConfigured && !agentConfig) {
-          socket.send(JSON.stringify({ type: "agent_status", status: "error", message: "Set your Lasso API key or configure an AI provider before using one-shot mode." }));
+        const localProvider = msg.provider === "cli" || msg.model?.startsWith("claude-code:") || msg.model?.startsWith("opencode:") || msg.model?.startsWith("cursor:") || msg.model?.startsWith("codex:");
+        const cliProvider = msg.model?.startsWith("claude-code:") ? "claude-code" : msg.model?.startsWith("opencode:") ? "opencode" : msg.model?.startsWith("cursor:") ? "cursor" : "codex";
+
+        const apiKey = resolvedLassoKey || agentConfig?.apiKey || collabConfig?.apiKey;
+
+        if (!localProvider && !lassoKeyConfigured && !agentConfig && !apiKey) {
+          socket.send(JSON.stringify({
+            type: "agent_status",
+            taskId,
+            status: "error",
+            message: "No AI provider or Lasso key configured. Sign in with 'lasso auth login' or configure a provider key in .env."
+          }));
           return;
         }
 
-        const localProvider = msg.provider === "cli";
-        const cliProvider = msg.model?.startsWith("claude-code:") ? "claude-code" : msg.model?.startsWith("opencode:") ? "opencode" : msg.model?.startsWith("cursor:") ? "cursor" : "codex";
-        
+        const provider = (msg.provider || agentConfig?.provider || "anthropic") as AgentConfig["provider"];
+        const model = msg.model || agentConfig?.model || "claude-3-7-sonnet";
+
         const selectedConfig: AgentConfig = localProvider
           ? { provider: cliProvider, model: msg.model || "claude-code:sonnet" }
-          : { ...agentConfig!, provider: (msg.provider || agentConfig!.provider) as AgentConfig["provider"], model: msg.model || agentConfig!.model };
+          : {
+              ...(agentConfig || {}),
+              provider,
+              model,
+              apiKey: agentConfig?.apiKey || apiKey,
+              baseUrl: agentConfig?.baseUrl,
+            };
 
-        const taskId = msg.taskId || `oneshot-${Date.now()}`;
         const controller = new AbortController();
         taskControllers.set(taskId, controller);
 
@@ -712,6 +738,8 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
 
         // Import the one-shot agent function
         const { runOneShotAgent } = await import("./oneshot.js");
+
+        const targetApiUrl = collabConfig?.apiUrl || process.env.LASSO_SERVER_URL || process.env.API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:3005" : "https://api.lasso.byorello.space");
         
         runOneShotAgent(
           cwd,
@@ -730,8 +758,8 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
             }
           },
           msg.messages,
-          collabConfig?.apiUrl,
-          collabConfig?.apiKey || agentConfig?.apiKey,
+          targetApiUrl,
+          apiKey,
           taskId
         ).then((result) => {
           if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
