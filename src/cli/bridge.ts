@@ -9,7 +9,7 @@ import chalk from "chalk";
 import { answerQuestion, detectLocalAgents, proposeChanges, generateCommitMessage, respondToAgentPrompt, type AgentConfig, type SourceChange, type LocalAgent, type AgentPrompt } from "./agent";
 import type { CollabConfig } from "./project";
 import { resolveLassoApiKey } from "./project";
-import { serverUrlFrom } from "./auth";
+import { serverUrlFrom, loadCredentials } from "./auth";
 
 export const DEFAULT_BRIDGE_PORT = 3056;
 const execFileAsync = promisify(execFile);
@@ -40,7 +40,7 @@ type ModelOption = { id: string; label: string; provider: "anthropic" | "openai"
 type PageEntry = { name: string; path: string; type: "directory" | "file" };
 
 export type ServerBridgeMessage =
-  | { type: "config"; apiKeyConfigured: boolean; agentConfigured: boolean; models: ModelOption[]; collab?: CollabConfig | null }
+  | { type: "config"; apiKeyConfigured: boolean; agentConfigured: boolean; models: ModelOption[]; collab?: CollabConfig | null; user?: { name?: string; email?: string } | null }
   | { type: "git_state"; git: GitState }
   | { type: "git_result"; message?: string; error?: string }
   | { type: "git_progress"; message: string }
@@ -91,7 +91,7 @@ function withLineEnding(value: string, lineEnding: "\n" | "\r\n") {
   return value.replace(/\r\n?|\n/g, lineEnding);
 }
 
-function resolveProposedFile(cwd: string, proposedPath: string): string {
+function resolveProposedFile(cwd: string, proposedPath: string, allowNew = false): string {
   const root = path.resolve(cwd);
   const candidate = path.resolve(root, proposedPath);
   if (candidate.startsWith(`${root}${path.sep}`) && fs.existsSync(candidate)) return candidate;
@@ -103,10 +103,15 @@ function resolveProposedFile(cwd: string, proposedPath: string): string {
   if (srcIndex >= 0) {
     const rebased = path.join(root, normalized.slice(srcIndex + 1));
     if (rebased.startsWith(`${root}${path.sep}`) && fs.existsSync(rebased)) return rebased;
+    if (allowNew && (rebased.startsWith(`${root}${path.sep}`) || rebased === root)) return rebased;
   }
 
-  if (!candidate.startsWith(`${root}${path.sep}`)) throw new Error(`The proposed file is outside the current project: ${proposedPath}`);
-  throw new Error(`Could not find the proposed file in the current project: ${proposedPath}`);
+  if (candidate.startsWith(`${root}${path.sep}`) || candidate === root) {
+    if (allowNew) return candidate;
+    throw new Error(`Could not find the proposed file in the current project: ${proposedPath}`);
+  }
+
+  throw new Error(`The proposed file is outside the current project: ${proposedPath}`);
 }
 
 function occurrenceCount(content: string, needle: string) {
@@ -155,6 +160,7 @@ function prepareChange(content: string, change: SourceChange) {
 function proposalMatchesCurrentSource(cwd: string, changes: SourceChange[]): boolean {
   try {
     for (const change of changes) {
+      if (!change.oldString) continue;
       const filePath = resolveProposedFile(cwd, change.filePath);
       const content = fs.readFileSync(filePath, "utf8");
       // Try exact match first
@@ -196,7 +202,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
   const bridgeServer = http.createServer(); // dedicated, empty HTTP server
   const wss = new WebSocketServer({ server: bridgeServer });
   let overlaySocket: WebSocket | null = null;
-  const taskSnapshots = new Map<string, Array<{ filePath: string; content: string }>>();
+  const taskSnapshots = new Map<string, Array<{ filePath: string; content: string | null }>>();
   const editRequests = new Map<string, Extract<BridgeMessage, { type: "edit" }>>();
   const editConfigs = new Map<string, AgentConfig>();
   const reviewRefreshAttempts = new Map<string, number>();
@@ -441,9 +447,13 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
   wss.on("connection", (socket) => {
     overlaySocket = socket;
     console.log(chalk.green("✓") + " Overlay connected");
-    socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig) || localAgents.size > 0, models: [], collab: collabConfig?.registered ? { ...collabConfig, plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null }));
+    const creds = loadCredentials();
+    const userInfo = creds?.userName
+      ? { name: creds.userName, email: creds.userEmail }
+      : (process.env.USER ? { name: process.env.USER } : null);
+    socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig) || localAgents.size > 0, models: [], collab: collabConfig?.registered ? { ...collabConfig, plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null, user: userInfo }));
     void availableModels(collabConfig).then((models) => {
-      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig) || localAgents.size > 0, models, collab: collabConfig?.registered ? { ...collabConfig, plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null }));
+      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig) || localAgents.size > 0, models, collab: collabConfig?.registered ? { ...collabConfig, plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null, user: userInfo }));
     });
     void getGitState(cwd).then((git) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "git_state", git }));
@@ -672,10 +682,15 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         }
       } else if (msg.type === "transcribe") {
         const serverUrl = serverUrlFrom(fileEnv);
+        const creds = loadCredentials();
+        const apiKey = resolvedLassoKey || agentConfig?.apiKey || collabConfig?.apiKey || creds?.apiKey;
         try {
           const resp = await fetch(`${serverUrl}/api/v1/transcribe`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+            },
             body: JSON.stringify({
               audio: msg.audio,
               mimeType: msg.mimeType,
@@ -788,17 +803,21 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         });
       } else if (msg.type === "apply") {
         try {
-          const snapshots: Array<{ filePath: string; content: string }> = [];
-          const planned = new Map<string, { filePath: string; content: string; start: number; end: number; oldString: string; newString: string }[]>();
+          const snapshots: Array<{ filePath: string; content: string | null }> = [];
+          const planned = new Map<string, { filePath: string; content: string; exists: boolean; start: number; end: number; oldString: string; newString: string }[]>();
           for (const change of msg.changes) {
-            const filePath = resolveProposedFile(cwd, change.filePath);
-            const content = fs.readFileSync(filePath, "utf8");
-            const prepared = prepareChange(content, change);
+            const isNew = !change.oldString;
+            const filePath = resolveProposedFile(cwd, change.filePath, true);
+            const exists = fs.existsSync(filePath);
+            const content = exists ? fs.readFileSync(filePath, "utf8") : "";
+            const prepared = (!exists || isNew)
+              ? { start: 0, end: content.length, oldString: content, newString: change.newString }
+              : prepareChange(content, change);
             const fileChanges = planned.get(filePath) || [];
             if (fileChanges.some((item) => prepared.start < item.end && item.start < prepared.end)) {
               throw new Error(`Could not safely apply ${change.filePath}. Proposed changes overlap.`);
             }
-            fileChanges.push({ filePath, content, ...prepared });
+            fileChanges.push({ filePath, content, exists, ...prepared });
             planned.set(filePath, fileChanges);
           }
 
@@ -806,18 +825,28 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
           // file's replacements from the end toward the beginning.
           taskSnapshots.set(msg.taskId, snapshots);
           for (const [filePath, changes] of planned) {
+            const exists = changes[0]!.exists;
             const content = changes[0]!.content;
-            snapshots.push({ filePath, content });
-            const nextContent = [...changes]
-              .sort((a, b) => b.start - a.start)
-              .reduce((value, change) => value.slice(0, change.start) + change.newString + value.slice(change.end), content);
+            snapshots.push({ filePath, content: exists ? content : null });
+            const nextContent = exists
+              ? [...changes]
+                  .sort((a, b) => b.start - a.start)
+                  .reduce((value, change) => value.slice(0, change.start) + change.newString + value.slice(change.end), content)
+              : changes[0]!.newString;
+            fs.mkdirSync(path.dirname(filePath), { recursive: true });
             fs.writeFileSync(filePath, nextContent);
           }
           socket.send(JSON.stringify({ type: "applied", taskId: msg.taskId, message: `${msg.changes.length} file${msg.changes.length === 1 ? "" : "s"} updated. Your dev server will reload.` }));
         } catch (error) {
           // Validation happens before writes, but restore this task's snapshot
           // if a filesystem error occurs during the write phase.
-          for (const snapshot of taskSnapshots.get(msg.taskId) || []) fs.writeFileSync(snapshot.filePath, snapshot.content);
+          for (const snapshot of taskSnapshots.get(msg.taskId) || []) {
+            if (snapshot.content === null) {
+              if (fs.existsSync(snapshot.filePath)) fs.unlinkSync(snapshot.filePath);
+            } else {
+              fs.writeFileSync(snapshot.filePath, snapshot.content);
+            }
+          }
           taskSnapshots.delete(msg.taskId);
           const message = error instanceof Error ? error.message : "The change could not be applied.";
           const sourceChanged = message.includes("The source changed after the suggestion was generated");
@@ -833,7 +862,13 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         }
       } else if (msg.type === "undo") {
         const snapshots = taskSnapshots.get(msg.taskId || "") || [];
-        for (const snapshot of snapshots) fs.writeFileSync(snapshot.filePath, snapshot.content);
+        for (const snapshot of snapshots) {
+          if (snapshot.content === null) {
+            if (fs.existsSync(snapshot.filePath)) fs.unlinkSync(snapshot.filePath);
+          } else {
+            fs.writeFileSync(snapshot.filePath, snapshot.content);
+          }
+        }
         taskSnapshots.delete(msg.taskId || "");
         socket.send(JSON.stringify({ type: "undone", taskId: msg.taskId, message: snapshots.length ? "The accepted change was reverted." : "There is no accepted change to undo." }));
       }

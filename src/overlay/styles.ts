@@ -3378,6 +3378,33 @@ export function buildStyles(): string {
       display: flex;
       align-items: center;
       gap: 8px;
+      width: 100%;
+      background: none;
+      border: none;
+      padding: 0;
+      margin: 0;
+      color: inherit;
+      font-family: inherit;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .lasso-command-thinking-header .lasso-command-thought-chevron {
+      color: var(--lo-text-3);
+      margin-left: 2px;
+      transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .lasso-command-thinking-header .lasso-command-thought-chevron.expanded,
+    .lasso-command-thought-toggle.expanded .lasso-command-thought-chevron {
+      transform: rotate(90deg);
+    }
+
+    .lasso-command-thought-chevron,
+    .lasso-command-thought-sparkle,
+    .lasso-command-pulse-ring,
+    .lasso-command-pulse-dot {
+      pointer-events: none;
     }
 
     .lasso-command-thinking-pulse {
@@ -3721,17 +3748,34 @@ export function buildStyles(): string {
       flex: 1;
       display: flex;
       flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 24px 20px;
-      text-align: center;
+      align-items: flex-start;
+      justify-content: flex-start;
+      padding: 28px 20px 20px;
+      text-align: left;
       box-sizing: border-box;
       user-select: none;
+      overflow-y: auto;
+    }
+
+    .lasso-command-empty[hidden] {
+      display: none !important;
+    }
+
+    .lasso-command-messages[hidden] {
+      display: none !important;
+    }
+
+    .lasso-command-empty-header {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      text-align: left;
     }
 
     .lasso-command-empty-logo {
-      width: 36px;
-      height: 36px;
+      width: 32px;
+      height: 32px;
       display: block;
       margin-bottom: 16px;
       border: none;
@@ -3742,16 +3786,100 @@ export function buildStyles(): string {
 
     .lasso-command-empty-text {
       color: var(--lo-text);
-      font-size: 18px;
-      font-weight: 500;
-      line-height: 1.4;
+      font-size: 19px;
+      font-weight: 600;
+      line-height: 1.35;
       letter-spacing: -0.02em;
-      max-width: 240px;
+      margin: 0 0 6px 0;
+      text-align: left;
     }
 
     .lasso-command-empty-text .lasso-command-user-name {
       color: var(--lo-text);
-      font-weight: 600;
+      font-weight: 700;
+    }
+
+    .lasso-command-empty-sub {
+      color: var(--lo-text-subtle, rgba(255, 255, 255, 0.5));
+      font-size: 13px;
+      line-height: 1.45;
+      margin: 0 0 18px 0;
+      text-align: left;
+    }
+
+    /* Suggestions section */
+    .lasso-command-suggestions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+      margin-top: 6px;
+    }
+
+    .lasso-command-suggestion-chip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 10px 14px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: var(--lo-radius-md, 10px);
+      color: var(--lo-text);
+      font-size: 13px;
+      font-weight: 500;
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+      box-sizing: border-box;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .lasso-command-suggestion-chip:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .lasso-command-suggestion-chip:active {
+      transform: translateY(0);
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .lasso-command-suggestion-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--lo-primary, #6366f1);
+      flex-shrink: 0;
+    }
+
+    .lasso-command-suggestion-label {
+      flex: 1;
+      color: var(--lo-text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .lasso-command-suggestion-arrow {
+      color: var(--lo-text-subtle, rgba(255, 255, 255, 0.35));
+      opacity: 0;
+      transform: translateX(-4px);
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .lasso-command-suggestion-chip:hover .lasso-command-suggestion-arrow {
+      opacity: 1;
+      transform: translateX(0);
+      color: var(--lo-text);
     }
 
     /* ---- Input composite (textarea + toolbar row) ---- */

@@ -220,15 +220,161 @@ async function switchConversation(convId: string): Promise<void> {
   scrollToBottom();
 }
 
-function getUserGreetingName(): string {
+export interface SuggestionChip {
+  icon: string;
+  label: string;
+  prompt: string;
+}
+
+export function getDynamicSuggestions(): SuggestionChip[] {
+  const path = window.location.pathname.toLowerCase();
+  const suggestions: SuggestionChip[] = [];
+
+  const hasForms = Boolean(document.querySelector("form, input:not([type='hidden']), textarea"));
+  const hasCards = Boolean(document.querySelector("[class*='card'], [class*='item'], [class*='product'], [class*='tile'], [class*='grid']"));
+  const hasNav = Boolean(document.querySelector("nav, header, [class*='header'], [class*='navbar']"));
+
+  if (path === "/" || path === "" || path.endsWith("/index.html")) {
+    suggestions.push({
+      icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z"/></svg>`,
+      label: "Redesign the hero section",
+      prompt: "Redesign the hero section to make it punchy and modern with glowing gradients, clean typography, and a clear call-to-action.",
+    });
+    suggestions.push({
+      icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></svg>`,
+      label: "Review this landing page",
+      prompt: "Review this landing page design, typography, spacing, and contrast, and give me specific recommendations to improve it.",
+    });
+    suggestions.push({
+      icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
+      label: "Add dark mode toggle",
+      prompt: "Add a sleek dark/light mode toggle with smooth CSS transitions and remember the preference in localStorage.",
+    });
+    suggestions.push({
+      icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>`,
+      label: "Audit mobile responsiveness",
+      prompt: "Inspect the layout and adjust the CSS so this page looks stunning and functions seamlessly on mobile screens.",
+    });
+  } else if (path.includes("pricing") || path.includes("plan")) {
+    suggestions.push({
+      icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>`,
+      label: "Add billing cycle toggle",
+      prompt: "Add a Monthly / Annual billing switch with an animated badge showing 'Save 20%' on annual billing.",
+    });
+    suggestions.push({
+      icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z"/></svg>`,
+      label: "Highlight popular tier",
+      prompt: "Add a 'Most Popular' gradient ribbon and elevate the recommended pricing card with a subtle border glow.",
+    });
+    suggestions.push({
+      icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></svg>`,
+      label: "Add FAQ accordion section",
+      prompt: "Create an interactive FAQ accordion section below the pricing plans with smooth open/collapse animations.",
+    });
+  } else if (path.includes("login") || path.includes("auth") || path.includes("signup") || path.includes("register")) {
+    suggestions.push({
+      icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
+      label: "Add social auth buttons",
+      prompt: "Add polished 'Continue with Google' and 'Continue with GitHub' buttons with brand icons above the form.",
+    });
+    suggestions.push({
+      icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+      label: "Add show password toggle",
+      prompt: "Add a password visibility toggle icon inside the password field with smooth show/hide transitions.",
+    });
+    suggestions.push({
+      icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,
+      label: "Add form validation",
+      prompt: "Add instant inline client-side validation for email format and password strength requirements.",
+    });
+  } else if (path.includes("dashboard") || path.includes("admin") || path.includes("app")) {
+    suggestions.push({
+      icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>`,
+      label: "Add KPI metric stat cards",
+      prompt: "Add 4 responsive KPI stat cards with trend percentage indicators, icons, and sparkline previews.",
+    });
+    suggestions.push({
+      icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
+      label: "Create activity charts",
+      prompt: "Create an interactive chart section displaying recent activity and metrics with daily/weekly filters.",
+    });
+    suggestions.push({
+      icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+      label: "Add quick search & filter",
+      prompt: "Add an instant search bar with filter chips to quickly find and filter table or dashboard items.",
+    });
+  }
+
+  // Complementary contextual suggestions
+  if (suggestions.length < 4) {
+    if (hasForms && !suggestions.some((s) => s.label.toLowerCase().includes("validation"))) {
+      suggestions.push({
+        icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,
+        label: "Enhance form validation",
+        prompt: "Add sleek inline validation and feedback messages with error states and focus animations.",
+      });
+    }
+    if (hasNav && !suggestions.some((s) => s.label.toLowerCase().includes("navbar"))) {
+      suggestions.push({
+        icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg>`,
+        label: "Add sticky blur navbar",
+        prompt: "Make the navigation bar sticky with a modern blurred glassmorphism backdrop on scroll.",
+      });
+    }
+    if (hasCards && !suggestions.some((s) => s.label.toLowerCase().includes("card") || s.label.toLowerCase().includes("hover"))) {
+      suggestions.push({
+        icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z"/></svg>`,
+        label: "Add micro-interactions to cards",
+        prompt: "Add smooth hover lift effects, subtle border highlights, and interactive states to the cards.",
+      });
+    }
+    suggestions.push({
+      icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></svg>`,
+      label: "Explain this codebase",
+      prompt: "Explain how this project is structured, what tech stack is used, and what key components exist.",
+    });
+  }
+
+  return suggestions.slice(0, 4);
+}
+
+export function renderSuggestions(): void {
+  if (!commandBarEl) return;
+  const suggestionsContainer = commandBarEl.querySelector<HTMLElement>(".lasso-command-suggestions");
+  if (!suggestionsContainer) return;
+
+  const suggestions = getDynamicSuggestions();
+  suggestionsContainer.innerHTML = suggestions
+    .map(
+      (s, index) => `
+    <button class="lasso-command-suggestion-chip" type="button" data-index="${index}">
+      <span class="lasso-command-suggestion-icon">${s.icon}</span>
+      <span class="lasso-command-suggestion-label">${escapeHtml(s.label)}</span>
+      <svg class="lasso-command-suggestion-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12h14M12 5l7 7-7 7"/>
+      </svg>
+    </button>
+  `
+    )
+    .join("");
+}
+
+export function getUserGreetingName(): string {
   if (state.myUser?.name) {
     const first = state.myUser.name.trim().split(/\s+/)[0];
     if (first) return first;
   }
+  try {
+    const cached = localStorage.getItem("lasso:user:name");
+    if (cached) {
+      const first = cached.trim().split(/\s+/)[0];
+      if (first) return first;
+    }
+  } catch {}
   return "there";
 }
 
-function updateEmptyStateUserName(): void {
+export function updateEmptyStateUserName(): void {
   const nameEl = commandBarEl?.querySelector<HTMLSpanElement>(".lasso-command-user-name");
   if (nameEl) {
     nameEl.textContent = getUserGreetingName();
@@ -275,10 +421,14 @@ export function buildCommandBar(): void {
 
     <div class="lasso-command-body">
       <div class="lasso-command-empty">
-        <img class="lasso-command-empty-logo" src="${LASSO_ICON_DATA_URL}" alt="Lasso" />
-        <div class="lasso-command-empty-text">
-          Hi <span class="lasso-command-user-name">${getUserGreetingName()}</span>,<br />What would you like to build today?
+        <div class="lasso-command-empty-header">
+          <img class="lasso-command-empty-logo" src="${LASSO_ICON_DATA_URL}" alt="Lasso" />
+          <h2 class="lasso-command-empty-text">
+            Hi <span class="lasso-command-user-name">${getUserGreetingName()}</span>,<br />What would you like to build today?
+          </h2>
+          <p class="lasso-command-empty-sub">Choose a suggestion below or describe what you want to build.</p>
         </div>
+        <div class="lasso-command-suggestions"></div>
       </div>
       <div class="lasso-command-messages" hidden></div>
     </div>
@@ -333,6 +483,40 @@ export function buildCommandBar(): void {
   commandModelLabel = el.querySelector<HTMLSpanElement>(".lasso-command-model-label")!;
   commandMessagesEl = el.querySelector<HTMLDivElement>(".lasso-command-messages")!;
   commandEmptyEl = el.querySelector<HTMLDivElement>(".lasso-command-empty")!;
+
+  // Dynamic suggestion clicks
+  const suggestionsContainer = el.querySelector<HTMLElement>(".lasso-command-suggestions");
+  if (suggestionsContainer) {
+    suggestionsContainer.addEventListener("click", (event) => {
+      const chip = (event.target as HTMLElement).closest<HTMLButtonElement>(".lasso-command-suggestion-chip");
+      if (!chip) return;
+      const index = parseInt(chip.dataset.index || "-1", 10);
+      const suggestions = getDynamicSuggestions();
+      const item = suggestions[index];
+      if (item && commandInput) {
+        commandInput.value = item.prompt;
+        autoResizeTextarea(commandInput);
+        handleSubmit();
+      }
+    });
+  }
+
+  renderSuggestions();
+
+  // Try to load authenticated user if not set yet
+  if (!state.myUser?.name) {
+    apiFetch("/auth/me")
+      .then((res: any) => {
+        if (res?.user?.name) {
+          state.myUser = { id: res.user.id || "me", name: res.user.name, photo: res.user.photo || "" };
+          try {
+            localStorage.setItem("lasso:user:name", res.user.name);
+          } catch {}
+          updateEmptyStateUserName();
+        }
+      })
+      .catch(() => {});
+  }
 
   // History button
   commandHistoryBtn.addEventListener("click", async (event) => {
@@ -435,6 +619,7 @@ export function buildCommandBar(): void {
   });
 
   // Voice input
+  let initialVoiceText = "";
   commandVoice.addEventListener("click", async (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -449,7 +634,7 @@ export function buildCommandBar(): void {
       try {
         const result = await stopVoiceRecording();
         if (result.text && commandInput) {
-          const prev = commandInput.value.trim();
+          const prev = initialVoiceText ? initialVoiceText.trim() : "";
           commandInput.value = prev ? `${prev} ${result.text}` : result.text;
           commandInput.focus();
           autoResizeTextarea(commandInput);
@@ -462,10 +647,17 @@ export function buildCommandBar(): void {
       } finally {
         btn.classList.remove("transcribing");
         btn.title = "Voice input";
+        initialVoiceText = "";
       }
     } else {
       try {
-        await startVoiceRecording();
+        initialVoiceText = commandInput?.value.trim() || "";
+        await startVoiceRecording((interimText) => {
+          if (commandInput && interimText) {
+            commandInput.value = initialVoiceText ? `${initialVoiceText} ${interimText}` : interimText;
+            autoResizeTextarea(commandInput);
+          }
+        });
         btn.classList.add("recording");
         btn.title = "Recording… Click again to stop";
         showActivity("Listening… speak now", "#ea4335");
@@ -508,7 +700,7 @@ export function buildCommandBar(): void {
     const target = event.target as HTMLElement;
 
     // Toggle thinking expansion
-    const thoughtToggle = target.closest<HTMLButtonElement>(".lasso-command-thought-toggle");
+    const thoughtToggle = target.closest<HTMLElement>(".lasso-command-thought-toggle, .lasso-command-thinking-header");
     if (thoughtToggle) {
       const msgId = thoughtToggle.closest<HTMLElement>(".lasso-command-msg")?.dataset.msgId;
       const msg = commandMessages.find((m) => m.id === msgId);
@@ -599,6 +791,7 @@ export function openCommandBar(): void {
   }
 
   updateEmptyStateUserName();
+  renderSuggestions();
   populateModelMenu();
   renderMessages();
 
@@ -639,6 +832,7 @@ function startNewSession(): void {
     autoResizeTextarea(commandInput);
   }
   updateSubmitButton(false);
+  renderSuggestions();
   renderMessages();
   // Eagerly create the new server conversation in the background
   createServerConversation().then((id) => {
@@ -986,13 +1180,17 @@ function renderMessages(): void {
 
   if (commandMessages.length === 0) {
     commandEmptyEl.hidden = false;
+    commandEmptyEl.style.display = "flex";
     commandMessagesEl.hidden = true;
+    commandMessagesEl.style.display = "none";
     commandMessagesEl.innerHTML = "";
     return;
   }
 
   commandEmptyEl.hidden = true;
+  commandEmptyEl.style.display = "none";
   commandMessagesEl.hidden = false;
+  commandMessagesEl.style.display = "flex";
 
   let html = "";
   for (const msg of commandMessages) {
@@ -1025,15 +1223,18 @@ function renderThinking(msg: CommandMessage): string {
     // Live thinking process
     return `
       <div class="lasso-command-thinking-active">
-        <div class="lasso-command-thinking-header">
+        <button class="lasso-command-thinking-header" type="button" aria-expanded="${expanded}">
           <div class="lasso-command-thinking-pulse">
             <span class="lasso-command-pulse-ring"></span>
             <span class="lasso-command-pulse-dot"></span>
           </div>
           <span class="lasso-command-thinking-title">Thinking…</span>
           <span class="lasso-command-active-timer">${formatDuration(durationSeconds)}</span>
-        </div>
-        <div class="lasso-command-thinking-steps">
+          <svg class="lasso-command-thought-chevron ${expanded ? "expanded" : ""}" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18l6-6-6-6"/>
+          </svg>
+        </button>
+        <div class="lasso-command-thinking-steps" ${expanded ? "" : "hidden"}>
           ${steps
             .map(
               (step) => `

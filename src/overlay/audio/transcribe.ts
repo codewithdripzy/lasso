@@ -8,8 +8,18 @@ let pendingResolver: ((res: { text: string; provider: string }) => void) | null 
 let pendingRejecter: ((err: Error) => void) | null = null;
 let currentMimeType = "audio/webm";
 
+const SpeechRecognitionClass =
+  typeof window !== "undefined"
+    ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    : null;
+let activeSpeechRecognition: any = null;
+let speechTranscript = "";
+
 export function isRecordingVoice(): boolean {
-  return activeRecorder !== null && activeRecorder.state === "recording";
+  return (
+    (activeRecorder !== null && activeRecorder.state === "recording") ||
+    Boolean(activeSpeechRecognition)
+  );
 }
 
 function getSupportedMimeType(): string {
@@ -199,60 +209,96 @@ export async function getAudioMediaStream(): Promise<MediaStream> {
 /**
  * Start recording audio from the user's microphone
  */
-export async function startVoiceRecording(): Promise<void> {
+export async function startVoiceRecording(onProgress?: (text: string) => void): Promise<void> {
   if (isRecordingVoice()) return;
 
+  speechTranscript = "";
+
+  // 1. Try SpeechRecognition for instant, real-time live transcription
+  if (SpeechRecognitionClass) {
+    try {
+      const recognition = new SpeechRecognitionClass();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+      recognition.onresult = (event: any) => {
+        let full = "";
+        for (let i = 0; i < event.results.length; i++) {
+          full += event.results[i][0].transcript;
+        }
+        speechTranscript = full;
+        if (onProgress && full) {
+          onProgress(full);
+        }
+      };
+      recognition.onerror = (event: any) => {
+        console.warn("[SpeechRecognition] error:", event?.error);
+      };
+      recognition.start();
+      activeSpeechRecognition = recognition;
+    } catch (e) {
+      console.warn("[SpeechRecognition] init failed:", e);
+      activeSpeechRecognition = null;
+    }
+  }
+
+  // 2. Also start MediaRecorder as an audio backup
   try {
     const stream = await getAudioMediaStream();
     activeStream = stream;
     currentMimeType = getSupportedMimeType() || "audio/webm";
 
-    if (typeof MediaRecorder === "undefined") {
-      stream.getTracks().forEach((track) => track.stop());
-      activeStream = null;
-      throw new Error("MediaRecorder is not supported in this browser.");
+    if (typeof MediaRecorder !== "undefined") {
+      const recorder = new MediaRecorder(
+        stream,
+        currentMimeType ? { mimeType: currentMimeType } : undefined
+      );
+      activeRecorder = recorder;
+      recordedChunks = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordedChunks.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(recordedChunks, { type: currentMimeType });
+        if (activeStream) {
+          activeStream.getTracks().forEach((track) => track.stop());
+          activeStream = null;
+        }
+        activeRecorder = null;
+
+        if (!pendingResolver) return;
+
+        // If SpeechRecognition already gave us text, use it
+        if (speechTranscript.trim()) {
+          pendingResolver({ text: speechTranscript.trim(), provider: "browser-stt" });
+          pendingResolver = null;
+          pendingRejecter = null;
+          return;
+        }
+
+        try {
+          const result = await transcribeAudioBlob(audioBlob, currentMimeType);
+          pendingResolver(result);
+        } catch (err: any) {
+          if (pendingRejecter) pendingRejecter(err);
+        } finally {
+          pendingResolver = null;
+          pendingRejecter = null;
+        }
+      };
+
+      recorder.start(200);
     }
-
-    const recorder = new MediaRecorder(
-      stream,
-      currentMimeType ? { mimeType: currentMimeType } : undefined
-    );
-    activeRecorder = recorder;
-    recordedChunks = [];
-
-    recorder.ondataavailable = (event) => {
-      if (event.data && event.data.size > 0) {
-        recordedChunks.push(event.data);
-      }
-    };
-
-    recorder.onstop = async () => {
-      const audioBlob = new Blob(recordedChunks, { type: currentMimeType });
-      // Stop media tracks
-      if (activeStream) {
-        activeStream.getTracks().forEach((track) => track.stop());
-        activeStream = null;
-      }
-      activeRecorder = null;
-
-      if (!pendingResolver) return;
-
-      try {
-        const result = await transcribeAudioBlob(audioBlob, currentMimeType);
-        pendingResolver(result);
-      } catch (err: any) {
-        if (pendingRejecter) pendingRejecter(err);
-      } finally {
-        pendingResolver = null;
-        pendingRejecter = null;
-      }
-    };
-
-    recorder.start(200);
   } catch (err: any) {
-    activeStream = null;
-    activeRecorder = null;
-    throw new Error(err?.message || "Microphone access denied or unavailable");
+    if (!activeSpeechRecognition) {
+      activeStream = null;
+      activeRecorder = null;
+      throw new Error(err?.message || "Microphone access denied or unavailable");
+    }
   }
 }
 
@@ -261,14 +307,43 @@ export async function startVoiceRecording(): Promise<void> {
  */
 export function stopVoiceRecording(): Promise<{ text: string; provider: string }> {
   return new Promise((resolve, reject) => {
-    if (!activeRecorder || activeRecorder.state !== "recording") {
-      reject(new Error("No active voice recording"));
+    if (activeSpeechRecognition) {
+      try {
+        activeSpeechRecognition.stop();
+      } catch {}
+      activeSpeechRecognition = null;
+    }
+
+    if (activeRecorder && activeRecorder.state === "recording") {
+      pendingResolver = resolve;
+      pendingRejecter = reject;
+      try {
+        activeRecorder.stop();
+      } catch {
+        if (activeStream) {
+          activeStream.getTracks().forEach((track) => track.stop());
+          activeStream = null;
+        }
+        activeRecorder = null;
+        if (speechTranscript.trim()) {
+          resolve({ text: speechTranscript.trim(), provider: "browser-stt" });
+        } else {
+          reject(new Error("Recording stopped without audio"));
+        }
+      }
       return;
     }
 
-    pendingResolver = resolve;
-    pendingRejecter = reject;
-    activeRecorder.stop();
+    if (activeStream) {
+      activeStream.getTracks().forEach((track) => track.stop());
+      activeStream = null;
+    }
+
+    if (speechTranscript.trim()) {
+      resolve({ text: speechTranscript.trim(), provider: "browser-stt" });
+    } else {
+      reject(new Error("No active voice recording"));
+    }
   });
 }
 
@@ -276,6 +351,12 @@ export function stopVoiceRecording(): Promise<{ text: string; provider: string }
  * Cancel recording without transcribing
  */
 export function cancelVoiceRecording(): void {
+  if (activeSpeechRecognition) {
+    try {
+      activeSpeechRecognition.abort();
+    } catch {}
+    activeSpeechRecognition = null;
+  }
   if (activeStream) {
     activeStream.getTracks().forEach((track) => track.stop());
     activeStream = null;
@@ -289,6 +370,7 @@ export function cancelVoiceRecording(): void {
     activeRecorder = null;
   }
   recordedChunks = [];
+  speechTranscript = "";
   if (pendingRejecter) {
     pendingRejecter(new Error("Recording cancelled"));
   }

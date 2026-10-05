@@ -10,6 +10,7 @@ import type { CollabConfig, CollabLock, CollabComment, CollabTodo, CollabClipboa
 import { replaceTodos, upsertTodo, removeTodo } from "../todo/todo";
 import { setNoteFromServer } from "../notepad/notepad";
 import { upsertClipboardItem, removeClipboardItem } from "../clipboard/clipboard";
+import { updateEmptyStateUserName } from "../commandbar/commandbar";
 
 export function readAuthToken(): string {
   for (const key of ["token", "lasso_token", "auth_token", "jwt"]) {
@@ -238,6 +239,12 @@ export function joinCollabSession() {
       state.collabJoined = true;
       if (countEl) countEl.textContent = "";
       state.myUser = (payload.me as { id: string; name: string; photo: string }) || null;
+      if (state.myUser?.name) {
+        try {
+          localStorage.setItem("lasso:user:name", state.myUser.name);
+        } catch {}
+        updateEmptyStateUserName();
+      }
       const snapshot = (payload.snapshot || {}) as {
         presence?: unknown[];
         locks?: unknown[];

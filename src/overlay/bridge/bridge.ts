@@ -21,6 +21,7 @@ import {
   handleCommandBarAction,
   handleCommandBarPrompt,
   isCommandBarTaskId,
+  updateEmptyStateUserName,
 } from "../commandbar/commandbar";
 import type { GitState, ModelOption, PendingChange } from "../types";
 
@@ -94,10 +95,22 @@ export function connectBridge() {
           entries?: Array<{ name: string; path: string; type: "directory" | "file" }>;
           project?: string;
           collab?: { projectId?: string; realtimeUrl?: string; name?: string; version?: string; workspaceId?: string; token?: string; apiKey?: string; plan?: string; configuredProviders?: string[] };
+          user?: { name?: string; email?: string } | null;
         };
 
         if (message.type === "config") {
           state.apiKeyConfigured = Boolean(message.apiKeyConfigured);
+          if (message.user?.name) {
+            state.myUser = {
+              id: state.myUser?.id || "me",
+              name: message.user.name,
+              photo: state.myUser?.photo || "",
+            };
+            try {
+              localStorage.setItem("lasso:user:name", message.user.name);
+            } catch {}
+            updateEmptyStateUserName();
+          }
           if (message.collab?.projectId && message.collab.realtimeUrl && !state.collabSocket) {
             connectCollab(message.collab);
           }
