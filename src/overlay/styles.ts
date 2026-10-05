@@ -245,6 +245,19 @@ export function buildStyles(): string {
       margin-left: 6px;
     }
 
+    /* Command tool active */
+    .lasso-tool-btn.command-tool.active {
+      background: var(--lo-surface-3);
+      color: #ffffff;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+    }
+
+    .lasso-tool-btn.command-tool.active .lasso-tool-label {
+      max-width: 80px;
+      opacity: 1;
+      margin-left: 6px;
+    }
+
     /* Git & Voice buttons */
     .lasso-tool-btn.git-tool:hover {
       color: var(--lo-primary);
@@ -3048,8 +3061,9 @@ export function buildStyles(): string {
     .lasso-agent-prompt-actions button:hover { filter: brightness(1.12); }
     .lasso-agent-prompt-actions button:active { transform: scale(0.97); }
 
+
     /* ==========================================================
-       COMMAND SIDEBAR (One-Shot Build Mode)
+       COMMAND BAR (Right Sidebar, Gemini-style)
        ========================================================== */
 
     .lasso-command-sidebar {
@@ -3061,16 +3075,15 @@ export function buildStyles(): string {
       max-width: calc(100vw - 32px);
       display: flex;
       flex-direction: column;
-      padding: 0;
       border: 1px solid var(--lo-border);
       border-radius: var(--lo-radius-xl);
-      background: rgba(24, 25, 29, 0.98);
-      backdrop-filter: blur(24px);
-      -webkit-backdrop-filter: blur(24px);
+      background: rgba(18, 19, 23, 0.97);
+      backdrop-filter: blur(28px);
+      -webkit-backdrop-filter: blur(28px);
       color: var(--lo-text);
-      box-shadow: 0 24px 56px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08);
+      box-shadow: 0 24px 56px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.07);
       pointer-events: auto;
-      animation: lasso-command-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+      animation: lasso-command-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
       z-index: 100;
     }
 
@@ -3081,11 +3094,11 @@ export function buildStyles(): string {
     @keyframes lasso-command-in {
       from {
         opacity: 0;
-        transform: translateX(12px);
+        transform: translateX(16px);
       }
       to {
         opacity: 1;
-        transform: none;
+        transform: translateX(0);
       }
     }
 
@@ -3093,30 +3106,37 @@ export function buildStyles(): string {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 16px 20px;
-      border-bottom: 1px solid var(--lo-border);
+      padding: 14px 16px 12px;
     }
 
     .lasso-command-brand {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
     }
 
     .lasso-command-brand-logo {
-      width: 24px;
-      height: 24px;
+      width: 20px;
+      height: 20px;
     }
 
     .lasso-command-brand-title {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
       letter-spacing: -0.01em;
+      color: var(--lo-text-2);
     }
 
+    .lasso-command-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .lasso-command-new-chat,
     .lasso-command-close {
-      width: 28px;
-      height: 28px;
+      width: 26px;
+      height: 26px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -3128,53 +3148,563 @@ export function buildStyles(): string {
       transition: background 120ms ease, color 120ms ease;
     }
 
+    .lasso-command-new-chat:hover,
     .lasso-command-close:hover {
       background: var(--lo-surface-hover);
       color: var(--lo-text);
     }
 
-    .lasso-command-sidebar-body {
+    /* Body — scrollable conversation list */
+    .lasso-command-body {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .lasso-command-messages {
       display: flex;
       flex-direction: column;
       gap: 16px;
-      padding: 20px;
-      flex: 1;
-      overflow-y: auto;
+      padding: 16px 14px 20px;
+      box-sizing: border-box;
     }
+
+    .lasso-command-msg {
+      display: flex;
+      flex-direction: column;
+      animation: lasso-command-fade-in 0.2s ease-out;
+    }
+
+    @keyframes lasso-command-fade-in {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .lasso-command-msg.user {
+      align-items: flex-end;
+    }
+
+    .lasso-command-msg-bubble {
+      max-width: 88%;
+      padding: 10px 14px;
+      border-radius: 14px 14px 2px 14px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--lo-text);
+      font-size: 13.5px;
+      line-height: 1.5;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+
+    .lasso-command-msg.assistant {
+      align-items: stretch;
+      gap: 10px;
+    }
+
+    .lasso-command-msg-text {
+      color: var(--lo-text);
+      font-size: 13.5px;
+      line-height: 1.6;
+      word-break: break-word;
+    }
+
+    .lasso-command-msg-text p {
+      margin: 0 0 8px;
+    }
+
+    .lasso-command-msg-text p:last-child {
+      margin-bottom: 0;
+    }
+
+    .lasso-command-msg-text code {
+      font-family: var(--lo-font-mono);
+      font-size: 12px;
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #93c5fd;
+    }
+
+    .lasso-command-msg-error {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+      font-size: 13px;
+    }
+
+    /* Active Thinking Block */
+    .lasso-command-thinking-active {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: var(--lo-radius-md);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .lasso-command-thinking-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .lasso-command-thinking-pulse {
+      position: relative;
+      width: 10px;
+      height: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .lasso-command-pulse-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #60a5fa;
+      display: block;
+    }
+
+    .lasso-command-pulse-ring {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: rgba(96, 165, 250, 0.4);
+      animation: lasso-pulse-ring 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+    }
+
+    @keyframes lasso-pulse-ring {
+      75%, 100% {
+        transform: scale(2.2);
+        opacity: 0;
+      }
+    }
+
+    .lasso-command-thinking-title {
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--lo-text-2);
+    }
+
+    .lasso-command-active-timer {
+      margin-left: auto;
+      font-size: 11.5px;
+      font-family: var(--lo-font-mono);
+      color: var(--lo-text-3);
+    }
+
+    /* Completed Thought Toggle: Thought for 30s > */
+    .lasso-command-thought-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .lasso-command-thought-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: fit-content;
+      max-width: 100%;
+      gap: 8px;
+      padding: 5px 11px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: var(--lo-radius-full);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--lo-text-3);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 140ms ease;
+      user-select: none;
+    }
+
+    .lasso-command-thought-toggle:hover {
+      background: rgba(255, 255, 255, 0.07);
+      border-color: rgba(255, 255, 255, 0.16);
+      color: var(--lo-text-2);
+    }
+
+    .lasso-command-thought-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .lasso-command-thought-sparkle {
+      color: #93c5fd;
+    }
+
+    .lasso-command-thought-chevron {
+      color: var(--lo-text-3);
+      transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .lasso-command-thought-toggle.expanded .lasso-command-thought-chevron {
+      transform: rotate(90deg);
+    }
+
+    /* Thinking Steps Breakdown */
+    .lasso-command-thinking-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-top: 4px;
+      padding-left: 8px;
+      border-left: 2px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .lasso-command-thinking-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .lasso-step-status-icon {
+      font-size: 11px;
+      color: #34d399;
+      line-height: 16px;
+      flex-shrink: 0;
+    }
+
+    .lasso-command-thinking-step.running .lasso-step-status-icon {
+      color: #60a5fa;
+    }
+
+    .lasso-step-content {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .lasso-step-name {
+      color: var(--lo-text-2);
+      font-weight: 450;
+    }
+
+    .lasso-step-detail {
+      font-size: 11px;
+      color: var(--lo-text-3);
+    }
+
+    /* Changes Review Card */
+    .lasso-command-changes-card {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: var(--lo-radius-md);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 4px;
+    }
+
+    .lasso-command-changes-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .lasso-command-changes-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--lo-text);
+    }
+
+    .lasso-command-toggle-diff {
+      border: 0;
+      background: transparent;
+      color: #60a5fa;
+      font-size: 11.5px;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: background 120ms ease;
+    }
+
+    .lasso-command-toggle-diff:hover {
+      background: rgba(96, 165, 250, 0.12);
+    }
+
+    .lasso-command-files-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .lasso-command-file-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 12px;
+      font-family: var(--lo-font-mono);
+      color: var(--lo-text-2);
+      padding: 3px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .lasso-command-file-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+
+    .lasso-command-file-badge.modified {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fbbf24;
+    }
+
+    .lasso-command-file-badge.added {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+    }
+
+    .lasso-command-file-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .lasso-command-diff-container {
+      max-height: 200px;
+      overflow-y: auto;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: #0d1117;
+      font-family: var(--lo-font-mono);
+      font-size: 11px;
+    }
+
+    .lasso-command-diff-file {
+      padding: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .lasso-command-diff-file-header {
+      color: #93c5fd;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .lasso-command-diff-content {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .lasso-diff-del {
+      color: #f87171;
+      background: rgba(239, 68, 68, 0.15);
+      display: block;
+    }
+
+    .lasso-diff-add {
+      color: #4ade80;
+      background: rgba(34, 197, 94, 0.15);
+      display: block;
+    }
+
+    .lasso-command-changes-footer {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 2px;
+    }
+
+    .lasso-command-status-applied,
+    .lasso-command-status-undone {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .lasso-command-status-applied {
+      color: #34d399;
+    }
+
+    .lasso-command-status-undone {
+      color: var(--lo-text-3);
+    }
+
+    .lasso-command-apply-btn,
+    .lasso-command-undo-btn {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 12px;
+      border-radius: var(--lo-radius-md);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 120ms ease;
+    }
+
+    .lasso-command-apply-btn.primary {
+      background: var(--lo-accent);
+      color: #fff;
+      border: 0;
+    }
+
+    .lasso-command-apply-btn.primary:hover {
+      opacity: 0.9;
+    }
+
+    .lasso-command-undo-btn.secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--lo-text-2);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .lasso-command-undo-btn.secondary:hover {
+      background: rgba(255, 255, 255, 0.14);
+      color: var(--lo-text);
+    }
+
+    .lasso-command-submit.working {
+      background: rgba(239, 68, 68, 0.85) !important;
+      color: #fff !important;
+    }
+
+    .lasso-command-submit.working:hover {
+      background: rgba(239, 68, 68, 1) !important;
+    }
+
+    /* Empty state */
+    .lasso-command-empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 20px;
+      text-align: center;
+      box-sizing: border-box;
+      user-select: none;
+    }
+
+    .lasso-command-empty-logo {
+      width: 36px;
+      height: 36px;
+      display: block;
+      margin-bottom: 16px;
+      border: none;
+      background: none;
+      box-shadow: none;
+      outline: none;
+    }
+
+    .lasso-command-empty-text {
+      color: var(--lo-text);
+      font-size: 18px;
+      font-weight: 500;
+      line-height: 1.4;
+      letter-spacing: -0.02em;
+      max-width: 240px;
+    }
+
+    .lasso-command-empty-text .lasso-command-user-name {
+      color: var(--lo-text);
+      font-weight: 600;
+    }
+
+    /* ---- Input composite (textarea + toolbar row) ---- */
+
+    .lasso-command-input-composite {
+      display: flex;
+      flex-direction: column;
+      margin: 10px 12px 12px;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: var(--lo-radius-lg);
+      background: rgba(255,255,255,0.04);
+      position: relative;
+    }
+
+    .lasso-command-input {
+      width: 100%;
+      min-height: 72px;
+      max-height: 220px;
+      padding: 14px 16px 10px;
+      border: 0;
+      border-radius: var(--lo-radius-lg) var(--lo-radius-lg) 0 0;
+      background: transparent;
+      color: var(--lo-text);
+      font-family: inherit;
+      font-size: 14px;
+      line-height: 1.55;
+      resize: none;
+      outline: none;
+      box-sizing: border-box;
+    }
+
+    .lasso-command-input::placeholder {
+      color: var(--lo-text-3);
+    }
+
+    /* bottom row: model selector left, actions right */
+    .lasso-command-input-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px 8px;
+      gap: 8px;
+    }
+
+    /* ---- Model selector (inline pill) ---- */
 
     .lasso-command-model-select {
       position: relative;
     }
 
     .lasso-command-model-btn {
-      width: 100%;
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 10px 12px;
+      gap: 6px;
+      padding: 5px 10px;
       border: 1px solid var(--lo-border);
-      border-radius: var(--lo-radius-md);
+      border-radius: var(--lo-radius-full);
       background: var(--lo-surface-2);
-      color: var(--lo-text);
+      color: var(--lo-text-2);
       font-family: inherit;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 500;
       cursor: pointer;
-      transition: border-color 140ms ease, background 140ms ease;
+      transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+      white-space: nowrap;
     }
 
     .lasso-command-model-btn:hover {
-      border-color: var(--lo-primary);
       background: var(--lo-surface-hover);
+      color: var(--lo-text);
+      border-color: rgba(255,255,255,0.2);
     }
 
     .lasso-command-model-icon {
       flex: 0 0 auto;
+      display: flex;
+      align-items: center;
     }
 
     .lasso-command-model-label {
-      flex: 1;
-      min-width: 0;
+      max-width: 160px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -3182,110 +3712,35 @@ export function buildStyles(): string {
 
     .lasso-command-model-chevron {
       flex: 0 0 auto;
-      transition: transform 200ms ease;
+      opacity: 0.55;
     }
 
     .lasso-command-model-menu {
       position: absolute;
-      top: calc(100% + 4px);
+      bottom: calc(100% + 8px);
       left: 0;
-      right: 0;
-      max-height: 320px;
+      min-width: 220px;
+      max-width: 330px;
+      max-height: min(380px, 50vh);
       overflow-y: auto;
-      padding: 8px;
+      overscroll-behavior: contain;
+      padding: 6px;
       border: 1px solid var(--lo-border);
       border-radius: var(--lo-radius-lg);
-      background: rgba(24, 25, 29, 0.98);
+      background: rgba(20, 21, 26, 0.98);
       backdrop-filter: blur(24px);
       -webkit-backdrop-filter: blur(24px);
       color: var(--lo-text);
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
-      z-index: 10;
+      box-shadow: 0 16px 36px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08);
+      z-index: 50;
+      scrollbar-width: thin;
     }
 
-    .lasso-command-model-section {
-      margin-bottom: 8px;
-    }
 
-    .lasso-command-model-section:last-child {
-      margin-bottom: 0;
-    }
 
-    .lasso-command-model-section-header {
-      padding: 4px 8px;
-      font-size: 10px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--lo-text-3);
-    }
+    /* ---- Action buttons (voice + submit) ---- */
 
-    .lasso-command-model-item {
-      width: 100%;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 8px;
-      border: 0;
-      border-radius: var(--lo-radius-md);
-      background: transparent;
-      color: var(--lo-text);
-      font-family: inherit;
-      font-size: 12px;
-      font-weight: 450;
-      text-align: left;
-      cursor: pointer;
-      transition: background 120ms ease;
-    }
-
-    .lasso-command-model-item:hover {
-      background: var(--lo-surface-hover);
-    }
-
-    .lasso-command-model-item.selected {
-      background: rgba(129, 201, 149, 0.16);
-      color: var(--lo-primary);
-    }
-
-    .lasso-command-input-wrapper {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .lasso-command-input {
-      width: 100%;
-      min-height: 80px;
-      padding: 12px 14px;
-      border: 1px solid var(--lo-border);
-      border-radius: var(--lo-radius-lg);
-      background: var(--lo-surface-2);
-      color: var(--lo-text);
-      font-family: inherit;
-      font-size: 13px;
-      line-height: 1.5;
-      resize: none;
-      outline: none;
-      transition: border-color 140ms ease, box-shadow 140ms ease;
-    }
-
-    .lasso-command-input:focus {
-      border-color: var(--lo-primary);
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--lo-primary) 16%, transparent);
-    }
-
-    .lasso-command-input::placeholder {
-      color: var(--lo-text-3);
-    }
-
-    .lasso-command-actions {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-    }
-
-    .lasso-command-icon-group {
+    .lasso-command-input-actions {
       display: flex;
       align-items: center;
       gap: 6px;
@@ -3297,17 +3752,18 @@ export function buildStyles(): string {
       display: flex;
       align-items: center;
       justify-content: center;
-      border: 0;
-      border-radius: var(--lo-radius-md);
+      border: 1px solid var(--lo-border);
+      border-radius: 50%;
       background: transparent;
       color: var(--lo-text-3);
       cursor: pointer;
-      transition: background 120ms ease, color 120ms ease;
+      transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
     }
 
     .lasso-command-voice:hover {
       background: var(--lo-surface-hover);
       color: var(--lo-text);
+      border-color: var(--lo-border);
     }
 
     .lasso-command-voice.recording {
@@ -3325,14 +3781,14 @@ export function buildStyles(): string {
     }
 
     .lasso-command-submit {
-      height: 36px;
+      height: 32px;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
-      padding: 0 20px;
+      gap: 6px;
+      padding: 0 14px;
       border: 0;
-      border-radius: var(--lo-radius-full);
+      border-radius: 999px;
       background: var(--lo-primary);
       color: #111214;
       font-family: inherit;
@@ -3355,36 +3811,6 @@ export function buildStyles(): string {
       background: var(--lo-primary);
     }
 
-    .lasso-command-shortcuts {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      padding-top: 8px;
-      border-top: 1px solid var(--lo-border-subtle);
-    }
-
-    .lasso-command-shortcut {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      color: var(--lo-text-3);
-      font-size: 11px;
-    }
-
-    .lasso-command-shortcut kbd {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 20px;
-      height: 20px;
-      padding: 0 5px;
-      border: 1px solid var(--lo-border-subtle);
-      border-radius: 4px;
-      background: var(--lo-surface-2);
-      font-family: var(--lo-font-mono);
-      font-size: 10px;
-      font-weight: 500;
-    }
     .lasso-agent-prompt-actions button.primary { background: var(--lo-primary); color: #111214; font-weight: 600; }
 
     .lasso-todo-header {

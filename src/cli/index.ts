@@ -272,6 +272,17 @@ program.command("register [domain]")
             process.exit(1);
         }
 
+        // Register with Lasso workspace & Host
+        console.log(chalk.dim("Registering project with Lasso workspace…"));
+        const initResult = await initProject(cwd, env, domain || undefined);
+        if (initResult.ok) {
+            console.log(chalk.green("✓") + ` Registered project: ${chalk.cyan(initResult.projectId!)}`);
+            console.log(chalk.green("✓") + ` Local domain: ${chalk.cyan(initResult.domain || domain)}`);
+            console.log(chalk.green("✓") + ` Points to ${chalk.dim(cwd)}`);
+            return;
+        }
+
+        // If server registration was not possible (e.g. offline/no key), fall back to local host registration
         if (!domain) {
             if (config?.domain) {
                 domain = config.domain;

@@ -3,6 +3,7 @@ import { getDOM } from "../dom";
 import type { ElementGroup, GroupConfig } from "../types";
 import { setCommentMode } from "./toolbar";
 import { setDragMode } from "../drag/drag";
+import { closeCommandBar } from "../commandbar/commandbar";
 
 export const GROUPS: Record<ElementGroup, GroupConfig> = {
   layout: {
@@ -189,6 +190,7 @@ export function setSelectMode(active: boolean) {
   if (active) {
     state.previewMode = false;
     setDragMode(false);
+    closeCommandBar();
   }
   const dom = getDOM();
   const selectBtn = dom.shadow.querySelector<HTMLButtonElement>(".select-tool");

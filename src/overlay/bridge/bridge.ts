@@ -16,6 +16,12 @@ import { setDragCardStatus, resetDrag } from "../drag/drag";
 import { elementKey } from "../toolbar/select";
 import { notifyAgent } from "../notifications";
 import { getAgentTask, recordTaskActivity, recordTaskChangeHistory, updateAgentTask } from "../tasks/tasks";
+import {
+  handleCommandBarAgentStatus,
+  handleCommandBarAction,
+  handleCommandBarPrompt,
+  isCommandBarTaskId,
+} from "../commandbar/commandbar";
 import type { GitState, ModelOption, PendingChange } from "../types";
 
 export function reportRuntimeError(details: string) {
@@ -135,6 +141,10 @@ export function connectBridge() {
         }
 
         if (message.type === "agent_prompt" && message.taskId && message.prompt) {
+          if (isCommandBarTaskId(message.taskId)) {
+            handleCommandBarPrompt(message);
+            return;
+          }
           showAgentPrompt(message.taskId, message.prompt);
           return;
         }
@@ -158,6 +168,10 @@ export function connectBridge() {
 
         if (message.type === "agent_status" && message.status && message.message) {
           const taskId = message.taskId;
+          if (isCommandBarTaskId(taskId)) {
+            handleCommandBarAgentStatus(message);
+            return;
+          }
           const task = taskId ? getAgentTask(taskId) : undefined;
           const taskStatus = message.status === "error" ? "error" : message.status === "stopped" ? "stopped" : message.status;
           if (task) {
@@ -195,6 +209,10 @@ export function connectBridge() {
 
         if (message.type === "assistant_message" && message.message) {
           const taskId = message.taskId;
+          if (isCommandBarTaskId(taskId)) {
+            handleCommandBarAgentStatus({ taskId, status: "complete", message: message.message });
+            return;
+          }
           const task = taskId ? getAgentTask(taskId) : undefined;
           if (task) {
             updateAgentTask(task.id, { status: "complete", message: "Complete", response: message.message });
@@ -211,6 +229,10 @@ export function connectBridge() {
 
         if (message.type === "applied" || message.type === "undone") {
           const taskId = message.taskId;
+          if (isCommandBarTaskId(taskId)) {
+            handleCommandBarAction(message);
+            return;
+          }
           const task = taskId ? getAgentTask(taskId) : undefined;
           if (task) {
             updateAgentTask(task.id, { status: "complete", message: message.message || "Done.", changes: [], pendingChanges: [] });

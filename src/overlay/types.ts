@@ -54,7 +54,7 @@ export type DragContext = {
 export type ModelOption = {
   id: string;
   label: string;
-  provider: "anthropic" | "openai" | "google" | "ollama" | "cli";
+  provider: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli";
   locked?: boolean;
   lockedReason?: string;
 };
@@ -71,6 +71,7 @@ export type GitState = {
 export type CollabConfig = {
   projectId?: string;
   realtimeUrl?: string;
+  apiUrl?: string;
   name?: string;
   version?: string;
   registered?: boolean;

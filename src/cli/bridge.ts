@@ -16,8 +16,8 @@ type GitState = { isRepo: boolean; branch?: string; status?: string[]; hasChange
 
 export type BridgeMessage =
   | { type: "hello"; from: "overlay" | "cli" }
-  | { type: "edit"; taskId: string; instruction: string; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "cli"; messages?: Array<{ role: string; content: string; createdAt?: string }>; changesHistory?: Array<{ summary: string; changes: SourceChange[]; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
-  | { type: "ask"; taskId: string; question: string; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "cli"; messages?: Array<{ role: string; content: string; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
+  | { type: "edit"; taskId: string; instruction: string; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli"; messages?: Array<{ role: string; content: string; createdAt?: string }>; changesHistory?: Array<{ summary: string; changes: SourceChange[]; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
+  | { type: "ask"; taskId: string; question: string; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli"; messages?: Array<{ role: string; content: string; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
   | { type: "runtime_error"; selectionId?: string; details: string }
   | { type: "apply"; taskId: string; changes: SourceChange[] }
   | { type: "undo"; taskId?: string }
@@ -27,15 +27,15 @@ export type BridgeMessage =
   | { type: "create_page"; folder: string; fileName: string; content: string }
   | { type: "create_page_folder"; parent: string; name: string }
   | { type: "git_status" }
-  | { type: "git_generate_message"; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "cli" }
+  | { type: "git_generate_message"; model: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli" }
   | { type: "git_init" }
   | { type: "git_commit"; message: string }
   | { type: "git_push" }
   | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string }
   | { type: "transcribe"; requestId: string; audio: string; mimeType?: string; language?: string }
-  | { type: "oneshot"; prompt: string; scope: "project" | "component"; model?: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "cli" };
+  | { type: "oneshot"; prompt: string; scope?: "project" | "component"; model?: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli"; messages?: Array<{ role: "user" | "assistant"; content: string }>; taskId?: string };
 
-type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" | "cli" };
+type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli" };
 type PageEntry = { name: string; path: string; type: "directory" | "file" };
 
 export type ServerBridgeMessage =
@@ -44,7 +44,7 @@ export type ServerBridgeMessage =
   | { type: "git_result"; message?: string; error?: string }
   | { type: "git_progress"; message: string }
   | { type: "git_commit_message"; message?: string; error?: string }
-  | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string; detail?: string; changes?: SourceChange[] }
+  | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string; detail?: string; changes?: SourceChange[]; thinking?: Array<{ title: string; detail?: string; durationMs?: number }>; totalThinkingTimeMs?: number }
   | { type: "agent_prompt"; taskId: string; prompt: AgentPrompt }
   | { type: "page_folders"; path: string; entries: PageEntry[]; project?: string; error?: string }
   | { type: "page_created"; path: string; error?: string }
@@ -213,16 +213,17 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       google: process.env.GOOGLE_GENERATIVE_AI_API_KEY || fileEnv.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || fileEnv.GEMINI_API_KEY,
       openai: process.env.OPENAI_API_KEY || fileEnv.OPENAI_API_KEY,
       anthropic: process.env.ANTHROPIC_API_KEY || fileEnv.ANTHROPIC_API_KEY,
+      nvidia: process.env.NVIDIA_API_KEY || fileEnv.NVIDIA_API_KEY,
       ollama: process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL || process.env.OLLAMA_MODEL || fileEnv.OLLAMA_MODEL,
     };
-    const selectedProvider = provider === "google" || provider === "gemini" ? "google" : provider === "openai" ? "openai" : provider === "ollama" ? "ollama" : provider === "anthropic" ? "anthropic" : keys.ollama ? "ollama" : keys.google ? "google" : keys.openai ? "openai" : "anthropic";
+    const selectedProvider = provider === "google" || provider === "gemini" ? "google" : provider === "openai" ? "openai" : provider === "ollama" ? "ollama" : provider === "anthropic" ? "anthropic" : provider === "nvidia" ? "nvidia" : keys.ollama ? "ollama" : keys.nvidia ? "nvidia" : keys.google ? "google" : keys.openai ? "openai" : "anthropic";
     const apiKey = selectedProvider === "ollama" ? "ollama" : keys[selectedProvider];
     if (!apiKey) return null;
     return {
       provider: selectedProvider,
       apiKey,
       model: process.env.LASSO_AGENT_MODEL || fileEnv.LASSO_AGENT_MODEL || process.env.AI_MODEL || fileEnv.AI_MODEL,
-      baseUrl: process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL ? `${(process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL || "http://localhost:11434/api").replace(/\/api\/?$/, "")}/v1` : undefined,
+      baseUrl: selectedProvider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL ? `${(process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL || "http://localhost:11434/api").replace(/\/api\/?$/, "")}/v1` : undefined,
     };
   })();
   let activeAgentController: AbortController | null = null;
@@ -332,6 +333,23 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     const configuredProviders = collabConfig?.configuredProviders || [];
 
     const allModels = [
+      // Nvidia NIM models (free open source models - listed first)
+      { id: "meta/llama-3.1-70b-instruct", label: "Llama 3.1 70B", provider: "nvidia" as const },
+      { id: "meta/llama-3.1-8b-instruct", label: "Llama 3.1 8B", provider: "nvidia" as const },
+      { id: "nvidia/llama-3.1-nemotron-70b-instruct", label: "Nemotron 70B", provider: "nvidia" as const },
+      { id: "nvidia/llama-3.1-nemotron-51b-instruct", label: "Nemotron 51B", provider: "nvidia" as const },
+      { id: "mistralai/mistral-large-2-instruct", label: "Mistral Large 2", provider: "nvidia" as const },
+      { id: "mistralai/mixtral-8x22b-v0.1", label: "Mixtral 8x22B", provider: "nvidia" as const },
+      { id: "mistralai/codestral-22b-instruct-v0.1", label: "Codestral 22B", provider: "nvidia" as const },
+      { id: "google/gemma-2-27b-it", label: "Gemma 2 27B", provider: "nvidia" as const },
+      { id: "ibm/granite-34b-code-instruct", label: "Granite 34B Code", provider: "nvidia" as const },
+      { id: "deepseek-ai/deepseek-coder-6.7b-instruct", label: "DeepSeek Coder 6.7B", provider: "nvidia" as const },
+      { id: "nvidia/nemotron-3.5-lightning-30b-a3b", label: "Nemotron Lightning 30B", provider: "nvidia" as const },
+      { id: "nvidia/nemotron-4-340b-instruct", label: "Nemotron 4 340B", provider: "nvidia" as const },
+      { id: "meta/llama-3.2-11b-vision-instruct", label: "Llama 3.2 11B Vision", provider: "nvidia" as const },
+      { id: "microsoft/phi-3.5-moe-instruct", label: "Phi-3.5 MoE", provider: "nvidia" as const },
+      { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", label: "Nemotron Nano 30B", provider: "nvidia" as const },
+      // Existing models
       { id: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5", provider: "anthropic" as const },
       { id: "claude-opus-4-1-20250805", label: "Claude Opus 4.1", provider: "anthropic" as const },
       { id: "gpt-4.1", label: "GPT-4.1", provider: "openai" as const },
@@ -377,6 +395,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       anthropic: "ANTHROPIC_API_KEY",
       openai: "OPENAI_API_KEY",
       google: "GOOGLE_GENERATIVE_AI_API_KEY",
+      nvidia: "NVIDIA_API_KEY",
       ollama: "OLLAMA_BASE_URL",
     };
 
@@ -685,7 +704,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
           ? { provider: cliProvider, model: msg.model || "claude-code:sonnet" }
           : { ...agentConfig!, provider: (msg.provider || agentConfig!.provider) as AgentConfig["provider"], model: msg.model || agentConfig!.model };
 
-        const taskId = `oneshot-${Date.now()}`;
+        const taskId = msg.taskId || `oneshot-${Date.now()}`;
         const controller = new AbortController();
         taskControllers.set(taskId, controller);
 
@@ -694,18 +713,38 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         // Import the one-shot agent function
         const { runOneShotAgent } = await import("./oneshot.js");
         
-        runOneShotAgent(cwd, msg.prompt, msg.scope, selectedConfig, controller.signal, (status: "thinking" | "working" | "review" | "error" | "stopped", message: string, detail?: string) => {
-          if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
-            socket.send(JSON.stringify({ type: "agent_status", taskId, status, message, detail }));
-          }
-        }, (prompt: { question: string; options?: string[] }) => {
-          if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
-            socket.send(JSON.stringify({ type: "agent_prompt", taskId, prompt }));
-          }
-        }).then((result: { ok: boolean; summary?: string; changes?: SourceChange[]; error?: string }) => {
+        runOneShotAgent(
+          cwd,
+          msg.prompt,
+          msg.scope || "project",
+          selectedConfig,
+          controller.signal,
+          (status: "thinking" | "working" | "review" | "error" | "stopped", message: string, detail?: string) => {
+            if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
+              socket.send(JSON.stringify({ type: "agent_status", taskId, status, message, detail }));
+            }
+          },
+          (prompt: { question: string; options?: string[] }) => {
+            if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
+              socket.send(JSON.stringify({ type: "agent_prompt", taskId, prompt }));
+            }
+          },
+          msg.messages,
+          collabConfig?.apiUrl,
+          collabConfig?.apiKey || agentConfig?.apiKey,
+          taskId
+        ).then((result) => {
           if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
             if (result.ok) {
-              socket.send(JSON.stringify({ type: "agent_status", taskId, status: "review", message: result.summary, changes: result.changes }));
+              socket.send(JSON.stringify({
+                type: "agent_status",
+                taskId,
+                status: "review",
+                message: result.summary,
+                changes: result.changes,
+                thinking: result.thinking,
+                totalThinkingTimeMs: result.totalThinkingTimeMs,
+              }));
             } else {
               socket.send(JSON.stringify({ type: "agent_status", taskId, status: "error", message: result.error || "One-shot agent failed" }));
             }

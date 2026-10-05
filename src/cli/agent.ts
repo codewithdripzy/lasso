@@ -22,7 +22,7 @@ type AgentInput = {
 };
 
 export type AgentConfig = {
-  provider: "anthropic" | "openai" | "google" | "ollama" | "claude-code" | "codex" | "opencode" | "cursor";
+  provider: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "claude-code" | "codex" | "opencode" | "cursor";
   apiKey?: string;
   model?: string;
   baseUrl?: string;
@@ -742,15 +742,16 @@ export async function proposeChanges(cwd: string, input: AgentInput, config: Age
     return proposeWithLocalAgent(cwd, instruction, context, config, signal, onProgress, input.taskId, onPrompt);
   }
   const system = "You are Lasso, a source-code editing agent. Your ONLY job is to propose concrete file changes. NEVER explain, describe, or analyze code without proposing edits. ALWAYS return valid JSON with at least one change when the user requests a modification. Each oldString must occur exactly once in its file. Never rewrite whole files. Keep changes focused and minimal. If you cannot find the exact text to change, look harder at the provided context - do not give up and explain instead.";
-  const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : "claude-sonnet-4-20250514");
+  const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "meta/llama-3.1-70b-instruct" : "claude-sonnet-4-20250514");
   const image = input.context?.screenshots?.element || input.context?.screenshots?.full;
   const imageData = image?.replace(/^data:image\/[^;]+;base64,/, "");
   const imageMime = image?.match(/^data:(image\/[^;]+);base64,/)?.[1] || "image/jpeg";
   let response: Response;
 
-  if (config.provider === "openai" || config.provider === "ollama") {
+  if (config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia") {
     const content = image ? [{ type: "text", text: instruction }, { type: "image_url", image_url: { url: image } }] : instruction;
-    response = await fetch(`${config.baseUrl || "https://api.openai.com/v1"}/chat/completions`, {
+    const baseUrl = config.baseUrl || (config.provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : "https://api.openai.com/v1");
+    response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       signal,
       headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey || ""}` },
@@ -802,10 +803,11 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
     return extractLocalAgentText(result.stdout, config.provider as LocalAgent).trim();
   }
 
-  const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : "claude-sonnet-4-20250514");
+  const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "meta/llama-3.1-70b-instruct" : "claude-sonnet-4-20250514");
   let response: Response;
-  if (config.provider === "openai" || config.provider === "ollama") {
-    response = await fetch(`${config.baseUrl || "https://api.openai.com/v1"}/chat/completions`, {
+  if (config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia") {
+    const baseUrl = config.baseUrl || (config.provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : "https://api.openai.com/v1");
+    response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST", signal, headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey || ""}` },
       body: JSON.stringify({ model, temperature: 0.2, messages: [{ role: "system", content: "Answer conversationally. Do not edit files or return JSON." }, { role: "user", content: prompt }] }),
     });
@@ -822,7 +824,7 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
   }
   if (!response.ok) throw new Error(`Agent request failed (${response.status}).`);
   const payload = await response.json() as { content?: Array<{ type?: string; text?: string }>; choices?: Array<{ message?: { content?: string } }>; candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-  const answer = config.provider === "openai" || config.provider === "ollama"
+  const answer = config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia"
     ? payload.choices?.[0]?.message?.content
     : config.provider === "google"
       ? payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("")

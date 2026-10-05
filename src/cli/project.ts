@@ -216,12 +216,23 @@ function promptForApiKey(): Promise<string | null> {
  * running). Only `{ "id": "proj_…", "domain": "….lasso" }` is stored — the API key
  * never touches this file.
  */
-export async function initProject(cwd: string, fileEnv: Record<string, string>): Promise<InitResult> {
+export async function initProject(cwd: string, fileEnv: Record<string, string>, forcedDomain?: string): Promise<InitResult> {
     const realtimeUrl = realtimeUrlFrom(fileEnv).replace(/\/$/, "");
     const apiUrl = `${realtimeUrl}/api/v1`;
 
     const framework = detectFramework(cwd);
     const { name, payload } = await buildProjectMetadata(cwd, framework);
+
+    const existingConfig = readProjectConfig(cwd);
+    if (existingConfig?.id) {
+        (payload as any).id = existingConfig.id;
+        (payload as any).projectId = existingConfig.id;
+    }
+
+    const registry = loadRegistry();
+    const existingHost = findByDirectory(registry, cwd);
+    const domain = forcedDomain || (existingConfig?.domain ? existingConfig.domain : (existingHost ? existingHost.domain : generateUniqueDomain(cwd, registry)));
+    (payload as any).domain = domain;
 
     let apiKey = resolveLassoApiKey(fileEnv);
     if (!apiKey) apiKey = (await promptForApiKey()) || "";
@@ -255,14 +266,11 @@ export async function initProject(cwd: string, fileEnv: Record<string, string>):
             return { ok: false, error: body.message || `Project registration failed (${response.status}).` };
         }
 
-        const projectId = body.project?.id;
+        const projectId = body.project?.id || existingConfig?.id;
         if (!projectId) {
             return { ok: false, error: "The server did not return a project id." };
         }
 
-        const registry = loadRegistry();
-        const existing = findByDirectory(registry, cwd);
-        const domain = existing ? existing.domain : generateUniqueDomain(cwd, registry);
         await registerWithHost(domain, cwd, projectId, hostProxyPort(fileEnv));
 
         if (framework === "next") {

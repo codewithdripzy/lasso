@@ -2,6 +2,7 @@ import html2canvas from "html2canvas";
 import anthropicIcon from "@iconify-icons/logos/anthropic-icon";
 import googleIcon from "@iconify-icons/logos/google-icon";
 import openaiIcon from "@iconify-icons/logos/openai-icon";
+import nvidiaIcon from "@iconify-icons/logos/nvidia";
 import terminalIcon from "@iconify-icons/logos/terminal";
 
 import { state, rememberModel } from "../state";
@@ -25,6 +26,7 @@ import { collabEmit, sendPresenceUpdate } from "../collab/socket";
 import { renderRemoteBoxes, showActivity } from "../collab/presence";
 import { renderComments } from "../comments/pins";
 import { LASSO_ICON_DATA_URL } from "../icons/lasso";
+import { closeCommandBar } from "../commandbar/commandbar";
 import { startVoiceRecording, stopVoiceRecording, isRecordingVoice } from "../audio/transcribe";
 import type { AgentTask, AgentTaskStatus, ChatMessage, ModelOption, PendingChange, ScreenshotContext } from "../types";
 
@@ -53,6 +55,7 @@ const providerLabels: Record<ModelOption["provider"], string> = {
   google: "Google",
   openai: "OpenAI",
   anthropic: "Anthropic",
+  nvidia: "NVIDIA",
   ollama: "Local",
   cli: "CLI",
 };
@@ -61,6 +64,7 @@ const providerIcons = {
   google: googleIcon,
   openai: openaiIcon,
   anthropic: anthropicIcon,
+  nvidia: nvidiaIcon,
   ollama: terminalIcon,
   cli: terminalIcon,
 };
@@ -537,8 +541,7 @@ function respondToAgentPrompt(response: string): void {
   appendChat("assistant", `Responded to the agent: ${response}`, taskId);
 }
 
-export function refreshModelMenu() {
-  if (!modelMenu) return;
+export function buildModelMenuContent(menuEl: HTMLElement, onRefresh: () => void): void {
   const filters = document.createElement("div");
   filters.className = "lasso-model-filters";
   const providers = ["all", ...Array.from(new Set(state.MODELS.map((m) => m.provider)))];
@@ -589,7 +592,7 @@ export function refreshModelMenu() {
           event.stopPropagation();
           if (openCliGroups.has(cliKey)) openCliGroups.delete(cliKey);
           else openCliGroups.add(cliKey);
-          refreshModelMenu();
+          onRefresh();
         });
         subGroup.append(subHeader, subItems);
         children.push(subGroup);
@@ -603,7 +606,15 @@ export function refreshModelMenu() {
     }
   }
 
-  modelMenu.replaceChildren(...children);
+  menuEl.replaceChildren(...children);
+  for (const item of menuEl.querySelectorAll<HTMLButtonElement>(".lasso-prompt-model-item")) {
+    item.classList.toggle("selected", item.dataset.model === state.selectedModel.id);
+  }
+}
+
+export function refreshModelMenu() {
+  if (!modelMenu) return;
+  buildModelMenuContent(modelMenu, refreshModelMenu);
   syncModelMenu();
 }
 
@@ -1185,6 +1196,7 @@ export async function handleSend(event: MouseEvent) {
 
 export function openPromptForSelected(selected: Element) {
   if (!promptEl || !promptElement) return;
+  closeCommandBar();
   resetPromptSession(selected);
   promptElement.textContent = getElementLabel(selected);
   positionPrompt(selected);

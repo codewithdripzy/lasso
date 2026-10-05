@@ -1,5 +1,6 @@
 import { state } from "../state";
 import { getDOM } from "../dom";
+import { LASSO_ICON_DATA_URL } from "../icons/lasso";
 import { setPreviewMode, setSelectMode } from "./select";
 import { setDragMode } from "../drag/drag";
 import { closePinCompose } from "../comments/compose";
@@ -11,7 +12,7 @@ import { toggleNotepadPanel } from "../notepad/notepad";
 import { toggleClipboardPanel } from "../clipboard/clipboard";
 import { toggleTaskPanel } from "../tasks/tasks";
 import { togglePagePanel } from "../pages/pages";
-import { openCommandBar } from "../commandbar/commandbar";
+import { openCommandBar, closeCommandBar, isCommandBarOpen } from "../commandbar/commandbar";
 
 // SVG comment-pin cursor — a crosshair with a speech bubble tip
 const COMMENT_CURSOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="32" viewBox="0 0 28 32"><defs><filter id="s" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="rgba(0,0,0,0.5)"/></filter></defs><g filter="url(#s)"><path d="M4 2h16a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H10l-6 6V5a3 3 0 0 1 3-3z" fill="#7C3AED"/><path d="M4 2h16a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H10l-6 6V5a3 3 0 0 1 3-3z" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="0.8"/><line x1="12" y1="7" x2="12" y2="15" stroke="white" stroke-width="1.8" stroke-linecap="round"/><line x1="8" y1="11" x2="16" y2="11" stroke="white" stroke-width="1.8" stroke-linecap="round"/></g></svg>`;
@@ -118,7 +119,7 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
     </button>
 
     <button class="lasso-tool-btn agent-tasks-tool" type="button" aria-label="Agent tasks" title="Agent tasks">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 8h10M7 12h6M7 16h8"/></svg>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="8 9 11 12 8 15"/><line x1="13" y1="15" x2="16" y2="15"/></svg>
       <i class="lasso-agent-tasks-badge" hidden></i>
     </button>
 
@@ -147,11 +148,8 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
     </button>
 
     <button class="lasso-tool-btn command-tool" type="button" aria-label="Command bar" title="Command bar (⌘K)">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M12 2v20M2 12h20"/>
-        <circle cx="12" cy="12" r="9"/>
-      </svg>
-      <span class="lasso-tool-label">Command</span>
+      <img src="${LASSO_ICON_DATA_URL}" width="15" height="15" alt="" aria-hidden="true" style="display:block;border-radius:3px;" />
+      <span class="lasso-tool-label">Build</span>
     </button>
 
     <button class="lasso-tool-btn page-tool" type="button" aria-label="Create a new page" title="New page">
@@ -341,7 +339,11 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
   commandBtn.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    openCommandBar();
+    if (isCommandBarOpen()) {
+      closeCommandBar();
+    } else {
+      openCommandBar();
+    }
   });
 
   dismissBtn.addEventListener("click", () => {
