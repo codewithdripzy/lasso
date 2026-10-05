@@ -34,6 +34,108 @@ export interface ConversationMessage {
   content: string;
 }
 
+export function isConversationalPrompt(prompt: string): boolean {
+  const p = prompt.trim().toLowerCase().replace(/[!?.,;:]+$/, "");
+  const greetings = [
+    "hi", "hello", "hey", "heya", "howdy", "sup", "yo",
+    "good morning", "good afternoon", "good evening",
+    "thanks", "thank you", "thx", "ty", "cool", "awesome", "great", "nice",
+    "who are you", "what are you", "what can you do", "help", "help me",
+    "what is lasso", "how do you work", "how does this work",
+  ];
+  if (greetings.includes(p)) return true;
+  if (/^(hi|hello|hey|howdy|yo)\b/i.test(p) && p.split(/\s+/).length <= 4) {
+    const buildKeywords = /(build|create|add|make|fix|update|modify|change|refactor|implement|delete|remove|style|install|wire|code)/i;
+    if (!buildKeywords.test(p)) return true;
+  }
+  const questionOnly = /^(what is|what's|how do i|why does|can you explain|tell me about)\b/i.test(p);
+  const actionVerbs = /(build|create|add|make|fix|update|modify|change|refactor|implement|write code|code this|delete|remove|generate)/i;
+  if (questionOnly && !actionVerbs.test(p)) {
+    return true;
+  }
+  return false;
+}
+
+async function generateConversationalReply(
+  prompt: string,
+  framework: string,
+  config: AgentConfig,
+  signal: AbortSignal,
+  messages?: ConversationMessage[]
+): Promise<string> {
+  const history = messages?.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n") || "";
+  const systemPrompt = `You are Lasso, a fast and helpful AI coding assistant embedded in a live web application (${framework}).
+Respond conversationally, concisely, and helpfully.
+Do not output code changes, file patches, or JSON schemas — just talk to the developer naturally and offer assistance.`;
+  const userPrompt = `${history ? `Conversation History:\n${history}\n\n` : ""}User message: ${prompt}`;
+
+  if (!config.apiKey && config.provider !== "ollama") {
+    return "Hello! I'm Lasso, your AI pair programmer. You can ask me questions about your project or tell me what to build, modify, or fix.";
+  }
+
+  try {
+    const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "meta/llama-3.1-70b-instruct" : "claude-3-7-sonnet-latest");
+
+    if (config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia") {
+      const baseUrl = config.baseUrl || (config.provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : "https://api.openai.com/v1");
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        signal,
+        headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey || ""}` },
+        body: JSON.stringify({
+          model,
+          temperature: 0.7,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+        }),
+      });
+      if (res.ok) {
+        const json = (await res.json()) as any;
+        const text = json.choices?.[0]?.message?.content?.trim();
+        if (text) return text;
+      }
+    } else if (config.provider === "google") {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(config.apiKey || "")}`, {
+        method: "POST",
+        signal,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+        }),
+      });
+      if (res.ok) {
+        const json = (await res.json()) as any;
+        const text = json.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("")?.trim();
+        if (text) return text;
+      }
+    } else {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        signal,
+        headers: { "content-type": "application/json", "x-api-key": config.apiKey || "", "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages: [{ role: "user", content: userPrompt }],
+        }),
+      });
+      if (res.ok) {
+        const json = (await res.json()) as any;
+        const text = json.content?.find((item: any) => item.type === "text")?.text?.trim();
+        if (text) return text;
+      }
+    }
+  } catch (err) {
+    console.warn("[lasso] Local conversational reply generation error:", err);
+  }
+
+  return "Hello! I'm Lasso, your AI pair programmer. You can ask me questions about your project or tell me what to build, modify, or fix.";
+}
+
 export async function runOneShotAgent(
   cwd: string,
   prompt: string,
@@ -53,13 +155,17 @@ export async function runOneShotAgent(
       return { ok: false, error: "Operation was cancelled" };
     }
 
+    const isConversational = isConversationalPrompt(prompt);
+
     // Phase 1: Understand & Plan
-    onProgress("thinking", "Analyzing project structure...", "Scanning files and dependencies");
+    onProgress("thinking", isConversational ? "Thinking..." : "Analyzing project structure...", isConversational ? undefined : "Scanning files and dependencies");
 
     const projectStructure = await analyzeProject(cwd);
     const framework = detectFramework(cwd);
 
-    onProgress("thinking", "Inspecting application...", `Detected ${framework} framework`);
+    if (!isConversational) {
+      onProgress("thinking", "Inspecting application...", `Detected ${framework} framework`);
+    }
 
     const targetServerUrl =
       serverUrl ||
@@ -76,7 +182,9 @@ export async function runOneShotAgent(
     // If server is available and not a local CLI-only agent, call Lasso Agent Gateway on server
     if (!isCliProvider && targetServerUrl) {
       try {
-        onProgress("thinking", "Connecting to Lasso Agent Gateway...", `Model: ${config.model || "claude-3-7-sonnet"}`);
+        if (!isConversational) {
+          onProgress("thinking", "Connecting to Lasso Agent Gateway...", `Model: ${config.model || "claude-3-7-sonnet"}`);
+        }
 
         const endpoint = `${targetServerUrl.replace(/\/$/, "")}/api/v1/agent/session`;
         const headers: Record<string, string> = {
@@ -122,14 +230,32 @@ export async function runOneShotAgent(
         if (response.ok) {
           const data = (await response.json()) as {
             summary?: string;
+            reply?: string;
             thinking?: OneShotThinkingStep[];
             totalThinkingTimeMs?: number;
             changes?: SourceChange[];
             error?: string;
           };
 
-          if (data && Array.isArray(data.changes)) {
-            // Replay thinking steps progress
+          if (data) {
+            const changes = Array.isArray(data.changes) ? data.changes : [];
+            const isChatReply =
+              isConversational ||
+              (typeof data.reply === "string" && data.reply.trim().length > 0 && changes.length === 0) ||
+              (changes.length === 0 && Boolean(data.summary));
+
+            if (isChatReply) {
+              // Conversational reply — no file changes needed
+              return {
+                ok: true,
+                summary: data.reply?.trim() || data.summary || "Hello! How can I help you with your project today?",
+                changes: [],
+                thinking: [],
+                totalThinkingTimeMs: data.totalThinkingTimeMs || Date.now() - startTime,
+              };
+            }
+
+            // Replay thinking steps progress for implementation
             if (data.thinking && data.thinking.length) {
               for (const step of data.thinking) {
                 if (signal.aborted) break;
@@ -138,18 +264,19 @@ export async function runOneShotAgent(
               }
             }
 
-            onProgress("working", "Preparing proposed changes...", `${data.changes.length} files modified`);
-
-            return {
-              ok: true,
-              summary: data.summary || `Implemented changes for: ${prompt}`,
-              changes: data.changes,
-              thinking: data.thinking || [
-                { title: "Project analysis", detail: `Framework: ${framework}` },
-                { title: "Component planning", detail: "Prepared changes" },
-              ],
-              totalThinkingTimeMs: data.totalThinkingTimeMs || Date.now() - startTime,
-            };
+            if (changes.length > 0) {
+              onProgress("working", "Preparing proposed changes...", `${changes.length} files modified`);
+              return {
+                ok: true,
+                summary: data.summary || `Implemented changes for: ${prompt}`,
+                changes,
+                thinking: data.thinking || [
+                  { title: "Project analysis", detail: `Framework: ${framework}` },
+                  { title: "Component planning", detail: "Prepared changes" },
+                ],
+                totalThinkingTimeMs: data.totalThinkingTimeMs || Date.now() - startTime,
+              };
+            }
           }
         }
       } catch (serverErr) {
@@ -158,12 +285,34 @@ export async function runOneShotAgent(
       }
     }
 
-    // Phase 2: Local agent generation fallback
+    // If it's a conversational prompt and server was not used or failed, respond directly without modifying files!
+    if (isConversational) {
+      const reply = await generateConversationalReply(prompt, framework, config, signal, messages);
+      return {
+        ok: true,
+        summary: reply,
+        changes: [],
+        thinking: [],
+        totalThinkingTimeMs: Date.now() - startTime,
+      };
+    }
+
+    // Phase 2: Local agent generation fallback for code changes
     onProgress("thinking", "Generating implementation plan...", `Planning components for ${prompt}`);
     const plan = await generatePlan(cwd, prompt, scope, projectStructure, framework, config, signal, messages);
 
     if (signal.aborted) {
       return { ok: false, error: "Operation was cancelled during planning" };
+    }
+
+    if (plan.isConversational || (plan.reply && (!plan.steps || plan.steps.length === 0))) {
+      return {
+        ok: true,
+        summary: plan.reply || "How can I help you with your project?",
+        changes: [],
+        thinking: [],
+        totalThinkingTimeMs: Date.now() - startTime,
+      };
     }
 
     if (!plan.steps.length) {
@@ -214,7 +363,7 @@ export async function runOneShotAgent(
 
     return {
       ok: true,
-      summary: `Successfully implemented: ${prompt}`,
+      summary: plan.summary || `Implemented changes for: ${prompt}`,
       changes: allChanges,
       thinking: thinkingSteps,
       totalThinkingTimeMs,
@@ -334,6 +483,9 @@ function detectFramework(cwd: string): string {
 }
 
 interface ExecutionPlan {
+  summary?: string;
+  reply?: string;
+  isConversational?: boolean;
   steps: Array<{
     description: string;
     detail?: string;
@@ -371,13 +523,20 @@ async function generatePlan(
     }
   }).filter(Boolean).join("\n\n");
 
-  const systemPrompt = `You are Lasso's Agentic Coding Agent.
-Your job is to modify or create files to fulfill the user's software engineering prompt.
-Framework: ${framework}
+  const systemPrompt = `You are Lasso's Agentic Coding Agent embedded in a live ${framework} web app.
 Available files: ${structure.files.slice(0, 30).join(", ")}
 
-CRITICAL: Return strictly valid JSON matching this schema:
+Analyze the user's request.
+If the request is a general question, explanation, greeting, or does not require file modifications, return strictly valid JSON:
 {
+  "isConversational": true,
+  "reply": "Clear, friendly, conversational answer or explanation"
+}
+
+If the request asks to build, modify, create, fix, style, or refactor code, return strictly valid JSON:
+{
+  "isConversational": false,
+  "summary": "Clear, concise user-facing description of what was changed",
   "steps": [
     {
       "type": "modify" or "create",
@@ -394,18 +553,14 @@ CRITICAL: Return strictly valid JSON matching this schema:
 Existing code context:
 ${fileSnippets || "No existing components found. Create appropriate files in src/."}
 
-Generate the implementation steps now.`;
+Analyze and respond in JSON:`;
 
   if (!config.apiKey && config.provider !== "ollama") {
-    // If no key is configured, fallback to inspecting target
-    const candidateEntry = targetFiles[0] || "src/App.tsx";
-    steps.push({
-      description: "Inspecting codebase context",
-      detail: `Target: ${candidateEntry}`,
-      type: "command",
-      command: `echo 'Inspecting ${candidateEntry}'`,
-    });
-    return { steps };
+    return {
+      steps: [],
+      isConversational: true,
+      reply: "Please configure an AI provider API key or model in settings to enable code generation.",
+    };
   }
 
   try {
@@ -464,8 +619,28 @@ Generate the implementation steps now.`;
     }
 
     const parsed = extractJson(text);
-    if (parsed && Array.isArray(parsed.steps) && parsed.steps.length > 0) {
-      return { steps: parsed.steps };
+    if (parsed) {
+      if (parsed.isConversational || (typeof parsed.reply === "string" && (!parsed.steps || parsed.steps.length === 0))) {
+        return {
+          steps: [],
+          isConversational: true,
+          reply: parsed.reply || text.trim(),
+        };
+      }
+      if (Array.isArray(parsed.steps) && parsed.steps.length > 0) {
+        return {
+          steps: parsed.steps,
+          summary: parsed.summary,
+        };
+      }
+    }
+
+    if (text.trim().length > 0) {
+      return {
+        steps: [],
+        isConversational: true,
+        reply: text.trim(),
+      };
     }
   } catch (err) {
     console.warn("[lasso] Local agent generation failed:", err);

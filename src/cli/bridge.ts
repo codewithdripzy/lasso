@@ -764,10 +764,11 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         ).then((result) => {
           if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
             if (result.ok) {
+              const hasChanges = Array.isArray(result.changes) && result.changes.length > 0;
               socket.send(JSON.stringify({
                 type: "agent_status",
                 taskId,
-                status: "review",
+                status: hasChanges ? "review" : "complete",
                 message: result.summary,
                 changes: result.changes,
                 thinking: result.thinking,

@@ -64,6 +64,28 @@ let activeStartTime = 0;
 let activeConversationId: string | null = null;
 let conversationList: Array<{ id: string; title: string; scope: string; updatedAt: string }> = [];
 
+export function isConversationalPrompt(prompt: string): boolean {
+  const p = prompt.trim().toLowerCase().replace(/[!?.,;:]+$/, "");
+  const greetings = [
+    "hi", "hello", "hey", "heya", "howdy", "sup", "yo",
+    "good morning", "good afternoon", "good evening",
+    "thanks", "thank you", "thx", "ty", "cool", "awesome", "great", "nice",
+    "who are you", "what are you", "what can you do", "help", "help me",
+    "what is lasso", "how do you work", "how does this work",
+  ];
+  if (greetings.includes(p)) return true;
+  if (/^(hi|hello|hey|howdy|yo)\b/i.test(p) && p.split(/\s+/).length <= 4) {
+    const buildKeywords = /(build|create|add|make|fix|update|modify|change|refactor|implement|delete|remove|style|install|wire|code)/i;
+    if (!buildKeywords.test(p)) return true;
+  }
+  const questionOnly = /^(what is|what's|how do i|why does|can you explain|tell me about)\b/i.test(p);
+  const actionVerbs = /(build|create|add|make|fix|update|modify|change|refactor|implement|write code|code this|delete|remove|generate)/i;
+  if (questionOnly && !actionVerbs.test(p)) {
+    return true;
+  }
+  return false;
+}
+
 /** Derive the API base URL from the collab config or fall back to same-origin */
 function getApiBase(): string {
   const collabUrl = state.collab?.apiUrl || "";
@@ -698,6 +720,8 @@ async function handleSubmit(): Promise<void> {
   activeTaskId = taskId;
   activeStartTime = Date.now();
 
+  const isChat = isConversationalPrompt(prompt);
+
   // Append initial assistant message with thinking widget
   commandMessages.push({
     id: taskId,
@@ -705,7 +729,7 @@ async function handleSubmit(): Promise<void> {
     content: "",
     timestamp: Date.now(),
     thinking: {
-      steps: [{ title: "Planning your request...", status: "running" }],
+      steps: [{ title: isChat ? "Thinking..." : "Planning your request...", status: "running" }],
       durationSeconds: 0,
       completed: false,
       expanded: true, // visible while working
@@ -734,12 +758,14 @@ async function handleSubmit(): Promise<void> {
     });
   }
 
-  // Emit build mode start to pause teammates
-  collabEmit("collab:action", {
-    sessionId: state.collabProjectId,
-    status: "building",
-    summary: prompt.slice(0, 120),
-  });
+  // Emit build mode start ONLY for code changes to pause teammates (don't block for chat)
+  if (!isChat) {
+    collabEmit("collab:action", {
+      sessionId: state.collabProjectId,
+      status: "building",
+      summary: prompt.slice(0, 120),
+    });
+  }
 
   // Send request to bridge
   if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
@@ -825,33 +851,42 @@ export function handleCommandBarAgentStatus(message: any): void {
       activeThinkingInterval = null;
     }
 
+    const hasChanges = Array.isArray(message.changes) && message.changes.length > 0;
+
     if (targetMsg.thinking) {
-      for (const step of targetMsg.thinking.steps) {
-        step.status = "completed";
-      }
-      targetMsg.thinking.completed = true;
-      // Requirement: it collapses once thinking is done so user can choose to expand later!
-      targetMsg.thinking.expanded = false;
-
-      if (message.totalThinkingTimeMs) {
-        targetMsg.thinking.durationSeconds = Math.max(1, Math.round(message.totalThinkingTimeMs / 1000));
+      if (!hasChanges) {
+        // Pure conversational reply — remove thinking widget entirely
+        targetMsg.thinking = undefined;
       } else {
-        targetMsg.thinking.durationSeconds = Math.max(1, Math.round((Date.now() - activeStartTime) / 1000));
-      }
+        for (const step of targetMsg.thinking.steps) {
+          step.status = "completed";
+        }
+        targetMsg.thinking.completed = true;
+        // Requirement: it collapses once thinking is done so user can choose to expand later!
+        targetMsg.thinking.expanded = false;
 
-      // If server returned detailed thinking steps, append them
-      if (Array.isArray(message.thinking) && message.thinking.length) {
-        targetMsg.thinking.steps = message.thinking.map((s: any) => ({
-          title: s.title || "Completed step",
-          detail: s.detail,
-          status: "completed",
-        }));
+        if (message.totalThinkingTimeMs) {
+          targetMsg.thinking.durationSeconds = Math.max(1, Math.round(message.totalThinkingTimeMs / 1000));
+        } else {
+          targetMsg.thinking.durationSeconds = Math.max(1, Math.round((Date.now() - activeStartTime) / 1000));
+        }
+
+        // If server returned detailed thinking steps, append them
+        if (Array.isArray(message.thinking) && message.thinking.length) {
+          targetMsg.thinking.steps = message.thinking.map((s: any) => ({
+            title: s.title || "Completed step",
+            detail: s.detail,
+            status: "completed",
+          }));
+        }
       }
     }
 
-    targetMsg.content = message.message || "Changes are ready for review.";
-    if (Array.isArray(message.changes) && message.changes.length) {
+    targetMsg.content = message.message || "";
+    if (hasChanges) {
       targetMsg.changes = message.changes;
+    } else {
+      targetMsg.changes = undefined;
     }
     targetMsg.isStreaming = false;
     activeTaskId = null;
