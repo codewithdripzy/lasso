@@ -37,6 +37,35 @@ export type ScreenshotContext = {
   element?: string;
 };
 
+export type PageContext = {
+  url: string;
+  route: string;
+  title: string;
+  viewport: {
+    width: number;
+    height: number;
+    scrollX: number;
+    scrollY: number;
+    scrollHeight: number;
+  };
+  screenshot?: string;
+  domSummary: {
+    headings: Array<{ level: number; text: string }>;
+    sections: Array<{ name: string; textPreview: string }>;
+    buttons: string[];
+    links: string[];
+    inputs: Array<{ placeholder?: string; type: string }>;
+    visibleTextSnippet: string;
+  };
+  selectedElement?: {
+    tag: string;
+    id?: string;
+    classes: string[];
+    text?: string;
+    source?: string;
+  };
+};
+
 export type DragContext = {
   originalRect: { left: number; top: number; width: number; height: number };
   targetRect: { left: number; top: number; width: number; height: number };

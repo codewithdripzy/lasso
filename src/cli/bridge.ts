@@ -34,7 +34,7 @@ export type BridgeMessage =
   | { type: "git_push" }
   | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string }
   | { type: "transcribe"; requestId: string; audio: string; mimeType?: string; language?: string }
-  | { type: "oneshot"; prompt: string; scope?: "project" | "component"; model?: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli"; messages?: Array<{ role: "user" | "assistant"; content: string }>; taskId?: string };
+  | { type: "oneshot"; prompt: string; scope?: "project" | "component"; model?: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli"; messages?: Array<{ role: "user" | "assistant"; content: string }>; taskId?: string; pageContext?: any };
 
 type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli" };
 type PageEntry = { name: string; path: string; type: "directory" | "file" };
@@ -760,7 +760,8 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
           msg.messages,
           targetApiUrl,
           apiKey,
-          taskId
+          taskId,
+          msg.pageContext
         ).then((result) => {
           if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
             if (result.ok) {

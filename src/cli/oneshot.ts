@@ -61,15 +61,46 @@ async function generateConversationalReply(
   framework: string,
   config: AgentConfig,
   signal: AbortSignal,
-  messages?: ConversationMessage[]
+  messages?: ConversationMessage[],
+  pageContext?: any
 ): Promise<string> {
   const history = messages?.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n") || "";
+
+  let pageObservation = "";
+  if (pageContext) {
+    const headings = (pageContext.domSummary?.headings || []).map((h: any) => `H${h.level}: "${h.text}"`).join("\n  ");
+    const sections = (pageContext.domSummary?.sections || []).map((s: any) => `- [${s.name}]: ${s.textPreview}`).join("\n  ");
+    const buttons = (pageContext.domSummary?.buttons || []).join(", ");
+    const links = (pageContext.domSummary?.links || []).join(", ");
+
+    pageObservation = `
+Live Browser Page Context (what the user is currently viewing in their live app):
+- Route: ${pageContext.route || "/"}
+- Page Title: "${pageContext.title || "Untitled"}"
+- Viewport: ${pageContext.viewport?.width}x${pageContext.viewport?.height} (Document height: ${pageContext.viewport?.scrollHeight}px, scrolled: ${pageContext.viewport?.scrollY}px)
+- Rendered Headings:
+  ${headings || "None"}
+- Rendered Page Sections & Landmarks:
+  ${sections || "None"}
+- Call-to-Action Buttons: ${buttons || "None"}
+- Navigation Links: ${links || "None"}
+- Visible Text Preview: "${pageContext.domSummary?.visibleTextSnippet?.slice(0, 1000) || "Empty"}"
+${pageContext.selectedElement ? `- Selected Element: <${pageContext.selectedElement.tag}> "${pageContext.selectedElement.text || ""}"` : ""}
+`;
+  }
+
   const systemPrompt = `You are Lasso, a fast and helpful AI coding assistant embedded in a live web application (${framework}).
 Respond conversationally, concisely, and helpfully.
+${pageContext ? "You have live access to the browser page context. When the user asks about the page, design, layout, or components, reference the actual headings, sections, buttons, and text rendered on screen. Provide concrete, expert design and UX feedback. Never claim the page has no content or components when rendered headings and sections are present." : ""}
 Do not output code changes, file patches, or JSON schemas — just talk to the developer naturally and offer assistance.`;
-  const userPrompt = `${history ? `Conversation History:\n${history}\n\n` : ""}User message: ${prompt}`;
+  const userPrompt = `${history ? `Conversation History:\n${history}\n\n` : ""}${pageObservation}\nUser message: ${prompt}`;
 
   if (!config.apiKey && config.provider !== "ollama") {
+    if (pageContext && (prompt.toLowerCase().includes("landing page") || prompt.toLowerCase().includes("page"))) {
+      const headings = (pageContext.domSummary?.headings || []).map((h: any) => `"${h.text}"`).join(", ");
+      const sections = (pageContext.domSummary?.sections || []).map((s: any) => s.name).join(", ");
+      return `Looking at your current page ("${pageContext.title}" on ${pageContext.route}):\n\n- **Rendered Sections:** ${sections || "Standard container"}\n- **Key Headings:** ${headings || "None"}\n- **CTAs:** ${(pageContext.domSummary?.buttons || []).join(", ") || "None"}\n\nTo build or refine components, configure your AI API key in settings or ask me what to modify!`;
+    }
     return "Hello! I'm Lasso, your AI pair programmer. You can ask me questions about your project or tell me what to build, modify, or fix.";
   }
 
@@ -147,7 +178,8 @@ export async function runOneShotAgent(
   messages?: ConversationMessage[],
   serverUrl?: string,
   apiKey?: string,
-  taskId?: string
+  taskId?: string,
+  pageContext?: any
 ): Promise<OneShotResult> {
   const startTime = Date.now();
   try {
@@ -157,13 +189,38 @@ export async function runOneShotAgent(
 
     const isConversational = isConversationalPrompt(prompt);
 
-    // Phase 1: Understand & Plan
-    onProgress("thinking", isConversational ? "Thinking..." : "Analyzing project structure...", isConversational ? undefined : "Scanning files and dependencies");
+    // Browser inspection & snapshot steps
+    if (pageContext) {
+      onProgress(
+        "thinking",
+        "Inspecting browser page...",
+        `Page: "${pageContext.title || "Landing page"}" (${pageContext.route || "/"})`
+      );
+      if (pageContext.viewport) {
+        onProgress(
+          "thinking",
+          "Capturing visual snapshot...",
+          `Viewport: ${pageContext.viewport.width}x${pageContext.viewport.height} (Document height: ${pageContext.viewport.scrollHeight}px)`
+        );
+      }
+      if (pageContext.domSummary) {
+        const sectionsCount = pageContext.domSummary.sections?.length || 0;
+        const headingsCount = pageContext.domSummary.headings?.length || 0;
+        const buttonsCount = pageContext.domSummary.buttons?.length || 0;
+        onProgress(
+          "thinking",
+          "Scrolling & analyzing page sections...",
+          `${sectionsCount} sections, ${headingsCount} headings, ${buttonsCount} CTAs detected`
+        );
+      }
+    } else {
+      onProgress("thinking", isConversational ? "Thinking..." : "Analyzing project structure...", isConversational ? undefined : "Scanning files and dependencies");
+    }
 
     const projectStructure = await analyzeProject(cwd);
     const framework = detectFramework(cwd);
 
-    if (!isConversational) {
+    if (!isConversational && !pageContext) {
       onProgress("thinking", "Inspecting application...", `Detected ${framework} framework`);
     }
 
@@ -182,7 +239,7 @@ export async function runOneShotAgent(
     // If server is available and not a local CLI-only agent, call Lasso Agent Gateway on server
     if (!isCliProvider && targetServerUrl) {
       try {
-        if (!isConversational) {
+        if (!isConversational && !pageContext) {
           onProgress("thinking", "Connecting to Lasso Agent Gateway...", `Model: ${config.model || "claude-3-7-sonnet"}`);
         }
 
@@ -221,6 +278,8 @@ export async function runOneShotAgent(
               dependencies: projectStructure.dependencies,
               devDependencies: projectStructure.devDependencies,
               files: projectStructure.files.slice(0, 100),
+              currentRoute: pageContext?.route || "/",
+              pageContext,
             },
           }),
         });
@@ -287,7 +346,7 @@ export async function runOneShotAgent(
 
     // If it's a conversational prompt and server was not used or failed, respond directly without modifying files!
     if (isConversational) {
-      const reply = await generateConversationalReply(prompt, framework, config, signal, messages);
+      const reply = await generateConversationalReply(prompt, framework, config, signal, messages, pageContext);
       return {
         ok: true,
         summary: reply,
@@ -299,7 +358,7 @@ export async function runOneShotAgent(
 
     // Phase 2: Local agent generation fallback for code changes
     onProgress("thinking", "Generating implementation plan...", `Planning components for ${prompt}`);
-    const plan = await generatePlan(cwd, prompt, scope, projectStructure, framework, config, signal, messages);
+    const plan = await generatePlan(cwd, prompt, scope, projectStructure, framework, config, signal, messages, pageContext);
 
     if (signal.aborted) {
       return { ok: false, error: "Operation was cancelled during planning" };
@@ -504,7 +563,8 @@ async function generatePlan(
   framework: string,
   config: AgentConfig,
   signal: AbortSignal,
-  _messages?: ConversationMessage[]
+  _messages?: ConversationMessage[],
+  pageContext?: any
 ): Promise<ExecutionPlan> {
   const steps: ExecutionPlan["steps"] = [];
 
@@ -522,6 +582,22 @@ async function generatePlan(
       return "";
     }
   }).filter(Boolean).join("\n\n");
+
+  let pageObservation = "";
+  if (pageContext) {
+    const headings = (pageContext.domSummary?.headings || []).map((h: any) => `H${h.level}: "${h.text}"`).join("\n  ");
+    const sections = (pageContext.domSummary?.sections || []).map((s: any) => `- [${s.name}]: ${s.textPreview}`).join("\n  ");
+    const buttons = (pageContext.domSummary?.buttons || []).join(", ");
+    pageObservation = `
+Live Browser Page Context (currently rendered):
+- Route: ${pageContext.route || "/"}
+- Title: "${pageContext.title || "Untitled"}"
+- Viewport: ${pageContext.viewport?.width}x${pageContext.viewport?.height} (Height: ${pageContext.viewport?.scrollHeight}px)
+- Rendered Headings: ${headings || "None"}
+- Rendered Sections: ${sections || "None"}
+- Action Buttons: ${buttons || "None"}
+`;
+  }
 
   const systemPrompt = `You are Lasso's Agentic Coding Agent embedded in a live ${framework} web app.
 Available files: ${structure.files.slice(0, 30).join(", ")}
@@ -549,7 +625,7 @@ If the request asks to build, modify, create, fix, style, or refactor code, retu
 }`;
 
   const userPrompt = `User Request: ${prompt}
-
+${pageObservation}
 Existing code context:
 ${fileSnippets || "No existing components found. Create appropriate files in src/."}
 

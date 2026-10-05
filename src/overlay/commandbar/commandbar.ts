@@ -6,6 +6,7 @@ import { showActivity } from "../collab/presence";
 import { collabEmit } from "../collab/socket";
 import { providerIcon, buildModelMenuContent } from "../prompt/prompt";
 import { setSelectMode } from "../toolbar/select";
+import { capturePageContext } from "../browser/context";
 import type { PendingChange } from "../types";
 
 export interface SourceChange {
@@ -767,6 +768,14 @@ async function handleSubmit(): Promise<void> {
     });
   }
 
+  // Capture live page context (viewport, visual snapshot, DOM headings & sections)
+  let pageContext: any = undefined;
+  try {
+    pageContext = await capturePageContext();
+  } catch (err) {
+    console.warn("[lasso] capturePageContext failed:", err);
+  }
+
   // Send request to bridge
   if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
     state.bridgeSocket.send(
@@ -781,6 +790,7 @@ async function handleSubmit(): Promise<void> {
         messages: commandMessages
           .filter((m) => m.content && !m.error)
           .map((m) => ({ role: m.role, content: m.content })),
+        pageContext,
       })
     );
   } else {
