@@ -1,9 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, exec } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
+const execAsync = promisify(exec);
 
 export type SourceChange = {
   filePath: string;
@@ -26,12 +27,61 @@ export type AgentConfig = {
   apiKey?: string;
   model?: string;
   baseUrl?: string;
+  lassoKey?: string;
+  serverUrl?: string;
 };
+
+export async function installPackages(
+  cwd: string,
+  packages: string[],
+  onProgress?: AgentProgress
+): Promise<string[]> {
+  const validPkgs = [...new Set(
+    packages
+      .map((p) => p.trim().replace(/^['"`]|['"`]$/g, ""))
+      .filter((p) => /^(@[a-z0-9\-~][a-z0-9\-_.]*\/)?[a-z0-9\-~][a-z0-9\-_.]*$/i.test(p))
+  )];
+
+  if (validPkgs.length === 0) return [];
+
+  // Check package.json to see what is already installed
+  let existingDeps: Record<string, string> = {};
+  try {
+    const pkgJsonPath = path.join(cwd, "package.json");
+    const raw = await fs.readFile(pkgJsonPath, "utf8");
+    const parsed = JSON.parse(raw);
+    existingDeps = { ...(parsed.dependencies || {}), ...(parsed.devDependencies || {}) };
+  } catch {}
+
+  const needed = validPkgs.filter((pkg) => !existingDeps[pkg]);
+  if (needed.length === 0) return validPkgs;
+
+  // Detect package manager
+  let cmd = "npm install";
+  try {
+    const rootFiles = await fs.readdir(cwd);
+    if (rootFiles.includes("bun.lockb") || rootFiles.includes("bun.lock")) cmd = "bun add";
+    else if (rootFiles.includes("pnpm-lock.yaml")) cmd = "pnpm add";
+    else if (rootFiles.includes("yarn.lock")) cmd = "yarn add";
+  } catch {}
+
+  const commandStr = `${cmd} ${needed.join(" ")}`;
+  onProgress?.(`Installing dependencies (${needed.join(", ")})…`, commandStr, "working");
+
+  try {
+    await execAsync(commandStr, { cwd, timeout: 120000 });
+    onProgress?.(`Installed ${needed.join(", ")}`, undefined, "working");
+  } catch (err: any) {
+    onProgress?.(`Package installation failed: ${err.message}`, undefined, "error");
+  }
+
+  return validPkgs;
+}
 
 export type LocalAgent = "claude-code" | "codex" | "opencode" | "cursor";
 export type AgentProgressLevel = "working" | "error";
 export type AgentProgress = (message: string, detail?: string, level?: AgentProgressLevel) => void;
-export type AgentPrompt = { message: string; kind: "permission" | "input"; options?: string[] };
+export type AgentPrompt = { message: string; kind: "permission" | "input" | "multiselect"; options?: string[] };
 export type AgentPromptHandler = (prompt: AgentPrompt) => void;
 type AgentProgressEvent = { message: string; detail?: string };
 export type AgentAnswer = { taskId?: string; question: string; context?: AgentInput["context"]; element: AgentInput["element"]; messages?: AgentInput["messages"] };
@@ -42,7 +92,94 @@ export function respondToAgentPrompt(taskId: string, value: string): boolean {
   const respond = activeAgentInputs.get(taskId);
   if (!respond) return false;
   respond(value);
+  activeAgentInputs.delete(taskId);
   return true;
+}
+
+export function waitForAgentPrompt(taskId: string, timeoutMs = 120000): Promise<string> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      activeAgentInputs.delete(taskId);
+      resolve("Skip");
+    }, timeoutMs);
+    activeAgentInputs.set(taskId, (value) => {
+      clearTimeout(timer);
+      activeAgentInputs.delete(taskId);
+      resolve(value);
+    });
+  });
+}
+
+export async function executeWebSearch(
+  query: string,
+  maxResults = 5
+): Promise<Array<{ title: string; url: string; snippet: string }>> {
+  try {
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return [];
+    const html = await res.text();
+    const results: Array<{ title: string; url: string; snippet: string }> = [];
+    const resultRegex = /<a class="result__snippet[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+    let match;
+    while ((match = resultRegex.exec(html)) !== null && results.length < maxResults) {
+      const rawHref = match[1];
+      const uddgMatch = rawHref.match(/uddg=([^&]+)/);
+      const targetUrl = uddgMatch ? decodeURIComponent(uddgMatch[1]) : rawHref;
+      const cleanSnippet = match[2]
+        .replace(/<[^>]*>/g, "")
+        .replace(/&amp;/g, "&")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (cleanSnippet && targetUrl.startsWith("http")) {
+        results.push({
+          title: cleanSnippet.slice(0, 80),
+          url: targetUrl,
+          snippet: cleanSnippet,
+        });
+      }
+    }
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+const BLOCKED_COMMANDS = /\b(rm\s+-rf\s+\/|shutdown|reboot|sudo|mkfs|:\(\)\{\|:&\}|chmod\s+-R\s+777\s+\/)\b/i;
+
+export async function executeAgentCommand(
+  cwd: string,
+  command: string,
+  timeout = 30000
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  if (BLOCKED_COMMANDS.test(command)) {
+    return { stdout: "", stderr: "Command rejected for safety reasons.", exitCode: 1 };
+  }
+  try {
+    const { stdout, stderr } = await execAsync(command, { cwd, timeout });
+    return {
+      stdout: stdout.slice(0, 8000),
+      stderr: stderr.slice(0, 2000),
+      exitCode: 0,
+    };
+  } catch (err: any) {
+    return {
+      stdout: (err.stdout || "").slice(0, 8000),
+      stderr: (err.stderr || err.message || "").slice(0, 2000),
+      exitCode: err.code || 1,
+    };
+  }
 }
 
 export async function detectLocalAgents(): Promise<Set<LocalAgent>> {
@@ -203,24 +340,80 @@ function jsonObjectCandidates(text: string): string[] {
   return candidates;
 }
 
-function jsonFrom(text: string): { summary: string; changes: SourceChange[] } {
+function jsonFrom(text: string): { summary: string; packages?: string[]; changes: SourceChange[] } {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
   const candidates = [...(fenced ? [fenced] : []), ...jsonObjectCandidates(text)];
   for (const candidate of candidates) {
     try {
-      const parsed = JSON.parse(candidate.trim()) as { summary?: string; changes?: SourceChange[] };
+      const parsed = JSON.parse(candidate.trim()) as { summary?: string; packages?: string[]; changes?: SourceChange[] };
       if (!Array.isArray(parsed.changes)) continue;
       for (const change of parsed.changes) {
         if (!change.filePath || typeof change.oldString !== "string" || typeof change.newString !== "string") {
           throw new Error("The agent returned an invalid file change.");
         }
       }
-      return { summary: parsed.summary || "The proposed source changes are ready for review.", changes: parsed.changes };
+      const packages = Array.isArray(parsed.packages)
+        ? parsed.packages.map((p) => String(p).trim()).filter(Boolean)
+        : [];
+      return {
+        summary: parsed.summary || (packages.length > 0 ? `Installed ${packages.join(", ")} and updated components.` : "The proposed source changes are ready for review."),
+        packages,
+        changes: parsed.changes,
+      };
     } catch (error) {
       if (error instanceof Error && error.message === "The agent returned an invalid file change.") throw error;
     }
   }
   throw new Error("The agent returned no valid reviewable changes. Progress output may have been mixed with the final JSON.");
+}
+
+export type AgentStepAction =
+  | { type: "run_command"; command: string; thought?: string }
+  | { type: "web_search"; query: string; thought?: string }
+  | { type: "ask_user"; question: string; kind?: "permission" | "input" | "multiselect"; options?: string[]; thought?: string }
+  | { type: "proposal"; summary: string; packages?: string[]; changes: SourceChange[] };
+
+export function parseAgentAction(text: string): AgentStepAction {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  const candidates = [...(fenced ? [fenced] : []), ...jsonObjectCandidates(text)];
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate.trim()) as any;
+      if (parsed.action === "run_command" && typeof parsed.command === "string" && parsed.command.trim()) {
+        return { type: "run_command", command: parsed.command.trim(), thought: parsed.thought };
+      }
+      if (parsed.action === "web_search" && typeof parsed.query === "string" && parsed.query.trim()) {
+        return { type: "web_search", query: parsed.query.trim(), thought: parsed.thought };
+      }
+      if (parsed.action === "ask_user" && typeof parsed.question === "string" && parsed.question.trim()) {
+        return {
+          type: "ask_user",
+          question: parsed.question.trim(),
+          kind: parsed.kind === "multiselect" ? "multiselect" : parsed.kind === "input" ? "input" : "permission",
+          options: Array.isArray(parsed.options) ? parsed.options.map(String) : undefined,
+          thought: parsed.thought,
+        };
+      }
+      if (Array.isArray(parsed.changes)) {
+        for (const change of parsed.changes) {
+          if (!change.filePath || typeof change.oldString !== "string" || typeof change.newString !== "string") {
+            throw new Error("The agent returned an invalid file change.");
+          }
+        }
+        const packages = Array.isArray(parsed.packages) ? parsed.packages.map((p: any) => String(p).trim()).filter(Boolean) : [];
+        return {
+          type: "proposal",
+          summary: parsed.summary || (packages.length > 0 ? `Installed ${packages.join(", ")} and updated components.` : "The proposed source changes are ready for review."),
+          packages,
+          changes: parsed.changes,
+        };
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === "The agent returned an invalid file change.") throw error;
+    }
+  }
+  const fallback = jsonFrom(text);
+  return { type: "proposal", ...fallback };
 }
 
 function extractLocalAgentText(raw: string, provider: LocalAgent): string {
@@ -309,7 +502,7 @@ function findStructuredProposals(value: unknown, depth = 0): string[] {
   return value.flatMap((entry) => findStructuredProposals(entry, depth + 1));
 }
 
-function extractLocalAgentProposal(raw: string, provider: LocalAgent): { summary: string; changes: SourceChange[] } {
+function extractLocalAgentProposal(raw: string, provider: LocalAgent): { summary: string; packages?: string[]; changes: SourceChange[] } {
   const outputs: string[] = [];
   const lines = raw.split(/\r?\n/).filter((line) => line.trim());
   const streamObjects = jsonObjectCandidates(raw).flatMap((candidate) => {
@@ -719,7 +912,7 @@ function runLocalCommand(
 }
 
 async function proposeWithLocalAgent(cwd: string, instruction: string, context: string, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress, taskId?: string, onPrompt?: AgentPromptHandler) {
-  const outputContract = `CRITICAL: You MUST return ONLY valid JSON with actual file changes. NEVER explain, describe, or analyze code without proposing edits. ALWAYS return JSON with at least one change when given a modification instruction. Format: {"summary":"brief action taken","changes":[{"filePath":"relative/path","oldString":"exact existing text","newString":"replacement text"}]}. Treat the supplied source context as read-only. Before returning, verify every oldString against that context. Use project-relative paths only. Do not edit files, run write commands, commit, or produce markdown fences. If you cannot find the exact text to change, search the provided context more carefully - do not give up and explain instead.`;
+  const outputContract = `CRITICAL: You MUST return ONLY valid JSON with actual file changes. NEVER explain, describe, or analyze code without proposing edits. If third-party npm packages are needed, list them in "packages". ALWAYS return JSON with at least one change when given a modification instruction. Format: {"summary":"brief action taken","packages":["optional-package-name"],"changes":[{"filePath":"relative/path","oldString":"exact existing text","newString":"replacement text"}]}. Treat the supplied source context as read-only. Before returning, verify every oldString against that context. Use project-relative paths only. Do not edit files, run write commands, commit, or produce markdown fences. If you cannot find the exact text to change, search the provided context more carefully - do not give up and explain instead.`;
   const prompt = `${instruction}\n\n${outputContract}\n\nLasso has already assembled this source context:\n${context || "No matching source context was found."}`;
   const local = localCommand(config.provider as LocalAgent, config.model, prompt);
   const command = local.command;
@@ -737,58 +930,255 @@ export async function proposeChanges(cwd: string, input: AgentInput, config: Age
   const dragHint = input.context?.drag
     ? `\n\nDRAG REPOSITIONING TASK:\nThe user dragged this element by dx: ${input.context.drag.delta?.dx ?? 0}px, dy: ${input.context.drag.delta?.dy ?? 0}px to target coordinates (left: ${input.context.drag.targetRect?.left ?? 0}px, top: ${input.context.drag.targetRect?.top ?? 0}px). Modify the source code (CSS classes, Tailwind classes, flex/grid alignment, margin offsets, or positioning properties) so the element is accurately rendered at this target position.`
     : "";
-  const instruction = `Selection context:\n${JSON.stringify(input.element, null, 2)}\n${JSON.stringify(visualContext, null, 2)}\n\nConversation history:\n${history}\n\nPrevious change history for this selection:\n${priorChanges}\n\nRelevant source context:\n${context || "No matching source context was found. Ask for a more specific selection rather than inventing a file."}${dragHint}\n\nCRITICAL: You MUST return ONLY JSON with actual file changes. Do NOT explain what you see or describe the code. Always propose concrete edits when given an instruction. Return JSON format: {"summary":"brief action taken","changes":[{"filePath":"relative/path","oldString":"exact existing text","newString":"replacement text"}]}`;
-  if (config.provider === "claude-code" || config.provider === "codex" || config.provider === "opencode" || config.provider === "cursor") {
-    return proposeWithLocalAgent(cwd, instruction, context, config, signal, onProgress, input.taskId, onPrompt);
-  }
-  const system = "You are Lasso, a source-code editing agent. Your ONLY job is to propose concrete file changes. NEVER explain, describe, or analyze code without proposing edits. ALWAYS return valid JSON with at least one change when the user requests a modification. Each oldString must occur exactly once in its file. Never rewrite whole files. Keep changes focused and minimal. If you cannot find the exact text to change, look harder at the provided context - do not give up and explain instead.";
-  const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "meta/llama-3.1-70b-instruct" : "claude-sonnet-4-20250514");
-  const image = input.context?.screenshots?.element || input.context?.screenshots?.full;
-  const imageData = image?.replace(/^data:image\/[^;]+;base64,/, "");
-  const imageMime = image?.match(/^data:(image\/[^;]+);base64,/)?.[1] || "image/jpeg";
-  let response: Response;
+  const instruction = `Selection context:
+${JSON.stringify(input.element, null, 2)}
+${JSON.stringify(visualContext, null, 2)}
 
-  if (config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia") {
-    const content = image ? [{ type: "text", text: instruction }, { type: "image_url", image_url: { url: image } }] : instruction;
-    const baseUrl = config.baseUrl || (config.provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : "https://api.openai.com/v1");
-    response = await fetch(`${baseUrl}/chat/completions`, {
+User instruction:
+${input.instruction}
+
+Conversation history:
+${history}
+
+Previous change history for this selection:
+${priorChanges}
+
+Relevant source context:
+${context || "No matching source context was found. Ask for a more specific selection rather than inventing a file."}${dragHint}
+
+CRITICAL INSTRUCTIONS:
+1. You are an autonomous agent with the ability to install npm packages and edit source code.
+2. If the user's request requires or asks for third-party libraries, icon packs, animation tools, or utility packages (e.g. icon libraries, motion, charts, UI primitives, etc.), determine the best npm package for this project and declare them in the "packages" array (e.g. ["@iconify/react", "@hugeicons/react"]).
+3. In the "changes" array, propose concrete, minimal edits to the source code to implement the request. You may freely import and use the packages you specified in "packages".
+4. If no new packages are required, "packages" should be empty [].
+5. You MUST return ONLY valid JSON in this exact structure:
+{
+  "summary": "Brief explanation of what was done",
+  "packages": ["package-name-1", "package-name-2"],
+  "changes": [
+    {
+      "filePath": "relative/path/to/file.tsx",
+      "oldString": "exact existing text",
+      "newString": "replacement text"
+    }
+  ]
+}
+Do NOT return prose or markdown outside the JSON.`;
+
+  const callServerGateway = async (gatewayKey: string) => {
+    let serverUrl = config.serverUrl || process.env.LASSO_SERVER_URL || process.env.NEXT_PUBLIC_LASSO_SERVER_URL || "https://api.lasso.byorello.space";
+    if (serverUrl.includes("collab.lasso.byorello.space")) {
+      serverUrl = serverUrl.replace("collab.lasso.byorello.space", "api.lasso.byorello.space");
+    }
+    const endpoint = `${serverUrl.replace(/\/+$/, "").replace(/\/api\/v1$/, "")}/api/v1/agent/session`;
+    const sourceHints: Record<string, string> = {};
+    const fileMatch = context?.match(/^FILE:\s*([^\r\n]+)\r?\n([\s\S]*)$/);
+    if (fileMatch) {
+      sourceHints[fileMatch[1].trim()] = fileMatch[2].slice(0, 16000);
+    } else if (context) {
+      sourceHints["selection-context"] = context.slice(0, 16000);
+    }
+
+    const response = await fetch(endpoint, {
       method: "POST",
       signal,
-      headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey || ""}` },
-      body: JSON.stringify({ model, temperature: 0.1, messages: [{ role: "system", content: system }, { role: "user", content }] }),
+      headers: { "content-type": "application/json", authorization: `Bearer ${gatewayKey}` },
+      body: JSON.stringify({
+        sessionId: input.taskId,
+        prompt: instruction,
+        model: { id: config.model, provider: config.provider },
+        context: { sourceHints: Object.keys(sourceHints).length > 0 ? sourceHints : undefined },
+      }),
     });
-  } else if (config.provider === "google") {
-    const parts: Array<Record<string, unknown>> = [{ text: instruction }];
-    if (imageData) parts.push({ inlineData: { mimeType: imageMime, data: imageData } });
-    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(config.apiKey || "")}`, {
-      method: "POST",
-      signal,
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts }] }),
-    });
-  } else {
-    const content: Array<Record<string, unknown>> = [{ type: "text", text: instruction }];
-    if (imageData) content.push({ type: "image", source: { type: "base64", media_type: imageMime, data: imageData } });
-    response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      signal,
-      headers: { "content-type": "application/json", "x-api-key": config.apiKey || "", "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model, max_tokens: 4096, system, messages: [{ role: "user", content }] }),
-    });
-  }
-  if (!response.ok) throw new Error(`Agent request failed (${response.status}).`);
-  const payload = await response.json() as {
-    content?: Array<{ type?: string; text?: string }>;
-    choices?: Array<{ message?: { content?: string } }>;
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(errData.error || `Lasso Agent Gateway request failed (${response.status}).`);
+    }
+    const data = await response.json() as { changes?: Array<{ filePath: string; oldString: string; newString: string }>; packages?: string[]; summary?: string };
+    return { summary: data.summary || "Done", packages: data.packages || [], changes: data.changes || [] };
   };
-  const text = config.provider === "openai"
-    ? payload.choices?.[0]?.message?.content
-    : config.provider === "google"
-      ? payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("")
-      : payload.content?.find((item) => item.type === "text")?.text;
-  if (!text) throw new Error("The agent returned an empty response.");
-  return jsonFrom(text);
+
+  let proposal: { summary: string; packages?: string[]; changes: SourceChange[] } | null = null;
+
+  if (config.provider === "claude-code" || config.provider === "codex" || config.provider === "opencode" || config.provider === "cursor") {
+    proposal = await proposeWithLocalAgent(cwd, instruction, context, config, signal, onProgress, input.taskId, onPrompt);
+  } else {
+    // If the apiKey is a Lasso platform key (not a direct provider key), route through
+    // the Lasso server gateway so the server can use the user's dashboard-configured key.
+    const isLassoKey = config.apiKey?.startsWith("lss_live_") || config.apiKey?.startsWith("lss_");
+    if (isLassoKey && config.provider !== "ollama") {
+      proposal = await callServerGateway(config.apiKey!);
+    } else {
+      const system = `You are Lasso, an autonomous agentic AI coding assistant.
+You have the ability to run inspection commands, search the live web for documentation or libraries, ask the user for input or single/multi-selection choices, install npm packages, and edit source code.
+
+AVAILABLE ACTIONS:
+1. "run_command": Run safe inspection commands in the project (e.g. grep, find, ls, git status, cat) to investigate files or exports.
+   Format: {"action": "run_command", "command": "grep -rn 'search_term' src/", "thought": "Why you need to run this command"}
+
+2. "web_search": Search the live web to find real-time documentation, package details, or API signatures rather than assuming.
+   Format: {"action": "web_search", "query": "lucide react icons documentation", "thought": "Why you need to search"}
+
+3. "ask_user": Ask the user for clarification, single-choice, or multi-selection input when their intent is ambiguous.
+   Format: {"action": "ask_user", "question": "Which icon library would you prefer?", "kind": "multiselect" | "single_select" | "input", "options": ["Option 1", "Option 2"], "thought": "Why you need user choice"}
+
+4. "propose_changes": Finalize and propose the exact file edits and required npm packages.
+   Format:
+   {
+     "action": "propose_changes",
+     "summary": "Brief explanation of what was done",
+     "packages": ["package-name-1", "package-name-2"],
+     "changes": [
+       {
+         "filePath": "relative/path/to/file.tsx",
+         "oldString": "exact existing text",
+         "newString": "replacement text"
+       }
+     ]
+   }
+
+RULES:
+- If you already have sufficient context to fulfill the user's request immediately, return "propose_changes" (or standard {"summary": "...", "packages": [...], "changes": [...]}) directly!
+- Each oldString must match the existing file context exactly.
+- Return ONLY valid JSON with no markdown formatting or prose outside the JSON.`;
+
+      const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "nvidia/llama-3.1-nemotron-70b-instruct" : "claude-sonnet-4-20250514");
+      const image = input.context?.screenshots?.element || input.context?.screenshots?.full;
+      const imageData = image?.replace(/^data:image\/[^;]+;base64,/, "");
+      const imageMime = image?.match(/^data:(image\/[^;]+);base64,/)?.[1] || "image/jpeg";
+
+      const MAX_TURNS = 5;
+      let turn = 0;
+      const toolLogs: string[] = [];
+
+      while (turn < MAX_TURNS) {
+        turn++;
+        const toolContext = toolLogs.length > 0 ? `\n\nTOOL EXECUTION & USER INTERACTION HISTORY:\n${toolLogs.join("\n\n")}` : "";
+        const currentPrompt = `${instruction}${toolContext}`;
+
+        let rawText = "";
+        try {
+          let response: Response;
+          if (config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia") {
+            const content = image && turn === 1 ? [{ type: "text", text: currentPrompt }, { type: "image_url", image_url: { url: image } }] : currentPrompt;
+            const baseUrl = config.baseUrl || (config.provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : "https://api.openai.com/v1");
+            response = await fetch(`${baseUrl}/chat/completions`, {
+              method: "POST",
+              signal,
+              headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey || ""}` },
+              body: JSON.stringify({ model, temperature: 0.1, messages: [{ role: "system", content: system }, { role: "user", content }] }),
+            });
+          } else if (config.provider === "google") {
+            const parts: Array<Record<string, unknown>> = [{ text: currentPrompt }];
+            if (imageData && turn === 1) parts.push({ inlineData: { mimeType: imageMime, data: imageData } });
+            response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(config.apiKey || "")}`, {
+              method: "POST",
+              signal,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts }] }),
+            });
+          } else {
+            const content: Array<Record<string, unknown>> = [{ type: "text", text: currentPrompt }];
+            if (imageData && turn === 1) content.push({ type: "image", source: { type: "base64", media_type: imageMime, data: imageData } });
+            response = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              signal,
+              headers: { "content-type": "application/json", "x-api-key": config.apiKey || "", "anthropic-version": "2023-06-01" },
+              body: JSON.stringify({ model, max_tokens: 4096, system, messages: [{ role: "user", content }] }),
+            });
+          }
+          if (!response.ok) {
+            if (config.lassoKey && (response.status === 429 || response.status === 401)) {
+              onProgress?.("Local provider key limit reached; routing via Lasso Gateway…", undefined, "working");
+              proposal = await callServerGateway(config.lassoKey);
+              break;
+            }
+            throw new Error(`Agent request failed (${response.status}).`);
+          }
+          const payload = await response.json() as {
+            content?: Array<{ type?: string; text?: string }>;
+            choices?: Array<{ message?: { content?: string } }>;
+            candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+          };
+          const contentCandidate = (config.provider === "openai" || config.provider === "nvidia" || config.provider === "ollama")
+            ? payload.choices?.[0]?.message?.content
+            : config.provider === "google"
+              ? payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("")
+              : payload.content?.find((item) => item.type === "text")?.text;
+          rawText = contentCandidate || "";
+          if (!rawText) throw new Error("The agent returned an empty response.");
+        } catch (err: any) {
+          if (config.lassoKey && (err.message?.includes("429") || err.message?.includes("401"))) {
+            onProgress?.("Local provider key limit reached; routing via Lasso Gateway…", undefined, "working");
+            proposal = await callServerGateway(config.lassoKey);
+            break;
+          }
+          throw err;
+        }
+
+        const action = parseAgentAction(rawText);
+
+        if (action.type === "run_command") {
+          onProgress?.("Running command…", `$ ${action.command}`, "working");
+          const res = await executeAgentCommand(cwd, action.command);
+          const outputSnippet = res.stdout || res.stderr || "(no output)";
+          onProgress?.(`Command completed: ${action.command}`, outputSnippet.slice(0, 150), "working");
+          toolLogs.push(`Turn ${turn} Command executed: ${action.command}\nExit code: ${res.exitCode}\nOutput:\n${outputSnippet.slice(0, 3000)}`);
+          continue;
+        }
+
+        if (action.type === "web_search") {
+          onProgress?.("Searching the web…", `🔍 ${action.query}`, "working");
+          const results = await executeWebSearch(action.query);
+          const summary = results.length > 0
+            ? results.map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.snippet}`).join("\n\n")
+            : "No web results found.";
+          onProgress?.(`Web search complete: ${action.query}`, `${results.length} results found`, "working");
+          toolLogs.push(`Turn ${turn} Web search for "${action.query}":\n${summary.slice(0, 3000)}`);
+          continue;
+        }
+
+        if (action.type === "ask_user") {
+          if (onPrompt && input.taskId) {
+            onProgress?.("Waiting for your response…", action.question, "working");
+            onPrompt({
+              message: action.question,
+              kind: action.kind || "permission",
+              options: action.options,
+            });
+            const answer = await waitForAgentPrompt(input.taskId);
+            onProgress?.(`Answer received: ${answer}`, undefined, "working");
+            toolLogs.push(`Turn ${turn} Asked user: "${action.question}"\nUser response: ${answer}`);
+            continue;
+          }
+        }
+
+        if (action.type === "proposal") {
+          proposal = {
+            summary: action.summary,
+            packages: action.packages,
+            changes: action.changes,
+          };
+        } else {
+          proposal = { summary: "Waiting for user input.", changes: [] };
+        }
+        break;
+      }
+
+      if (!proposal) {
+        proposal = { summary: "Completed agent task.", changes: [] };
+      }
+    }
+  }
+
+  const finalProposal: { summary: string; packages?: string[]; changes: SourceChange[] } = proposal || { summary: "Completed agent task.", changes: [] };
+
+  // Agentic execution: If the AI decided packages are needed, install them now
+  if (finalProposal.packages && finalProposal.packages.length > 0) {
+    await installPackages(cwd, finalProposal.packages, onProgress);
+  }
+
+  return finalProposal;
 }
 
 export async function answerQuestion(cwd: string, input: AgentAnswer, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress, onPrompt?: AgentPromptHandler): Promise<string> {
@@ -803,34 +1193,82 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
     return extractLocalAgentText(result.stdout, config.provider as LocalAgent).trim();
   }
 
-  const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "meta/llama-3.1-70b-instruct" : "claude-sonnet-4-20250514");
-  let response: Response;
-  if (config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia") {
-    const baseUrl = config.baseUrl || (config.provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : "https://api.openai.com/v1");
-    response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST", signal, headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey || ""}` },
-      body: JSON.stringify({ model, temperature: 0.2, messages: [{ role: "system", content: "Answer conversationally. Do not edit files or return JSON." }, { role: "user", content: prompt }] }),
+  const callServerGatewayAnswer = async (gatewayKey: string) => {
+    let serverUrl = config.serverUrl || process.env.LASSO_SERVER_URL || process.env.NEXT_PUBLIC_LASSO_SERVER_URL || "https://api.lasso.byorello.space";
+    if (serverUrl.includes("collab.lasso.byorello.space")) {
+      serverUrl = serverUrl.replace("collab.lasso.byorello.space", "api.lasso.byorello.space");
+    }
+    const endpoint = `${serverUrl.replace(/\/+$/, "").replace(/\/api\/v1$/, "")}/api/v1/agent/session`;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      signal,
+      headers: { "content-type": "application/json", authorization: `Bearer ${gatewayKey}` },
+      body: JSON.stringify({
+        sessionId: input.taskId,
+        prompt,
+        model: { id: config.model, provider: config.provider },
+        context: { sourceHints: { "selection-context": context } },
+      }),
     });
-  } else if (config.provider === "google") {
-    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(config.apiKey || "")}`, {
-      method: "POST", signal, headers: { "content-type": "application/json" },
-      body: JSON.stringify({ systemInstruction: { parts: [{ text: "Answer conversationally. Do not edit files or return JSON." }] }, contents: [{ role: "user", parts: [{ text: prompt }] }] }),
-    });
-  } else {
-    response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST", signal, headers: { "content-type": "application/json", "x-api-key": config.apiKey || "", "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model, max_tokens: 2048, system: "Answer conversationally. Do not edit files or return JSON.", messages: [{ role: "user", content: prompt }] }),
-    });
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(errData.error || `Lasso Agent Gateway request failed (${response.status}).`);
+    }
+    const data = await response.json() as { reply?: string; summary?: string };
+    const answer = data.reply || data.summary;
+    if (!answer?.trim()) throw new Error("The agent returned an empty answer.");
+    return answer.trim();
+  };
+
+  // If the apiKey is a Lasso platform key (not a direct provider key), route through
+  // the Lasso server gateway so the server can use the user's dashboard-configured key.
+  const isLassoKey = config.apiKey?.startsWith("lss_live_") || config.apiKey?.startsWith("lss_");
+  if (isLassoKey && config.provider !== "ollama") {
+    return await callServerGatewayAnswer(config.apiKey!);
   }
-  if (!response.ok) throw new Error(`Agent request failed (${response.status}).`);
-  const payload = await response.json() as { content?: Array<{ type?: string; text?: string }>; choices?: Array<{ message?: { content?: string } }>; candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-  const answer = config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia"
-    ? payload.choices?.[0]?.message?.content
-    : config.provider === "google"
-      ? payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("")
-      : payload.content?.find((item) => item.type === "text")?.text;
-  if (!answer?.trim()) throw new Error("The agent returned an empty answer.");
-  return answer.trim();
+
+  const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "nvidia/llama-3.1-nemotron-70b-instruct" : "claude-sonnet-4-20250514");
+  let response: Response;
+  try {
+    if (config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia") {
+      const baseUrl = config.baseUrl || (config.provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : "https://api.openai.com/v1");
+      response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST", signal, headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey || ""}` },
+        body: JSON.stringify({ model, temperature: 0.2, messages: [{ role: "system", content: "Answer conversationally. Do not edit files or return JSON." }, { role: "user", content: prompt }] }),
+      });
+    } else if (config.provider === "google") {
+      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(config.apiKey || "")}`, {
+        method: "POST", signal, headers: { "content-type": "application/json" },
+        body: JSON.stringify({ systemInstruction: { parts: [{ text: "Answer conversationally. Do not edit files or return JSON." }] }, contents: [{ role: "user", parts: [{ text: prompt }] }] }),
+      });
+    } else {
+      response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST", signal, headers: { "content-type": "application/json", "x-api-key": config.apiKey || "", "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({ model, max_tokens: 2048, system: "Answer conversationally. Do not edit files or return JSON.", messages: [{ role: "user", content: prompt }] }),
+      });
+    }
+    if (!response.ok) {
+      if (config.lassoKey && (response.status === 429 || response.status === 401)) {
+        onProgress?.("Local provider key limit reached; routing via Lasso Gateway…", undefined, "working");
+        return await callServerGatewayAnswer(config.lassoKey);
+      }
+      throw new Error(`Agent request failed (${response.status}).`);
+    }
+    const payload = await response.json() as { content?: Array<{ type?: string; text?: string }>; choices?: Array<{ message?: { content?: string } }>; candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+    const answer = config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia"
+      ? payload.choices?.[0]?.message?.content
+      : config.provider === "google"
+        ? payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("")
+        : payload.content?.find((item) => item.type === "text")?.text;
+    if (!answer?.trim()) throw new Error("The agent returned an empty answer.");
+    return answer.trim();
+  } catch (err: any) {
+    if (config.lassoKey && (err.message?.includes("429") || err.message?.includes("401"))) {
+      onProgress?.("Local provider key limit reached; routing via Lasso Gateway…", undefined, "working");
+      return await callServerGatewayAnswer(config.lassoKey);
+    }
+    throw err;
+  }
 }
 
 export async function generateCommitMessage(cwd: string, status: string[], config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress): Promise<string> {

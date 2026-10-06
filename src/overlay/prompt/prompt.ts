@@ -208,6 +208,7 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
       </div>
       <div class="lasso-agent-prompt-message" tabindex="0"></div>
       <input class="lasso-agent-prompt-input" type="text" placeholder="Type a response…" hidden />
+      <div class="lasso-agent-prompt-options" hidden></div>
       <div class="lasso-agent-prompt-actions"></div>
     </div>
   `;
@@ -434,9 +435,9 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
     cancelPrompt(true);
   });
 
-  // Keydown in input
+  // Keydown in input: Enter sends, Shift+Enter adds a newline
   promptInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       sendButton?.click();
     }
@@ -472,13 +473,18 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
   return { prompt: el, review: rev };
 }
 
-export function showAgentPrompt(taskId: string, prompt: { message: string; kind: "permission" | "input"; options?: string[] }): void {
+export function showAgentPrompt(
+  taskId: string,
+  prompt: { message: string; kind: "permission" | "input" | "multiselect"; options?: string[] }
+): void {
   if (!agentPromptPanel) return;
   agentPromptTaskId = taskId;
   const isPermission = prompt.kind === "permission";
+  const isMultiSelect = prompt.kind === "multiselect";
   const message = agentPromptPanel.querySelector<HTMLDivElement>(".lasso-agent-prompt-message");
   const subtitle = agentPromptPanel.querySelector<HTMLDivElement>(".lasso-agent-prompt-subtitle");
   const input = agentPromptPanel.querySelector<HTMLInputElement>(".lasso-agent-prompt-input");
+  const optionsContainer = agentPromptPanel.querySelector<HTMLDivElement>(".lasso-agent-prompt-options");
   const actions = agentPromptPanel.querySelector<HTMLDivElement>(".lasso-agent-prompt-actions");
 
   agentPromptPanel.dataset.kind = prompt.kind;
@@ -486,41 +492,94 @@ export function showAgentPrompt(taskId: string, prompt: { message: string; kind:
     message.textContent = prompt.message.trim() || "The agent is waiting for a response before it can continue.";
   }
   if (subtitle) {
-    subtitle.textContent = isPermission
+    subtitle.textContent = isMultiSelect
+      ? "Select one or more options and click Submit."
+      : isPermission
       ? "Lasso is paused until you choose an option."
       : "Type your answer and press Enter.";
   }
   if (input) {
     input.value = "";
-    input.hidden = isPermission;
+    input.hidden = isPermission || isMultiSelect;
+  }
+
+  if (optionsContainer) {
+    if (isMultiSelect && prompt.options?.length) {
+      optionsContainer.hidden = false;
+      optionsContainer.replaceChildren(
+        ...prompt.options.map((option, idx) => {
+          const row = document.createElement("label");
+          row.className = "lasso-agent-prompt-option-row";
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.value = option;
+          checkbox.className = "lasso-agent-prompt-checkbox";
+          checkbox.id = `lasso-opt-${idx}`;
+          const label = document.createElement("span");
+          label.className = "lasso-agent-prompt-option-label";
+          label.textContent = option;
+          row.append(checkbox, label);
+          return row;
+        })
+      );
+    } else {
+      optionsContainer.hidden = true;
+      optionsContainer.replaceChildren();
+    }
   }
 
   if (actions) {
-    const options = isPermission
-      ? prompt.options?.length
-        ? prompt.options
-        : ["Allow", "Deny"]
-      : ["Send"];
-    actions.replaceChildren(
-      ...options.map((option) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.dataset.agentResponse = option;
-        button.textContent = option;
-        button.className = isDenyOption(option) ? "" : "primary";
-        button.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const typed = isPermission ? option : input?.value.trim() || "";
-          if (typed) respondToAgentPrompt(typed);
-        });
-        return button;
-      })
-    );
+    if (isMultiSelect) {
+      actions.replaceChildren();
+      const skipBtn = document.createElement("button");
+      skipBtn.type = "button";
+      skipBtn.textContent = "Skip";
+      skipBtn.className = "";
+      skipBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        respondToAgentPrompt("Skip");
+      });
+
+      const submitBtn = document.createElement("button");
+      submitBtn.type = "button";
+      submitBtn.textContent = "Submit";
+      submitBtn.className = "primary";
+      submitBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        const checked = Array.from(
+          optionsContainer?.querySelectorAll<HTMLInputElement>(".lasso-agent-prompt-checkbox:checked") || []
+        ).map((cb) => cb.value);
+        respondToAgentPrompt(checked.length ? checked.join(", ") : "None");
+      });
+
+      actions.append(skipBtn, submitBtn);
+    } else {
+      const options = isPermission
+        ? prompt.options?.length
+          ? prompt.options
+          : ["Allow", "Deny"]
+        : ["Send"];
+      actions.replaceChildren(
+        ...options.map((option) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.dataset.agentResponse = option;
+          button.textContent = option;
+          button.className = isDenyOption(option) ? "" : "primary";
+          button.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const typed = isPermission ? option : input?.value.trim() || "";
+            if (typed) respondToAgentPrompt(typed);
+          });
+          return button;
+        })
+      );
+    }
   }
 
   agentPromptPanel.hidden = false;
-  if (!isPermission) input?.focus();
+  if (prompt.kind === "input") input?.focus();
   else agentPromptPanel.querySelector<HTMLDivElement>(".lasso-agent-prompt-message")?.focus();
 }
 
@@ -730,14 +789,34 @@ function appendAgentLog(message: string) {
   agentLogLines.push(value);
   if (agentLogElement) {
     const line = document.createElement("div");
-    line.className = "lasso-agent-log-line";
-    const prefix = document.createElement("span");
-    prefix.className = "lasso-agent-log-prefix";
-    prefix.textContent = "›";
-    const text = document.createElement("span");
-    text.className = "lasso-agent-log-text";
-    text.textContent = value;
-    line.append(prefix, text);
+    if (value.startsWith("$ ") || value.startsWith(">_ ") || value.startsWith("npm ") || value.startsWith("bun ") || value.startsWith("pnpm ") || value.startsWith("yarn ")) {
+      line.className = "lasso-agent-log-cmd";
+      const badge = document.createElement("span");
+      badge.className = "lasso-agent-cmd-badge";
+      badge.textContent = ">_";
+      const text = document.createElement("span");
+      text.className = "lasso-agent-cmd-text";
+      text.textContent = value.replace(/^(\$|>_)\s*/, "");
+      line.append(badge, text);
+    } else if (value.startsWith("🔍") || value.toLowerCase().startsWith("web search")) {
+      line.className = "lasso-agent-log-search";
+      const icon = document.createElement("span");
+      icon.className = "lasso-agent-search-badge";
+      icon.textContent = "🔍";
+      const text = document.createElement("span");
+      text.className = "lasso-agent-search-text";
+      text.textContent = value.replace(/^🔍\s*/, "");
+      line.append(icon, text);
+    } else {
+      line.className = "lasso-agent-log-line";
+      const prefix = document.createElement("span");
+      prefix.className = "lasso-agent-log-prefix";
+      prefix.textContent = "›";
+      const text = document.createElement("span");
+      text.className = "lasso-agent-log-text";
+      text.textContent = value;
+      line.append(prefix, text);
+    }
     agentLogElement.append(line);
     agentLogElement.scrollTop = agentLogElement.scrollHeight;
   }
@@ -1055,11 +1134,18 @@ export async function handleSend(event: MouseEvent) {
     return;
   }
 
+  // Clear input immediately so user's prompt disappears on submit
+  promptInput.value = "";
+  promptInput.style.height = "auto";
+  syncSendButtonState();
+
   requestAgentNotificationPermission();
 
-  const isQuestion = /^(hi|hello|hey|thanks|thank you|what|why|how|when|where|who|which|is|are|does|do|can|could|would|should|tell me|explain|describe)\b/i.test(instruction) || /\?$/.test(instruction);
-  const isExplicitEdit = /\b(change|edit|update|make|add|remove|delete|fix|replace|turn|convert|style|restyle|move|rename|implement|build|create|increase|decrease|hide|show|align|resize|set|enable|disable)\b/i.test(instruction);
-  const wantsAnswer = isQuestion && !(/\b(can|could|would|please)\s+you\s+(change|edit|update|add|fix|make)\b/i.test(instruction)) || (!isExplicitEdit && !isQuestion);
+  const isQuestionPrefix = /^(what|why|how|when|where|who|which|explain|describe|tell me about)\b/i.test(instruction);
+  const isImperativeEdit = /\b(can|could|would|please)\s+(you\s+)?(change|edit|update|add|fix|make|replace|remove|install|redesign|switch|swap|set)\b/i.test(instruction);
+  const isConversationalQuestion = (isQuestionPrefix || /\?$/.test(instruction)) && !isImperativeEdit;
+  const isGreeting = /^(hi|hello|hey|thanks|thank you)\b/i.test(instruction) && instruction.split(/\s+/).length <= 4;
+  const wantsAnswer = (isConversationalQuestion || isGreeting);
 
   const bridgeSocket = state.bridgeSocket;
   if (!bridgeSocket || bridgeSocket.readyState !== WebSocket.OPEN) {
@@ -1096,7 +1182,6 @@ export async function handleSend(event: MouseEvent) {
     if (reusableTask.status === "complete" || reusableTask.status === "error" || reusableTask.status === "stopped") {
       updateAgentTask(reusableTask.id, { status: "thinking", message: "Thinking…", activity: [...reusableTask.activity, "Restarting…"] });
       appendChat("user", instruction);
-      resetPromptSession(selectedElement);
       state.promptTaskId = reusableTask.id;
       state.lastInstruction = instruction;
       task = reusableTask;
@@ -1110,12 +1195,12 @@ export async function handleSend(event: MouseEvent) {
     const changesHistory = state.changesHistory.map((entry) => ({ ...entry, changes: entry.changes.map((change) => ({ ...change })) }));
     task = createAgentTask(instruction, messages, changesHistory, selectedElement, selectionId);
     updateAgentTask(task.id, { status: "thinking", message: "Thinking…", activity: [...task.activity, "Thinking…"] });
-    resetPromptSession(selectedElement);
-    // resetPromptSession clears the previous conversation so another prompt can
-    // start immediately; keep this request attached to the prompt surface.
     state.promptTaskId = task.id;
     state.lastInstruction = instruction;
   }
+
+  hideReview();
+  setAgentStatus("thinking", "Thinking…", undefined, task.id);
 
   // Prepare messages and changesHistory for the bridge
   const messages = state.chatHistory.map((message) => ({ ...message }));

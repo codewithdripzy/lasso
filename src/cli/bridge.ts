@@ -590,9 +590,28 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         taskControllers.get(msg.taskId)?.abort();
         const controller = new AbortController();
         taskControllers.set(msg.taskId, controller);
-        const selectedConfig: AgentConfig = localProvider
-          ? { provider: cliProvider, model: msg.model }
-          : { ...agentConfig!, provider: (msg.provider || agentConfig!.provider) as AgentConfig["provider"], model: msg.model };
+        let selectedConfig: AgentConfig;
+        if (localProvider) {
+          selectedConfig = { provider: cliProvider, model: msg.model };
+        } else {
+          const requestedProvider = (msg.provider || agentConfig!.provider) as AgentConfig["provider"];
+          const providerLocalKey = localProviderKeys[requestedProvider];
+          const apiKey = providerLocalKey || resolvedLassoKey;
+          const baseUrl = requestedProvider === "nvidia"
+            ? "https://integrate.api.nvidia.com/v1"
+            : requestedProvider === "ollama"
+              ? (agentConfig!.baseUrl || "http://localhost:11434/v1")
+              : agentConfig!.baseUrl;
+          selectedConfig = {
+            ...agentConfig!,
+            provider: requestedProvider,
+            model: msg.model,
+            apiKey,
+            baseUrl,
+            lassoKey: resolvedLassoKey,
+            serverUrl: collabConfig?.serverUrl || serverUrlFrom(fileEnv),
+          };
+        }
         socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "working", message: "Working…" }));
         void answerQuestion(cwd, { taskId: msg.taskId, question: msg.question, context: msg.context, element: msg.element, messages: msg.messages }, selectedConfig, controller.signal, (message, detail, level) => {
           if (!controller.signal.aborted && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: level === "error" ? "error" : "working", message, detail }));
@@ -616,9 +635,28 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
           socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "error", message: "Add a supported agent key: GOOGLE_GENERATIVE_AI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY." }));
           return;
         }
-        const selectedConfig: AgentConfig = localProvider
-          ? { provider: cliProvider, model: msg.model }
-          : { ...agentConfig!, provider: (msg.provider || agentConfig!.provider) as AgentConfig["provider"], model: msg.model };
+        let selectedConfig: AgentConfig;
+        if (localProvider) {
+          selectedConfig = { provider: cliProvider, model: msg.model };
+        } else {
+          const requestedProvider = (msg.provider || agentConfig!.provider) as AgentConfig["provider"];
+          const providerLocalKey = localProviderKeys[requestedProvider];
+          const apiKey = providerLocalKey || resolvedLassoKey;
+          const baseUrl = requestedProvider === "nvidia"
+            ? "https://integrate.api.nvidia.com/v1"
+            : requestedProvider === "ollama"
+              ? (agentConfig!.baseUrl || "http://localhost:11434/v1")
+              : agentConfig!.baseUrl;
+          selectedConfig = {
+            ...agentConfig!,
+            provider: requestedProvider,
+            model: msg.model,
+            apiKey,
+            baseUrl,
+            lassoKey: resolvedLassoKey,
+            serverUrl: collabConfig?.serverUrl || serverUrlFrom(fileEnv),
+          };
+        }
         editRequests.set(msg.taskId, msg);
         editConfigs.set(msg.taskId, selectedConfig);
         reviewRefreshAttempts.set(msg.taskId, 0);
@@ -735,7 +773,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         }
 
         const provider = (msg.provider || agentConfig?.provider || "google") as AgentConfig["provider"];
-        const model = msg.model || agentConfig?.model || (provider === "nvidia" ? "meta/llama-3.1-70b-instruct" : provider === "google" ? "gemini-2.5-flash" : "claude-3-7-sonnet");
+        const model = msg.model || agentConfig?.model || (provider === "nvidia" ? "nvidia/llama-3.1-nemotron-70b-instruct" : provider === "google" ? "gemini-2.5-flash" : "claude-3-7-sonnet");
         const localKey = localProviderKeys[provider];
 
         const selectedConfig: AgentConfig = localProvider

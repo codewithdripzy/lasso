@@ -112,7 +112,7 @@ Do not output code changes, file patches, or JSON schemas — just talk to the d
   }
 
   try {
-    const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "meta/llama-3.1-70b-instruct" : "claude-3-7-sonnet-latest");
+    const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "nvidia/llama-3.1-nemotron-70b-instruct" : "claude-3-7-sonnet-latest");
 
     if (config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia") {
       const baseUrl = config.baseUrl || (config.provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : "https://api.openai.com/v1");
@@ -709,16 +709,16 @@ If the request asks to build, modify, create, fix, style, or refactor code, retu
   ],
   "steps": [
     {
-      "type": "modify" | "create",
-      "target": "relative/file/path.tsx",
+      "type": "install" | "modify" | "create",
+      "target": "package name (e.g. '@iconify/react @hugeicons/react' for install) or relative/file/path.tsx",
       "description": "Short action title",
       "detail": "Brief detail",
-      "content": "The full complete new or updated file content"
+      "content": "The full complete new or updated file content (required for modify/create, omit for install)"
     }
   ]
 }
 
-IMPORTANT: The files in \"todo\" and \"steps\" must match exactly. Do not include files in steps that are not in todo.`;
+If any third-party npm libraries or packages are needed, add an "install" step first before modifying or creating components.`;
 
   const userPrompt = `User Request: ${prompt}
 ${pageObservation}
@@ -736,7 +736,7 @@ Analyze the existing code structure, then respond in JSON:`;
   }
 
   try {
-    const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "meta/llama-3.1-70b-instruct" : "claude-3-7-sonnet-latest");
+    const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "nvidia/llama-3.1-nemotron-70b-instruct" : "claude-3-7-sonnet-latest");
     let text = "";
 
     if (config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia") {
@@ -843,7 +843,15 @@ async function executeStep(
   switch (step.type) {
     case "install":
       if (step.target) {
-        await execAsync(`npm install ${step.target}`, { cwd });
+        let cmd = "npm install";
+        try {
+          if (fs.existsSync(path.join(cwd, "bun.lockb")) || fs.existsSync(path.join(cwd, "bun.lock"))) cmd = "bun add";
+          else if (fs.existsSync(path.join(cwd, "pnpm-lock.yaml"))) cmd = "pnpm add";
+          else if (fs.existsSync(path.join(cwd, "yarn.lock"))) cmd = "yarn add";
+        } catch {}
+        const commandStr = `${cmd} ${step.target}`;
+        _onProgress("working", `Installing ${step.target}…`, commandStr);
+        await execAsync(commandStr, { cwd, timeout: 120000 });
       }
       return { ok: true };
 

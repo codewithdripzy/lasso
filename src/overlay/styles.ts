@@ -2122,6 +2122,64 @@ export function buildStyles(): string {
       overflow-wrap: anywhere;
     }
 
+    .lasso-agent-log-cmd {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 7px;
+      margin: 2px 0;
+      border-radius: 5px;
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 9.5px;
+      color: #38bdf8;
+    }
+
+    .lasso-agent-cmd-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: rgba(56, 189, 248, 0.2);
+      color: #38bdf8;
+      font-weight: 700;
+      font-size: 8.5px;
+      letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+
+    .lasso-agent-cmd-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .lasso-agent-log-search {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 7px;
+      margin: 2px 0;
+      border-radius: 5px;
+      background: rgba(88, 28, 135, 0.25);
+      border: 1px solid rgba(192, 132, 252, 0.25);
+      color: #d8b4fe;
+      font-size: 10px;
+    }
+
+    .lasso-agent-search-badge {
+      flex: 0 0 auto;
+    }
+
+    .lasso-agent-search-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .lasso-agent-status[data-status="complete"] .lasso-agent-status-line {
       animation: none;
     }
@@ -3070,6 +3128,46 @@ export function buildStyles(): string {
     .lasso-agent-prompt-message { max-height: 220px; margin-bottom: 14px; padding: 10px 11px; overflow: auto; border: 1px solid var(--lo-border); border-radius: var(--lo-radius-md); background: var(--lo-surface-2); color: var(--lo-text-2); font: inherit; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; user-select: text; }
     .lasso-agent-prompt-input { width: 100%; box-sizing: border-box; margin-bottom: 12px; padding: 9px 11px; border: 1px solid var(--lo-border); border-radius: var(--lo-radius-md); background: var(--lo-surface-2); color: var(--lo-text); font: inherit; font-size: 12px; }
     .lasso-agent-prompt-input[hidden] { display: none; }
+    .lasso-agent-prompt-options {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-bottom: 14px;
+      padding: 6px;
+      border: 1px solid var(--lo-border);
+      border-radius: var(--lo-radius-md);
+      background: var(--lo-surface-2);
+    }
+    .lasso-agent-prompt-options[hidden] { display: none; }
+    .lasso-agent-prompt-option-row {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 120ms;
+      user-select: none;
+      font-size: 12px;
+      color: var(--lo-text);
+    }
+    .lasso-agent-prompt-option-row:hover { background: var(--lo-surface-hover); }
+    .lasso-agent-prompt-checkbox {
+      accent-color: var(--lo-primary);
+      width: 15px;
+      height: 15px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .lasso-agent-prompt-option-label {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.35;
+    }
     .lasso-agent-prompt-actions { display: flex; justify-content: flex-end; gap: 7px; }
     .lasso-agent-prompt-actions button { padding: 7px 13px; border: 0; border-radius: var(--lo-radius-full); background: var(--lo-surface-2); color: var(--lo-text); font: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer; transition: filter 120ms, transform 120ms; }
     .lasso-agent-prompt-actions button:hover { filter: brightness(1.12); }
