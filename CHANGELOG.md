@@ -14,6 +14,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Console-aware agent context**: the overlay now captures the page's runtime
+  health — uncaught `window` errors, unhandled promise rejections, and anything
+  the host app logs through `console.error` — starting from the moment the overlay
+  script loads, so failures during initial page load (for example
+  `SyntaxError: The requested module … does not provide an export named …` from a
+  broken import) are recorded too. The latest five unique entries (1200 chars each)
+  are attached to every request:
+  - **Select / component flow**: `edit`, `ask`, and drag requests carry
+    `context.runtimeErrors`, which the agent prompt renders as an explicit
+    `LIVE CONSOLE/RUNTIME ERRORS` block alongside the element and source context.
+  - **One-shot flow**: `pageContext.runtimeErrors` travels with the ⌘K request and
+    renders as a `Console/Runtime Errors` line in the live page context — local
+    plan/conversation prompts and the hosted agent gateway alike.
+- **Runtime errors are part of the task**: agent instructions treat listed console
+  errors as work to fix, and require verifying named package exports (via
+  `run_command` over `node_modules` or the package docs) before importing them, so a
+  guessed export name cannot kill the page with a SyntaxError.
+- **Error buffer resets on apply**: applying a change clears the captured runtime
+  errors, so the next prompt only reflects errors produced by the new code.
 - **Multiple access points for one-shot mode**: Added a Command button to the toolbar (⌘ icon) for opening the one-shot sidebar, in addition to the existing ⌘K keyboard shortcut. The sidebar includes a model selector dropdown allowing users to choose their AI model before submitting a one-shot request.
 - **Model selector in command sidebar**: The one-shot sidebar now displays the currently selected model with a dropdown to switch between available models. The selector is organized by provider (Anthropic, OpenAI, Google, Local Agents) for easy navigation.
 - **Cursor CLI support**: Added Cursor as a local agent option alongside Claude Code, Codex, and OpenCode. Users can now select Cursor models in the model dropdown if Cursor is installed on their system. Cursor uses similar output parsing to Claude Code with progress tracking and error handling.
@@ -129,6 +148,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI → overlay `config` message carries `collab: { projectId, realtimeUrl,
   name, version, workspaceId }` so the overlay can join the right (workspace-
   gated) session. The bridge only forwards a config it successfully authenticated.
+
+### Fixed
+
+- **Selected element missing from one-shot page context**: `capturePageContext()`
+  read `state.selectedElement`, which does not exist on the overlay state (the
+  property is `state.selected`), so the inspected element never reached the page
+  context. The same mistake failed `typecheck:overlay`.
 
 ## [0.1.0] - 2026-09-21
 

@@ -66,7 +66,7 @@ Lasso works differently.
 | | Lasso |
 |---|---|
 | 🎯 **Point at the UI** | Select exactly what you want to change |
-| 🧠 **AI understands context** | The selected component is resolved back to your source |
+| 🧠 **AI understands context** | The selected component is resolved back to your source, plus the live page state (DOM summary, screenshot, console/runtime errors) |
 | 📝 **Real code changes** | Lasso modifies your actual source files |
 | 👀 **Preview first** | Every change comes back as a diff |
 | 🔒 **You stay in control** | Nothing is written until you explicitly accept |
@@ -96,6 +96,24 @@ Lasso now supports two equally powerful ways to build:
 
 These modes work together naturally: use one-shot to generate large features, then
 visual mode to refine specific parts.
+
+### Console-aware context
+
+Both modes receive the page's runtime health alongside the DOM and screenshot
+context. The overlay captures:
+
+- uncaught `window` errors and unhandled promise rejections
+- anything your app logs through `console.error`
+
+Capture starts with the overlay script itself, so failures during the initial page
+load (a broken import, a missing named export) are recorded too. The latest five
+unique entries ride along with every request — as `context.runtimeErrors` for
+select/drag prompts and as `pageContext.runtimeErrors` for ⌘K one-shot prompts —
+and the agent is instructed to treat listed errors as part of the task instead of
+working around them.
+
+The buffer is cleared when you apply a change, so the next prompt only reflects
+errors produced by the new code.
 
 ### Visual selection
 
@@ -156,7 +174,8 @@ or:
 
 > "Add a loading state below this button."
 
-Lasso assembles the relevant source context and sends it to your configured coding agent.
+Lasso assembles the relevant source context — source files, screenshot, and the
+page's console/runtime errors — and sends it to your configured coding agent.
 
 ### Diff-first workflow
 
@@ -496,6 +515,7 @@ Lasso has three main pieces.
 │                      │
 │  Select UI element   │
 │  Capture screenshot  │
+│  Console errors      │
 │  Presence, locks,    │
 │  comments, voice     │
 └──────────┬───────────┘
@@ -544,7 +564,7 @@ The CLI:
 2. Resolves the selected component
 3. Reads the relevant source
 4. Collects imports and surrounding context
-5. Captures the selected UI
+5. Captures the selected UI and the page's console/runtime errors
 6. Sends the assembled context to your configured agent
 7. Receives a proposed change
 8. Shows you the diff

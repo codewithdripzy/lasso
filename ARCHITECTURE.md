@@ -85,6 +85,13 @@ Responsibilities, and _only_ these:
   `_debugSource` fiber data.
 - Take a screenshot of the selection (`html2canvas`) — visual context measurably improves
   edit quality even when the AI has the source.
+- Capture the page's runtime health: uncaught `window` errors, unhandled promise
+  rejections, and the host app's `console.error` output. Listeners are installed when
+  the overlay script evaluates (before the app's own modules), so failures during
+  initial load — a broken import, a missing named export — are recorded as well. The
+  latest five unique entries travel with every request (`context.runtimeErrors` for
+  select/drag, `pageContext.runtimeErrors` for one-shot) and are cleared on apply so
+  they always describe the code that is running now.
 - Show the inline prompt box anchored to the selection (never a blocking `prompt()`).
 - Render the diff/accept/undo UI once the CLI streams a proposed change back.
 - Render concurrent Agent Tasks with In progress/Completed tabs and task-level review
@@ -118,8 +125,8 @@ A Node process that wraps the user's existing dev server. Entry: `src/cli/index.
    never touched on disk.
 3. Host the WebSocket bridge (`src/cli/bridge.ts`) the browser overlay connects to.
 4. On a selection + instruction: read the referenced source file(s), assemble context
-   (source snippet, imports, relevant CSS/Tailwind config, screenshot, instruction), and
-   hand it to the coding agent (§6).
+   (source snippet, imports, relevant CSS/Tailwind config, screenshot, captured
+   console/runtime errors, instruction), and hand it to the coding agent (§6).
 5. Hold the returned diff in memory and stream it to the browser for preview — never write
    on receipt.
 6. On accept: snapshot the file's prior content (for undo), then apply the diff.
@@ -163,7 +170,7 @@ Lasso ships its own default agent, but the CLI's job is to assemble _context_, n
 married to one model.
 
 ```
-context (source + screenshot + instruction)
+context (source + screenshot + console errors + instruction)
         │
         ▼
   ┌───────────────┐
