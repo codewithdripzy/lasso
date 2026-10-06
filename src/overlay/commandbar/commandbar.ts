@@ -107,11 +107,7 @@ function getApiBase(): string {
     apiUrl = apiUrl.replace("collab.lasso.byorello.space", "api.lasso.byorello.space");
   }
   if (!apiUrl) {
-    apiUrl =
-      typeof location !== "undefined" &&
-      (location.hostname === "localhost" || location.hostname === "127.0.0.1")
-        ? "http://localhost:3005"
-        : "https://api.lasso.byorello.space";
+    apiUrl = "https://api.lasso.byorello.space";
   }
   return apiUrl.endsWith("/api/v1") ? apiUrl : `${apiUrl}/api/v1`;
 }
