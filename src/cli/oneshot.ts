@@ -364,6 +364,12 @@ export async function runOneShotAgent(
               totalThinkingTimeMs: data.totalThinkingTimeMs || Date.now() - startTime,
             };
           }
+
+          // Server returned 200 but no changes and no reply — surface a clear error
+          return {
+            ok: false,
+            error: "The agent couldn't generate changes for that request. Try rephrasing or check your AI provider key in the dashboard.",
+          };
         }
       } catch (serverErr) {
         return {
