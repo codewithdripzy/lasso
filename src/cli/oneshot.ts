@@ -12,9 +12,16 @@ export interface OneShotThinkingStep {
   durationMs?: number;
 }
 
+export interface OneShotTodoItem {
+  file: string;
+  action: "modify" | "create" | "delete";
+  reason: string;
+}
+
 export interface OneShotResult {
   ok: boolean;
   summary?: string;
+  todo?: OneShotTodoItem[];
   changes?: SourceChange[];
   thinking?: OneShotThinkingStep[];
   totalThinkingTimeMs?: number;
@@ -328,6 +335,7 @@ export async function runOneShotAgent(
               return {
                 ok: true,
                 summary: data.summary || `Implemented changes for: ${prompt}`,
+                todo: Array.isArray((data as any).todo) ? (data as any).todo : undefined,
                 changes,
                 thinking: data.thinking || [
                   { title: "Project analysis", detail: `Framework: ${framework}` },
@@ -423,6 +431,7 @@ export async function runOneShotAgent(
     return {
       ok: true,
       summary: plan.summary || `Implemented changes for: ${prompt}`,
+      todo: plan.todo,
       changes: allChanges,
       thinking: thinkingSteps,
       totalThinkingTimeMs,
@@ -545,6 +554,11 @@ interface ExecutionPlan {
   summary?: string;
   reply?: string;
   isConversational?: boolean;
+  todo?: Array<{
+    file: string;
+    action: "modify" | "create" | "delete";
+    reason: string;
+  }>;
   steps: Array<{
     description: string;
     detail?: string;
@@ -568,16 +582,26 @@ async function generatePlan(
 ): Promise<ExecutionPlan> {
   const steps: ExecutionPlan["steps"] = [];
 
-  // Identify relevant files to supply as context
-  const targetFiles = structure.files.filter((f) =>
-    /(App|page|index|layout|main)\.(tsx|jsx|js|ts|html)$/i.test(f) ||
-    /(style|index|globals|App)\.(css|scss)$/i.test(f)
-  ).slice(0, 4);
+  // Identify relevant files to supply as context.
+  // Priority 1: Any CSS / SCSS files (global styles are the most common source of regressions)
+  // Priority 2: Core app entry points
+  // Priority 3: Any component mentioned by keyword in the prompt
+  const promptLower = prompt.toLowerCase();
+  const allCssFiles = structure.files.filter((f) => /\.(css|scss)$/i.test(f));
+  const entryFiles = structure.files.filter((f) =>
+    /(App|page|index|layout|main)\.(tsx|jsx|js|ts|html)$/i.test(f)
+  );
+  // Pull component files whose filename appears in the user prompt
+  const mentionedFiles = structure.files.filter((f) => {
+    const base = path.basename(f, path.extname(f)).toLowerCase();
+    return base.length > 2 && promptLower.includes(base);
+  });
+  const targetFiles = [...new Set([...allCssFiles, ...entryFiles, ...mentionedFiles])].slice(0, 8);
 
   const fileSnippets = targetFiles.map((f) => {
     try {
       const content = fs.readFileSync(path.join(cwd, f), "utf8");
-      return `File: ${f}\n\`\`\`\n${content.slice(0, 6000)}\n\`\`\``;
+      return `File: ${f}\n\`\`\`\n${content.slice(0, 8000)}\n\`\`\``;
     } catch {
       return "";
     }
@@ -600,7 +624,13 @@ Live Browser Page Context (currently rendered):
   }
 
   const systemPrompt = `You are Lasso's Agentic Coding Agent embedded in a live ${framework} web app.
-Available files: ${structure.files.slice(0, 30).join(", ")}
+All project files: ${structure.files.slice(0, 50).join(", ")}
+
+## CRITICAL RULES — read before generating anything:
+1. You will receive the full content of ALL CSS/style files. Treat them as ground truth for the design system. Do NOT rewrite, restructure, or remove existing CSS classes — only add new rules or make targeted changes the user explicitly asked for.
+2. Before writing any code, declare your TASK SCOPE: the exact list of files you will touch. You must NOT modify any file outside this scope.
+3. When modifying an existing file, output the COMPLETE updated file content — never partial snippets.
+4. If the user's request only affects one component, do not touch global stylesheets or unrelated files.
 
 Analyze the user's request.
 If the request is a general question, explanation, greeting, or does not require file modifications, return strictly valid JSON:
@@ -613,23 +643,32 @@ If the request asks to build, modify, create, fix, style, or refactor code, retu
 {
   "isConversational": false,
   "summary": "Clear, concise user-facing description of what was changed",
+  "todo": [
+    {
+      "file": "relative/file/path.tsx",
+      "action": "modify" | "create" | "delete",
+      "reason": "One sentence explaining exactly what will change and why"
+    }
+  ],
   "steps": [
     {
-      "type": "modify" or "create",
+      "type": "modify" | "create",
       "target": "relative/file/path.tsx",
       "description": "Short action title",
       "detail": "Brief detail",
       "content": "The full complete new or updated file content"
     }
   ]
-}`;
+}
+
+IMPORTANT: The files in \"todo\" and \"steps\" must match exactly. Do not include files in steps that are not in todo.`;
 
   const userPrompt = `User Request: ${prompt}
 ${pageObservation}
-Existing code context:
+Existing code context (study these carefully before writing — especially the CSS files):
 ${fileSnippets || "No existing components found. Create appropriate files in src/."}
 
-Analyze and respond in JSON:`;
+Analyze the existing code structure, then respond in JSON:`;
 
   if (!config.apiKey && config.provider !== "ollama") {
     return {
@@ -707,6 +746,7 @@ Analyze and respond in JSON:`;
         return {
           steps: parsed.steps,
           summary: parsed.summary,
+          todo: Array.isArray(parsed.todo) ? parsed.todo : undefined,
         };
       }
     }

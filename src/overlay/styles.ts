@@ -3602,6 +3602,53 @@ export function buildStyles(): string {
       gap: 4px;
     }
 
+    .lasso-command-scope-list {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      padding: 8px 10px;
+      background: rgba(96, 165, 250, 0.05);
+      border: 1px solid rgba(96, 165, 250, 0.12);
+      border-radius: 6px;
+    }
+
+    .lasso-command-scope-item {
+      display: grid;
+      grid-template-columns: 16px 1fr;
+      grid-template-rows: auto auto;
+      column-gap: 7px;
+      align-items: start;
+      font-size: 11.5px;
+    }
+
+    .lasso-command-scope-action {
+      grid-row: 1 / 3;
+      font-weight: 700;
+      font-size: 12px;
+      font-family: var(--lo-font-mono);
+      padding-top: 1px;
+      text-align: center;
+    }
+
+    .lasso-command-scope-action.modify { color: #fbbf24; }
+    .lasso-command-scope-action.create { color: #34d399; }
+    .lasso-command-scope-action.delete { color: #f87171; }
+
+    .lasso-command-scope-file {
+      font-family: var(--lo-font-mono);
+      color: var(--lo-text);
+      font-size: 11.5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .lasso-command-scope-reason {
+      color: var(--lo-text-2);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
     .lasso-command-file-row {
       display: flex;
       align-items: center;

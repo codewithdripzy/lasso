@@ -786,6 +786,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
                 taskId,
                 status: hasChanges ? "review" : "complete",
                 message: result.summary,
+                todo: result.todo,
                 changes: result.changes,
                 thinking: result.thinking,
                 totalThinkingTimeMs: result.totalThinkingTimeMs,

@@ -21,6 +21,12 @@ export interface CommandThinkingStep {
   status: "running" | "completed" | "failed";
 }
 
+export interface CommandTodoItem {
+  file: string;
+  action: "modify" | "create" | "delete";
+  reason: string;
+}
+
 export interface CommandMessage {
   id: string;
   role: "user" | "assistant";
@@ -32,6 +38,7 @@ export interface CommandMessage {
     completed: boolean;
     expanded: boolean;
   };
+  todo?: CommandTodoItem[];
   changes?: SourceChange[];
   changesApplied?: boolean;
   changesUndone?: boolean;
@@ -1089,8 +1096,10 @@ export function handleCommandBarAgentStatus(message: any): void {
     targetMsg.content = message.message || "";
     if (hasChanges) {
       targetMsg.changes = message.changes;
+      targetMsg.todo = Array.isArray(message.todo) ? message.todo : undefined;
     } else {
       targetMsg.changes = undefined;
+      targetMsg.todo = undefined;
     }
     targetMsg.isStreaming = false;
     activeTaskId = null;
@@ -1293,6 +1302,18 @@ function renderChanges(msg: CommandMessage): string {
   const isUndone = msg.changesUndone;
   const showDiff = msg.showDiff;
 
+  const scopeHtml = msg.todo && msg.todo.length ? `
+    <div class="lasso-command-scope-list">
+      ${msg.todo.map((item) => `
+        <div class="lasso-command-scope-item">
+          <span class="lasso-command-scope-action ${item.action}">${item.action === "create" ? "+" : item.action === "delete" ? "−" : "~"}</span>
+          <span class="lasso-command-scope-file">${escapeHtml(item.file)}</span>
+          <span class="lasso-command-scope-reason">${escapeHtml(item.reason)}</span>
+        </div>
+      `).join("")}
+    </div>
+  ` : "";
+
   return `
     <div class="lasso-command-changes-card">
       <div class="lasso-command-changes-header">
@@ -1307,6 +1328,7 @@ function renderChanges(msg: CommandMessage): string {
           ${showDiff ? "Hide diff" : "View diff"}
         </button>
       </div>
+      ${scopeHtml}
 
       <div class="lasso-command-files-list">
         ${changes
