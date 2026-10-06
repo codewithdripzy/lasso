@@ -243,8 +243,18 @@ export async function runOneShotAgent(
       config.provider === "opencode" ||
       config.provider === "cursor";
 
-    // If server is available and not a local CLI-only agent, call Lasso Agent Gateway on server
-    if (!isCliProvider && targetServerUrl) {
+    const hasLocalProviderKey = Boolean(
+      config.apiKey &&
+      config.apiKey !== "ollama" &&
+      !config.apiKey.startsWith("lss_live_") &&
+      !config.apiKey.startsWith("lss_")
+    );
+
+    // If the user does NOT have a local provider key in .env, route to Lasso Agent Gateway on server.
+    // When they DO have a local key in .env, it runs locally to save server resources!
+    const shouldRouteToServer = !isCliProvider && !hasLocalProviderKey && Boolean(targetServerUrl);
+
+    if (shouldRouteToServer) {
       try {
         if (!isConversational && !pageContext) {
           onProgress("thinking", "Connecting to Lasso Agent Gateway...", `Model: ${config.model || "claude-3-7-sonnet"}`);
@@ -293,64 +303,76 @@ export async function runOneShotAgent(
 
         signal.removeEventListener("abort", onAbort);
 
-        if (response.ok) {
-          const data = (await response.json()) as {
-            summary?: string;
-            reply?: string;
-            thinking?: OneShotThinkingStep[];
-            totalThinkingTimeMs?: number;
-            changes?: SourceChange[];
-            error?: string;
-          };
+        if (!response.ok) {
+          const errData = (await response.json().catch(() => ({}))) as { error?: string };
+          const errorMessage = errData.error || `Agent request failed (${response.status})`;
+          return { ok: false, error: errorMessage };
+        }
 
-          if (data) {
-            const changes = Array.isArray(data.changes) ? data.changes : [];
-            const isChatReply =
-              isConversational ||
-              (typeof data.reply === "string" && data.reply.trim().length > 0 && changes.length === 0) ||
-              (changes.length === 0 && Boolean(data.summary));
+        const data = (await response.json()) as {
+          status?: string;
+          summary?: string;
+          reply?: string;
+          thinking?: OneShotThinkingStep[];
+          totalThinkingTimeMs?: number;
+          changes?: SourceChange[];
+          error?: string;
+        };
 
-            if (isChatReply) {
-              // Conversational reply — no file changes needed
-              return {
-                ok: true,
-                summary: data.reply?.trim() || data.summary || "Hello! How can I help you with your project today?",
-                changes: [],
-                thinking: [],
-                totalThinkingTimeMs: data.totalThinkingTimeMs || Date.now() - startTime,
-              };
+        if (data.status === "failed" || data.error) {
+          return { ok: false, error: data.error || data.summary || "Agent session failed on server." };
+        }
+
+        if (data) {
+          const changes = Array.isArray(data.changes) ? data.changes : [];
+          const isChatReply =
+            isConversational ||
+            (typeof data.reply === "string" && data.reply.trim().length > 0 && changes.length === 0) ||
+            (changes.length === 0 && Boolean(data.summary));
+
+          if (isChatReply) {
+            // Conversational reply — no file changes needed
+            return {
+              ok: true,
+              summary: data.reply?.trim() || data.summary || "Hello! How can I help you with your project today?",
+              changes: [],
+              thinking: [],
+              totalThinkingTimeMs: data.totalThinkingTimeMs || Date.now() - startTime,
+            };
+          }
+
+          // Replay thinking steps progress for implementation
+          if (data.thinking && data.thinking.length) {
+            for (const step of data.thinking) {
+              if (signal.aborted) break;
+              onProgress("thinking", step.title, step.detail);
+              await new Promise((r) => setTimeout(r, 200));
             }
+          }
 
-            // Replay thinking steps progress for implementation
-            if (data.thinking && data.thinking.length) {
-              for (const step of data.thinking) {
-                if (signal.aborted) break;
-                onProgress("thinking", step.title, step.detail);
-                await new Promise((r) => setTimeout(r, 200));
-              }
-            }
-
-            if (changes.length > 0) {
-              onProgress("working", "Preparing proposed changes...", `${changes.length} files modified`);
-              return {
-                ok: true,
-                summary: data.summary || `Implemented changes for: ${prompt}`,
-                todo: Array.isArray((data as any).todo) ? (data as any).todo : undefined,
-                changes,
-                thinking: data.thinking || [
-                  { title: "Project analysis", detail: `Framework: ${framework}` },
-                  { title: "Component planning", detail: "Prepared changes" },
-                ],
-                totalThinkingTimeMs: data.totalThinkingTimeMs || Date.now() - startTime,
-              };
-            }
+          if (changes.length > 0) {
+            onProgress("working", "Preparing proposed changes...", `${changes.length} files modified`);
+            return {
+              ok: true,
+              summary: data.summary || `Implemented changes for: ${prompt}`,
+              todo: Array.isArray((data as any).todo) ? (data as any).todo : undefined,
+              changes,
+              thinking: data.thinking || [
+                { title: "Project analysis", detail: `Framework: ${framework}` },
+                { title: "Component planning", detail: "Prepared changes" },
+              ],
+              totalThinkingTimeMs: data.totalThinkingTimeMs || Date.now() - startTime,
+            };
           }
         }
       } catch (serverErr) {
-        // Fall back to local plan generation if server endpoint isn't reached
-        console.warn("[lasso] Server agent gateway call failed, using fallback:", serverErr);
+        return {
+          ok: false,
+          error: serverErr instanceof Error ? serverErr.message : "Failed to connect to Lasso Agent Gateway.",
+        };
       }
     }
+
 
     // If it's a conversational prompt and server was not used or failed, respond directly without modifying files!
     if (isConversational) {

@@ -223,21 +223,21 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     fileEnv.NEXT_LASSO_API_KEY ||
     "";
   const lassoKeyConfigured = Boolean(resolvedLassoKey);
+  const localProviderKeys: Record<string, string | undefined> = {
+    google: process.env.GOOGLE_GENERATIVE_AI_API_KEY || fileEnv.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || fileEnv.GEMINI_API_KEY,
+    openai: process.env.OPENAI_API_KEY || fileEnv.OPENAI_API_KEY,
+    anthropic: process.env.ANTHROPIC_API_KEY || fileEnv.ANTHROPIC_API_KEY,
+    nvidia: process.env.NVIDIA_API_KEY || fileEnv.NVIDIA_API_KEY,
+    ollama: process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL || process.env.OLLAMA_MODEL || fileEnv.OLLAMA_MODEL ? "ollama" : undefined,
+  };
   let agentConfig: AgentConfig | null = (() => {
     const provider = (process.env.LASSO_AGENT_PROVIDER || fileEnv.LASSO_AGENT_PROVIDER || process.env.AI_PROVIDER || fileEnv.AI_PROVIDER || "").toLowerCase();
-    const keys = {
-      google: process.env.GOOGLE_GENERATIVE_AI_API_KEY || fileEnv.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || fileEnv.GEMINI_API_KEY,
-      openai: process.env.OPENAI_API_KEY || fileEnv.OPENAI_API_KEY,
-      anthropic: process.env.ANTHROPIC_API_KEY || fileEnv.ANTHROPIC_API_KEY,
-      nvidia: process.env.NVIDIA_API_KEY || fileEnv.NVIDIA_API_KEY,
-      ollama: process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL || process.env.OLLAMA_MODEL || fileEnv.OLLAMA_MODEL,
-    };
-    const selectedProvider = provider === "google" || provider === "gemini" ? "google" : provider === "openai" ? "openai" : provider === "ollama" ? "ollama" : provider === "anthropic" ? "anthropic" : provider === "nvidia" ? "nvidia" : keys.ollama ? "ollama" : keys.nvidia ? "nvidia" : keys.google ? "google" : keys.openai ? "openai" : "anthropic";
-    const apiKey = selectedProvider === "ollama" ? "ollama" : keys[selectedProvider];
-    if (!apiKey) return null;
+    const selectedProvider = provider === "google" || provider === "gemini" ? "google" : provider === "openai" ? "openai" : provider === "ollama" ? "ollama" : provider === "anthropic" ? "anthropic" : provider === "nvidia" ? "nvidia" : localProviderKeys.ollama ? "ollama" : localProviderKeys.nvidia ? "nvidia" : localProviderKeys.google ? "google" : localProviderKeys.openai ? "openai" : localProviderKeys.anthropic ? "anthropic" : "google";
+    const apiKey = selectedProvider === "ollama" ? "ollama" : localProviderKeys[selectedProvider];
+    if (!apiKey && !lassoKeyConfigured) return null;
     return {
-      provider: selectedProvider,
-      apiKey,
+      provider: selectedProvider as AgentConfig["provider"],
+      apiKey: apiKey || resolvedLassoKey,
       model: process.env.LASSO_AGENT_MODEL || fileEnv.LASSO_AGENT_MODEL || process.env.AI_MODEL || fileEnv.AI_MODEL,
       baseUrl: selectedProvider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL ? `${(process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL || "http://localhost:11434/api").replace(/\/api\/?$/, "")}/v1` : undefined,
     };
@@ -451,9 +451,9 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     const userInfo = creds?.userName
       ? { name: creds.userName, email: creds.userEmail }
       : (process.env.USER ? { name: process.env.USER } : null);
-    socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig) || localAgents.size > 0, models: [], collab: collabConfig?.registered ? { ...collabConfig, plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null, user: userInfo }));
+    socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: lassoKeyConfigured || Boolean(agentConfig) || localAgents.size > 0, models: [], collab: collabConfig?.registered ? { ...collabConfig, plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null, user: userInfo }));
     void availableModels(collabConfig).then((models) => {
-      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: Boolean(agentConfig) || localAgents.size > 0, models, collab: collabConfig?.registered ? { ...collabConfig, plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null, user: userInfo }));
+      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: lassoKeyConfigured || Boolean(agentConfig) || localAgents.size > 0, models, collab: collabConfig?.registered ? { ...collabConfig, plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null, user: userInfo }));
     });
     void getGitState(cwd).then((git) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "git_state", git }));
@@ -733,8 +733,9 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
           return;
         }
 
-        const provider = (msg.provider || agentConfig?.provider || "anthropic") as AgentConfig["provider"];
-        const model = msg.model || agentConfig?.model || "claude-3-7-sonnet";
+        const provider = (msg.provider || agentConfig?.provider || "google") as AgentConfig["provider"];
+        const model = msg.model || agentConfig?.model || (provider === "nvidia" ? "meta/llama-3.1-70b-instruct" : provider === "google" ? "gemini-2.5-flash" : "claude-3-7-sonnet");
+        const localKey = localProviderKeys[provider];
 
         const selectedConfig: AgentConfig = localProvider
           ? { provider: cliProvider, model: msg.model || "claude-code:sonnet" }
@@ -742,8 +743,8 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
               ...(agentConfig || {}),
               provider,
               model,
-              apiKey: agentConfig?.apiKey || apiKey,
-              baseUrl: agentConfig?.baseUrl,
+              apiKey: localKey || apiKey,
+              baseUrl: provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : provider === "ollama" ? `${(process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL || "http://localhost:11434/api").replace(/\/api\/?$/, "")}/v1` : undefined,
             };
 
         const controller = new AbortController();
