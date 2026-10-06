@@ -26,18 +26,33 @@ import {
 } from "../commandbar/commandbar";
 import type { GitState, ModelOption, PendingChange } from "../types";
 
-export function reportRuntimeError(details: string) {
+export function reportRuntimeError(details: string, notifyBridge = true) {
   const clean = details.slice(0, 1200);
   if (!clean || state.runtimeErrors.includes(clean)) return;
   state.runtimeErrors = [...state.runtimeErrors.slice(-4), clean];
-  if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
+  if (notifyBridge && state.bridgeSocket?.readyState === WebSocket.OPEN) {
     state.bridgeSocket.send(
       JSON.stringify({ type: "runtime_error", selectionId: state.selectionId, details: clean })
     );
   }
 }
 
+function formatConsoleArg(arg: unknown): string {
+  if (typeof arg === "string") return arg;
+  if (arg instanceof Error) return arg.stack || arg.message;
+  try {
+    return JSON.stringify(arg);
+  } catch {
+    return String(arg);
+  }
+}
+
+let errorListenersInstalled = false;
+
 export function initErrorListeners() {
+  if (errorListenersInstalled) return;
+  errorListenersInstalled = true;
+
   window.addEventListener("error", (event) => {
     reportRuntimeError(
       `${event.message || "Runtime error"}${event.filename ? ` · ${event.filename}:${event.lineno}` : ""}`
@@ -50,6 +65,15 @@ export function initErrorListeners() {
         : String(event.reason || "Unhandled promise rejection");
     reportRuntimeError(reason);
   });
+
+  const originalConsoleError = console.error;
+  console.error = (...args: unknown[]) => {
+    originalConsoleError.apply(console, args);
+    try {
+      const details = args.map(formatConsoleArg).join(" ").replace(/\s+/g, " ").trim();
+      if (details && !details.includes("[lasso]")) reportRuntimeError(`console.error · ${details}`, false);
+    } catch {}
+  };
 }
 
 export function send(message: any) {

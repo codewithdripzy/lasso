@@ -49,6 +49,7 @@ export type PageContext = {
     scrollHeight: number;
   };
   screenshot?: string;
+  runtimeErrors: string[];
   domSummary: {
     headings: Array<{ level: number; text: string }>;
     sections: Array<{ name: string; textPreview: string }>;

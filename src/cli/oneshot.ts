@@ -63,6 +63,12 @@ export function isConversationalPrompt(prompt: string): boolean {
   return false;
 }
 
+function runtimeErrorObservation(pageContext?: any): string {
+  const errors: string[] = Array.isArray(pageContext?.runtimeErrors) ? pageContext.runtimeErrors : [];
+  if (!errors.length) return "- Console/Runtime Errors: None";
+  return `- Console/Runtime Errors (the page is currently throwing these):\n${errors.map((e) => `  ! ${e}`).join("\n")}`;
+}
+
 async function generateConversationalReply(
   prompt: string,
   framework: string,
@@ -92,6 +98,7 @@ Live Browser Page Context (what the user is currently viewing in their live app)
 - Call-to-Action Buttons: ${buttons || "None"}
 - Navigation Links: ${links || "None"}
 - Visible Text Preview: "${pageContext.domSummary?.visibleTextSnippet?.slice(0, 1000) || "Empty"}"
+${runtimeErrorObservation(pageContext)}
 ${pageContext.selectedElement ? `- Selected Element: <${pageContext.selectedElement.tag}> "${pageContext.selectedElement.text || ""}"` : ""}
 `;
   }
@@ -677,6 +684,7 @@ Live Browser Page Context (currently rendered):
 - Rendered Headings: ${headings || "None"}
 - Rendered Sections: ${sections || "None"}
 - Action Buttons: ${buttons || "None"}
+${runtimeErrorObservation(pageContext)}
 `;
   }
 
@@ -688,6 +696,7 @@ All project files: ${structure.files.slice(0, 50).join(", ")}
 2. Before writing any code, declare your TASK SCOPE: the exact list of files you will touch. You must NOT modify any file outside this scope.
 3. When modifying an existing file, output the COMPLETE updated file content — never partial snippets.
 4. If the user's request only affects one component, do not touch global stylesheets or unrelated files.
+5. If the Live Browser Page Context lists console/runtime errors, treat fixing them as part of this task (a broken import or undefined export means the page is dead) and never propose code that would produce new ones.
 
 Analyze the user's request.
 If the request is a general question, explanation, greeting, or does not require file modifications, return strictly valid JSON:

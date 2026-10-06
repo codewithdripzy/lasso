@@ -461,6 +461,7 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
     const taskId = state.promptTaskId;
     if (!taskId || !state.bridgeSocket || state.bridgeSocket.readyState !== WebSocket.OPEN || !state.pendingChanges.length) return;
     requestAgentNotificationPermission();
+    state.runtimeErrors = [];
     state.bridgeSocket.send(JSON.stringify({ type: "apply", taskId, changes: state.pendingChanges }));
     updateAgentTask(taskId, {
       status: "working",

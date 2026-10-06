@@ -924,11 +924,15 @@ async function proposeWithLocalAgent(cwd: string, instruction: string, context: 
 
 export async function proposeChanges(cwd: string, input: AgentInput, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress, onPrompt?: AgentPromptHandler) {
   const context = await contextFor(cwd, input.element);
-  const visualContext = input.context ? { ...input.context, screenshots: undefined } : undefined;
+  const runtimeErrors = input.context?.runtimeErrors || [];
+  const visualContext = input.context ? { ...input.context, screenshots: undefined, runtimeErrors: undefined } : undefined;
   const history = input.messages?.map((message) => `${message.role}: ${message.content}`).join("\n") || input.instruction;
   const priorChanges = input.changesHistory?.length ? JSON.stringify(input.changesHistory, null, 2) : "None";
   const dragHint = input.context?.drag
     ? `\n\nDRAG REPOSITIONING TASK:\nThe user dragged this element by dx: ${input.context.drag.delta?.dx ?? 0}px, dy: ${input.context.drag.delta?.dy ?? 0}px to target coordinates (left: ${input.context.drag.targetRect?.left ?? 0}px, top: ${input.context.drag.targetRect?.top ?? 0}px). Modify the source code (CSS classes, Tailwind classes, flex/grid alignment, margin offsets, or positioning properties) so the element is accurately rendered at this target position.`
+    : "";
+  const runtimeErrorHint = runtimeErrors.length
+    ? `\n\nLIVE CONSOLE/RUNTIME ERRORS (reported by the user's browser — the page is currently broken by these):\n${runtimeErrors.map((error) => `! ${error}`).join("\n")}`
     : "";
   const instruction = `Selection context:
 ${JSON.stringify(input.element, null, 2)}
@@ -944,14 +948,16 @@ Previous change history for this selection:
 ${priorChanges}
 
 Relevant source context:
-${context || "No matching source context was found. Ask for a more specific selection rather than inventing a file."}${dragHint}
+${context || "No matching source context was found. Ask for a more specific selection rather than inventing a file."}${dragHint}${runtimeErrorHint}
 
 CRITICAL INSTRUCTIONS:
 1. You are an autonomous agent with the ability to install npm packages and edit source code.
 2. If the user's request requires or asks for third-party libraries, icon packs, animation tools, or utility packages (e.g. icon libraries, motion, charts, UI primitives, etc.), determine the best npm package for this project and declare them in the "packages" array (e.g. ["@iconify/react", "@hugeicons/react"]).
 3. In the "changes" array, propose concrete, minimal edits to the source code to implement the request. You may freely import and use the packages you specified in "packages".
 4. If no new packages are required, "packages" should be empty [].
-5. You MUST return ONLY valid JSON in this exact structure:
+5. If LIVE CONSOLE/RUNTIME ERRORS are listed, fixing them is part of this task — the user's page is currently broken by them.
+6. Never guess a package's export names. Before importing a named export (an icon, a component, a hook), verify it actually exists in the installed package (run_command grepping node_modules, or the package docs) — importing a non-existent export throws a SyntaxError and kills the whole page.
+7. You MUST return ONLY valid JSON in this exact structure:
 {
   "summary": "Brief explanation of what was done",
   "packages": ["package-name-1", "package-name-2"],
@@ -1068,6 +1074,7 @@ AVAILABLE ACTIONS:
 
 RULES:
 - If you already have sufficient context to fulfill the user's request immediately, return "propose_changes" (or standard {"summary": "...", "packages": [...], "changes": [...]}) directly!
+- If live console/runtime errors are provided, resolving them is part of the task. Use run_command to verify package exports and file contents before proposing changes instead of guessing.
 - Each oldString must match the existing file context exactly.
 - Return ONLY valid JSON with no markdown formatting or prose outside the JSON.`;
 

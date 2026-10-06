@@ -94,8 +94,8 @@ export async function capturePageContext(): Promise<PageContext> {
 
   // Selected element if any
   let selectedElement: PageContext["selectedElement"] = undefined;
-  if (state.selectedElement && !state.selectedElement.closest("#lasso-root")) {
-    const el = state.selectedElement;
+  if (state.selected && !state.selected.closest("#lasso-root")) {
+    const el = state.selected;
     selectedElement = {
       tag: el.tagName.toLowerCase(),
       id: el.id || undefined,
@@ -131,6 +131,7 @@ export async function capturePageContext(): Promise<PageContext> {
     title,
     viewport,
     screenshot,
+    runtimeErrors: [...state.runtimeErrors],
     domSummary: {
       headings,
       sections,

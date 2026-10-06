@@ -34,6 +34,7 @@ import { updateLockChip } from "./collab/locks";
 import { buildCommandBar, openCommandBar, closeCommandBar, isCommandBarOpen } from "./commandbar/commandbar";
 
 console.log("[lasso] overlay initializing");
+initErrorListeners();
 
 export function init() {
   // Prevent duplicate initialization

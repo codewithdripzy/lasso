@@ -680,6 +680,7 @@ async function handleApplyReposition() {
         title: document.title,
       },
       drag: dragCtx,
+      runtimeErrors: state.runtimeErrors,
       styles: {
         display: computed.display,
         position: computed.position,

@@ -758,6 +758,7 @@ export function buildCommandBar(): void {
       if (msg && msg.changes?.length && state.bridgeSocket?.readyState === WebSocket.OPEN) {
         applyBtn.disabled = true;
         applyBtn.textContent = "Applying…";
+        state.runtimeErrors = [];
         state.bridgeSocket.send(
           JSON.stringify({
             type: "apply",
