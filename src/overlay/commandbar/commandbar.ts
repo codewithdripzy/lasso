@@ -972,6 +972,10 @@ async function handleSubmit(): Promise<void> {
   }
 
   void runPrompt(prompt);
+
+  // Clear input immediately after capture
+  commandInput.value = "";
+  autoResizeTextarea(commandInput);
 }
 
 async function runPrompt(prompt: string, skipUserMessage = false): Promise<void> {
