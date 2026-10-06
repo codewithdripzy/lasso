@@ -279,6 +279,28 @@ export async function runOneShotAgent(
         const onAbort = () => controller.abort();
         signal.addEventListener("abort", onAbort, { once: true });
 
+        // Build sourceHints: read relevant file contents to give the AI real code context.
+        // This is what enables code changes instead of "please share the file" responses.
+        const sourceHints: Record<string, string> = {};
+        if (!isConversational) {
+          const promptLower = prompt.toLowerCase();
+          const allCssFiles = projectStructure.files.filter((f) => /\.(css|scss)$/i.test(f));
+          const entryFiles = projectStructure.files.filter((f) =>
+            /(App|page|index|layout|main|hero|header|landing)\.(tsx|jsx|js|ts|html)$/i.test(f)
+          );
+          const mentionedFiles = projectStructure.files.filter((f) => {
+            const base = path.basename(f, path.extname(f)).toLowerCase();
+            return base.length > 2 && promptLower.includes(base);
+          });
+          const targetFiles = [...new Set([...allCssFiles, ...entryFiles, ...mentionedFiles])].slice(0, 8);
+          for (const file of targetFiles) {
+            try {
+              const content = fs.readFileSync(path.join(cwd, file), "utf8");
+              sourceHints[file] = content.slice(0, 8000);
+            } catch { /* skip unreadable files */ }
+          }
+        }
+
         const response = await fetch(endpoint, {
           method: "POST",
           headers,
@@ -301,6 +323,7 @@ export async function runOneShotAgent(
               dependencies: projectStructure.dependencies,
               devDependencies: projectStructure.devDependencies,
               files: projectStructure.files.slice(0, 100),
+              sourceHints: Object.keys(sourceHints).length > 0 ? sourceHints : undefined,
               currentRoute: pageContext?.route || "/",
               pageContext,
             },
