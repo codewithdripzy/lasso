@@ -345,7 +345,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       agentConfig = { provider: "ollama", apiKey: "ollama", model: process.env.OLLAMA_MODEL || fileEnv.OLLAMA_MODEL, baseUrl: `${base.replace(/\/api\/?$/, "")}/v1` };
     }
 
-    const isPaidPlan = collabConfig?.plan && collabConfig.plan !== "free";
+    const isPaidPlan = Boolean(collabConfig?.plan && collabConfig.plan.toLowerCase() !== "free");
     const configuredProviders = collabConfig?.configuredProviders || [];
 
     const allModels = [
@@ -430,7 +430,8 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       const envKey = providerKeyMapping[model.provider];
       const isConfigured = configuredProviders.includes(model.provider) || 
                           Boolean(process.env[envKey]) || 
-                          Boolean(fileEnv[envKey as keyof typeof fileEnv]);
+                          Boolean(fileEnv[envKey as keyof typeof fileEnv]) ||
+                          Boolean(localProviderKeys[model.provider as keyof typeof localProviderKeys]);
 
       if (!isConfigured) {
         return {

@@ -100,25 +100,34 @@ export function isRetryIntent(prompt: string): boolean {
   return /^(try\s+again|retry|re-?try|do\s+it\s+again|run\s+again|attempt\s+again|go\s+again|one\s+more\s+time|again)$/.test(p);
 }
 
-/** Derive the API base URL from the collab config or fall back to same-origin */
+/** Derive the API base URL from the collab config or fall back to Lasso API */
 function getApiBase(): string {
-  const collabUrl = state.collab?.apiUrl || "";
-  if (collabUrl) return collabUrl;
-  // Same-origin fallback (overlay is injected into the user's app)
-  return `${location.protocol}//${location.host}/api/v1`;
+  let collabUrl = (state.collab?.apiUrl || "").replace(/\/+$/, "");
+  if (!collabUrl) {
+    collabUrl =
+      typeof location !== "undefined" &&
+      (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+        ? "http://localhost:3005"
+        : "https://api.lasso.byorello.space";
+  }
+  return collabUrl.endsWith("/api/v1") ? collabUrl : `${collabUrl}/api/v1`;
 }
 
-/** Best-effort fetch with auth cookie (credentials: include) */
+/** Best-effort fetch with auth cookie and API key if available */
 async function apiFetch(path: string, options: RequestInit = {}): Promise<any | null> {
   try {
     const base = getApiBase();
+    const apiKey = state.collab?.apiKey || "";
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+      ...((options.headers as Record<string, string>) || {}),
+    };
+
     const res = await fetch(`${base}${path}`, {
       ...options,
       credentials: "include",
-      headers: {
-        "content-type": "application/json",
-        ...(options.headers || {}),
-      },
+      headers,
     });
     if (!res.ok) return null;
     return res.json();

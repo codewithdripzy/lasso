@@ -101,6 +101,12 @@ export function connectBridge() {
 
         if (message.type === "config") {
           state.apiKeyConfigured = Boolean(message.apiKeyConfigured);
+          if (message.collab) {
+            state.collab = message.collab as any;
+            if (message.collab.projectId) {
+              state.collabProjectId = message.collab.projectId;
+            }
+          }
           if (message.user?.name) {
             state.myUser = {
               id: state.myUser?.id || "me",
