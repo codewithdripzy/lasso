@@ -3363,6 +3363,29 @@ export function buildStyles(): string {
       font-size: 13px;
     }
 
+    .lasso-command-retry-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 6px;
+      padding: 5px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      background: rgba(239, 68, 68, 0.08);
+      color: #fca5a5;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .lasso-command-retry-btn:hover {
+      background: rgba(239, 68, 68, 0.18);
+      border-color: rgba(239, 68, 68, 0.55);
+    }
+    .lasso-command-retry-btn svg {
+      flex-shrink: 0;
+    }
+
     /* Active Thinking Block */
     .lasso-command-thinking-active {
       border: 1px solid rgba(255, 255, 255, 0.1);

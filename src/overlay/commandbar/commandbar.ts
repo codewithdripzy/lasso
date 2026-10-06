@@ -94,6 +94,12 @@ export function isConversationalPrompt(prompt: string): boolean {
   return false;
 }
 
+/** Detects "try again", "retry", "do it again", "run again", etc. */
+export function isRetryIntent(prompt: string): boolean {
+  const p = prompt.trim().toLowerCase().replace(/[!?.]+$/, "");
+  return /^(try\s+again|retry|re-?try|do\s+it\s+again|run\s+again|attempt\s+again|go\s+again|one\s+more\s+time|again)$/.test(p);
+}
+
 /** Derive the API base URL from the collab config or fall back to same-origin */
 function getApiBase(): string {
   const collabUrl = state.collab?.apiUrl || "";
@@ -708,7 +714,7 @@ export function buildCommandBar(): void {
     }
   });
 
-  // Click delegation for messages (thought toggles, apply/undo, diff toggles)
+  // Click delegation for messages (thought toggles, apply/undo, diff toggles, retry)
   commandMessagesEl.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
 
@@ -770,6 +776,14 @@ export function buildCommandBar(): void {
           })
         );
       }
+      return;
+    }
+
+    // Retry failed message
+    const retryBtn = target.closest<HTMLButtonElement>(".lasso-command-retry-btn");
+    if (retryBtn) {
+      const msgId = retryBtn.closest<HTMLElement>(".lasso-command-msg")?.dataset.msgId;
+      retryLastFailedPrompt(msgId);
       return;
     }
   });
@@ -874,6 +888,31 @@ function updateSubmitButton(isWorking: boolean): void {
   }
 }
 
+/** Retry the last failed user prompt, optionally scoped to a specific failed message id. */
+function retryLastFailedPrompt(failedMsgId?: string): void {
+  if (activeTaskId) return; // already running
+
+  // Find the failed assistant message
+  const failedMsg = failedMsgId
+    ? commandMessages.find((m) => m.id === failedMsgId && m.error)
+    : [...commandMessages].reverse().find((m) => m.role === "assistant" && m.error);
+  if (!failedMsg) return;
+
+  // Find the user message that preceded it
+  const failedIndex = commandMessages.indexOf(failedMsg);
+  const precedingUserMsg = [...commandMessages].slice(0, failedIndex).reverse().find((m) => m.role === "user");
+  if (!precedingUserMsg) return;
+
+  const promptToRetry = precedingUserMsg.content;
+  if (!promptToRetry) return;
+
+  // Remove the failed assistant message — the user message stays in place
+  commandMessages.splice(failedIndex, 1);
+
+  // Re-run without re-appending the user message (it's already there)
+  void runPrompt(promptToRetry, true);
+}
+
 async function handleSubmit(): Promise<void> {
   if (!commandInput) return;
 
@@ -912,17 +951,32 @@ async function handleSubmit(): Promise<void> {
   const prompt = commandInput.value.trim();
   if (!prompt) return;
 
-  commandInput.value = "";
-  autoResizeTextarea(commandInput);
+  // Detect retry intent ("try again", "retry", etc.) and re-run the last failed prompt
+  if (isRetryIntent(prompt)) {
+    const lastFailed = [...commandMessages].reverse().find((m) => m.role === "assistant" && m.error);
+    if (lastFailed) {
+      commandInput.value = "";
+      autoResizeTextarea(commandInput);
+      retryLastFailedPrompt();
+      return;
+    }
+    // No failed message to retry — fall through and treat as a normal prompt
+  }
 
-  // Append user message
-  const userMsgId = `user-${Date.now()}`;
-  commandMessages.push({
-    id: userMsgId,
-    role: "user",
-    content: prompt,
-    timestamp: Date.now(),
-  });
+  void runPrompt(prompt);
+}
+
+async function runPrompt(prompt: string, skipUserMessage = false): Promise<void> {
+  if (!skipUserMessage) {
+    // Append user message to history
+    const userMsgId = `user-${Date.now()}`;
+    commandMessages.push({
+      id: userMsgId,
+      role: "user",
+      content: prompt,
+      timestamp: Date.now(),
+    });
+  }
 
   const taskId = `oneshot-${Date.now()}`;
   activeTaskId = taskId;
@@ -1221,7 +1275,16 @@ function renderMessages(): void {
           ${renderThinking(msg)}
           ${msg.content ? `<div class="lasso-command-msg-text">${formatText(msg.content)}</div>` : ""}
           ${renderChanges(msg)}
-          ${msg.error ? `<div class="lasso-command-msg-error"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> ${escapeHtml(msg.error)}</div>` : ""}
+          ${msg.error ? `
+            <div class="lasso-command-msg-error">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              ${escapeHtml(msg.error)}
+            </div>
+            <button class="lasso-command-retry-btn" type="button" title="Retry with current model">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+              Retry
+            </button>
+          ` : ""}
         </div>
       `;
     }
