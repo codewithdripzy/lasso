@@ -108,9 +108,10 @@ export class OverlayState {
   // Models
   MODELS: ModelOption[] = [
     { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "google" },
-    { id: "gemini-3.7-flash", label: "Gemini 3.7 Flash", provider: "google" },
     { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "google" },
     { id: "gpt-4.1-mini", label: "GPT-4.1 mini", provider: "openai" },
+    { id: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5", provider: "anthropic" },
+    { id: "meta/llama-3.1-70b-instruct", label: "Llama 3.1 70B", provider: "nvidia" },
   ];
   selectedModel: ModelOption = this.MODELS[0];
   modelFilter: "all" | ModelOption["provider"] = "all";

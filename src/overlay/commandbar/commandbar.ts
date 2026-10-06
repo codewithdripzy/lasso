@@ -559,7 +559,13 @@ export function buildCommandBar(): void {
       commandHistoryPopover.hidden = true;
       commandHistoryBtn?.classList.remove("active");
     }
-    if (commandModelMenu) commandModelMenu.hidden = !commandModelMenu.hidden;
+    if (commandModelMenu) {
+      const willOpen = commandModelMenu.hidden;
+      if (willOpen) {
+        populateModelMenu();
+      }
+      commandModelMenu.hidden = !willOpen;
+    }
   });
 
   // Model menu click handling (filters + items)

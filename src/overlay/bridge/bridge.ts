@@ -22,6 +22,7 @@ import {
   handleCommandBarPrompt,
   isCommandBarTaskId,
   updateEmptyStateUserName,
+  populateModelMenu,
 } from "../commandbar/commandbar";
 import type { GitState, ModelOption, PendingChange } from "../types";
 
@@ -132,6 +133,7 @@ export function connectBridge() {
             rememberModel(state.selectedModel);
           }
           refreshModelMenu();
+          populateModelMenu();
         }
 
         if (message.type === "git_state" && message.git) {
