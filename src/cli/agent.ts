@@ -991,25 +991,54 @@ Do NOT return prose or markdown outside the JSON.`;
       }),
     });
     if (!response.ok) {
-      const errData = await response.json().catch(() => ({})) as { error?: string };
+      const errData = await response.json().catch(() => ({})) as { error?: string; status?: string; summary?: string };
       throw new Error(errData.error || `Lasso Agent Gateway request failed (${response.status}).`);
     }
-    const data = await response.json() as { changes?: Array<{ filePath: string; oldString: string; newString: string }>; packages?: string[]; summary?: string };
+    const data = await response.json() as { changes?: Array<{ filePath: string; oldString: string; newString: string }>; packages?: string[]; summary?: string; status?: string; error?: string };
+    // If the server-side agent reported failure, surface it as a thrown error so the
+    // bridge catches it and shows status="error" / "Retry" button, not status="review".
+    if (data.status === "failed") {
+      throw new Error(data.error || data.summary || "Agent encountered an issue while generating changes.");
+    }
     return { summary: data.summary || "Done", packages: data.packages || [], changes: data.changes || [] };
   };
 
   let proposal: { summary: string; packages?: string[]; changes: SourceChange[] } | null = null;
 
+  // Helper: call /api/v1/agent/generate for one turn of the agentic loop using the Lasso gateway.
+  // This allows paid/hosted model users to run the full agentic loop (web_search, run_command,
+  // ask_user, propose_changes) rather than being shunted to the one-shot /session endpoint.
+  const callGatewayGenerate = async (gatewayKey: string, systemPrompt: string, turnPrompt: string): Promise<string> => {
+    let serverUrl = config.serverUrl || process.env.LASSO_SERVER_URL || process.env.NEXT_PUBLIC_LASSO_SERVER_URL || "https://api.lasso.byorello.space";
+    if (serverUrl.includes("collab.lasso.byorello.space")) {
+      serverUrl = serverUrl.replace("collab.lasso.byorello.space", "api.lasso.byorello.space");
+    }
+    const endpoint = `${serverUrl.replace(/\/+$/, "").replace(/\/api\/v1$/, "")}/api/v1/agent/generate`;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      signal,
+      headers: { "content-type": "application/json", authorization: `Bearer ${gatewayKey}` },
+      body: JSON.stringify({
+        provider: config.provider,
+        model: config.model,
+        system: systemPrompt,
+        prompt: turnPrompt,
+      }),
+    });
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(errData.error || `Lasso Gateway generate failed (${response.status}).`);
+    }
+    const data = await response.json() as { text?: string };
+    if (!data.text?.trim()) throw new Error("The agent returned an empty response.");
+    return data.text.trim();
+  };
+
   if (config.provider === "claude-code" || config.provider === "codex" || config.provider === "opencode" || config.provider === "cursor") {
     proposal = await proposeWithLocalAgent(cwd, instruction, context, config, signal, onProgress, input.taskId, onPrompt);
   } else {
-    // If the apiKey is a Lasso platform key (not a direct provider key), route through
-    // the Lasso server gateway so the server can use the user's dashboard-configured key.
     const isLassoKey = config.apiKey?.startsWith("lss_live_") || config.apiKey?.startsWith("lss_");
-    if (isLassoKey && config.provider !== "ollama") {
-      proposal = await callServerGateway(config.apiKey!);
-    } else {
-      const system = `You are Lasso, an autonomous agentic AI coding assistant.
+    const system = `You are Lasso, an autonomous agentic AI coding assistant.
 You have the ability to run inspection commands, search the live web for documentation or libraries, ask the user for input or single/multi-selection choices, install npm packages, and edit source code.
 
 AVAILABLE ACTIONS:
@@ -1042,22 +1071,28 @@ RULES:
 - Each oldString must match the existing file context exactly.
 - Return ONLY valid JSON with no markdown formatting or prose outside the JSON.`;
 
-      const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "nvidia/llama-3.1-nemotron-70b-instruct" : "claude-sonnet-4-20250514");
-      const image = input.context?.screenshots?.element || input.context?.screenshots?.full;
-      const imageData = image?.replace(/^data:image\/[^;]+;base64,/, "");
-      const imageMime = image?.match(/^data:(image\/[^;]+);base64,/)?.[1] || "image/jpeg";
+    const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "meta/llama-3.2-11b-vision-instruct" : "claude-sonnet-4-20250514");
+    const image = input.context?.screenshots?.element || input.context?.screenshots?.full;
+    const imageData = image?.replace(/^data:image\/[^;]+;base64,/, "");
+    const imageMime = image?.match(/^data:(image\/[^;]+);base64,/)?.[1] || "image/jpeg";
 
-      const MAX_TURNS = 5;
-      let turn = 0;
-      const toolLogs: string[] = [];
+    const MAX_TURNS = 5;
+    let turn = 0;
+    const toolLogs: string[] = [];
 
-      while (turn < MAX_TURNS) {
-        turn++;
-        const toolContext = toolLogs.length > 0 ? `\n\nTOOL EXECUTION & USER INTERACTION HISTORY:\n${toolLogs.join("\n\n")}` : "";
-        const currentPrompt = `${instruction}${toolContext}`;
+    while (turn < MAX_TURNS) {
+      turn++;
+      const toolContext = toolLogs.length > 0 ? `\n\nTOOL EXECUTION & USER INTERACTION HISTORY:\n${toolLogs.join("\n\n")}` : "";
+      const currentPrompt = `${instruction}${toolContext}`;
 
-        let rawText = "";
-        try {
+      let rawText = "";
+      try {
+        // If using a Lasso platform key, route this turn through the /generate endpoint
+        // (full agentic loop via Lasso gateway instead of one-shot session endpoint)
+        if (isLassoKey && config.provider !== "ollama") {
+          rawText = await callGatewayGenerate(config.apiKey!, system, currentPrompt);
+        } else {
+          // Provider-direct inference path
           let response: Response;
           if (config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia") {
             const content = image && turn === 1 ? [{ type: "text", text: currentPrompt }, { type: "image_url", image_url: { url: image } }] : currentPrompt;
@@ -1107,67 +1142,67 @@ RULES:
               : payload.content?.find((item) => item.type === "text")?.text;
           rawText = contentCandidate || "";
           if (!rawText) throw new Error("The agent returned an empty response.");
-        } catch (err: any) {
-          if (config.lassoKey && (err.message?.includes("429") || err.message?.includes("401"))) {
-            onProgress?.("Local provider key limit reached; routing via Lasso Gateway…", undefined, "working");
-            proposal = await callServerGateway(config.lassoKey);
-            break;
-          }
-          throw err;
         }
-
-        const action = parseAgentAction(rawText);
-
-        if (action.type === "run_command") {
-          onProgress?.("Running command…", `$ ${action.command}`, "working");
-          const res = await executeAgentCommand(cwd, action.command);
-          const outputSnippet = res.stdout || res.stderr || "(no output)";
-          onProgress?.(`Command completed: ${action.command}`, outputSnippet.slice(0, 150), "working");
-          toolLogs.push(`Turn ${turn} Command executed: ${action.command}\nExit code: ${res.exitCode}\nOutput:\n${outputSnippet.slice(0, 3000)}`);
-          continue;
+      } catch (err: any) {
+        if (!isLassoKey && config.lassoKey && (err.message?.includes("429") || err.message?.includes("401"))) {
+          onProgress?.("Local provider key limit reached; routing via Lasso Gateway…", undefined, "working");
+          proposal = await callServerGateway(config.lassoKey);
+          break;
         }
-
-        if (action.type === "web_search") {
-          onProgress?.("Searching the web…", `🔍 ${action.query}`, "working");
-          const results = await executeWebSearch(action.query);
-          const summary = results.length > 0
-            ? results.map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.snippet}`).join("\n\n")
-            : "No web results found.";
-          onProgress?.(`Web search complete: ${action.query}`, `${results.length} results found`, "working");
-          toolLogs.push(`Turn ${turn} Web search for "${action.query}":\n${summary.slice(0, 3000)}`);
-          continue;
-        }
-
-        if (action.type === "ask_user") {
-          if (onPrompt && input.taskId) {
-            onProgress?.("Waiting for your response…", action.question, "working");
-            onPrompt({
-              message: action.question,
-              kind: action.kind || "permission",
-              options: action.options,
-            });
-            const answer = await waitForAgentPrompt(input.taskId);
-            onProgress?.(`Answer received: ${answer}`, undefined, "working");
-            toolLogs.push(`Turn ${turn} Asked user: "${action.question}"\nUser response: ${answer}`);
-            continue;
-          }
-        }
-
-        if (action.type === "proposal") {
-          proposal = {
-            summary: action.summary,
-            packages: action.packages,
-            changes: action.changes,
-          };
-        } else {
-          proposal = { summary: "Waiting for user input.", changes: [] };
-        }
-        break;
+        throw err;
       }
 
-      if (!proposal) {
-        proposal = { summary: "Completed agent task.", changes: [] };
+      const action = parseAgentAction(rawText);
+
+      if (action.type === "run_command") {
+        onProgress?.("Running command…", `$ ${action.command}`, "working");
+        const res = await executeAgentCommand(cwd, action.command);
+        const outputSnippet = res.stdout || res.stderr || "(no output)";
+        onProgress?.(`Command completed: ${action.command}`, outputSnippet.slice(0, 150), "working");
+        toolLogs.push(`Turn ${turn} Command executed: ${action.command}\nExit code: ${res.exitCode}\nOutput:\n${outputSnippet.slice(0, 3000)}`);
+        continue;
       }
+
+      if (action.type === "web_search") {
+        onProgress?.("Searching the web…", `🔍 ${action.query}`, "working");
+        const results = await executeWebSearch(action.query);
+        const summary = results.length > 0
+          ? results.map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.snippet}`).join("\n\n")
+          : "No web results found.";
+        onProgress?.(`Web search complete: ${action.query}`, `${results.length} results found`, "working");
+        toolLogs.push(`Turn ${turn} Web search for "${action.query}":\n${summary.slice(0, 3000)}`);
+        continue;
+      }
+
+      if (action.type === "ask_user") {
+        if (onPrompt && input.taskId) {
+          onProgress?.("Waiting for your response…", action.question, "working");
+          onPrompt({
+            message: action.question,
+            kind: action.kind || "permission",
+            options: action.options,
+          });
+          const answer = await waitForAgentPrompt(input.taskId);
+          onProgress?.(`Answer received: ${answer}`, undefined, "working");
+          toolLogs.push(`Turn ${turn} Asked user: "${action.question}"\nUser response: ${answer}`);
+          continue;
+        }
+      }
+
+      if (action.type === "proposal") {
+        proposal = {
+          summary: action.summary,
+          packages: action.packages,
+          changes: action.changes,
+        };
+      } else {
+        proposal = { summary: "Waiting for user input.", changes: [] };
+      }
+      break;
+    }
+
+    if (!proposal) {
+      proposal = { summary: "Completed agent task.", changes: [] };
     }
   }
 
@@ -1193,41 +1228,38 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
     return extractLocalAgentText(result.stdout, config.provider as LocalAgent).trim();
   }
 
-  const callServerGatewayAnswer = async (gatewayKey: string) => {
+  const callServerGatewayAnswer = async (gatewayKey: string): Promise<string> => {
     let serverUrl = config.serverUrl || process.env.LASSO_SERVER_URL || process.env.NEXT_PUBLIC_LASSO_SERVER_URL || "https://api.lasso.byorello.space";
     if (serverUrl.includes("collab.lasso.byorello.space")) {
       serverUrl = serverUrl.replace("collab.lasso.byorello.space", "api.lasso.byorello.space");
     }
-    const endpoint = `${serverUrl.replace(/\/+$/, "").replace(/\/api\/v1$/, "")}/api/v1/agent/session`;
+    const endpoint = `${serverUrl.replace(/\/+$/, "").replace(/\/api\/v1$/, "")}/api/v1/agent/generate`;
     const response = await fetch(endpoint, {
       method: "POST",
       signal,
       headers: { "content-type": "application/json", authorization: `Bearer ${gatewayKey}` },
       body: JSON.stringify({
-        sessionId: input.taskId,
+        provider: config.provider,
+        model: config.model,
+        system: "Answer conversationally and directly. Do not edit files or return JSON.",
         prompt,
-        model: { id: config.model, provider: config.provider },
-        context: { sourceHints: { "selection-context": context } },
       }),
     });
     if (!response.ok) {
       const errData = await response.json().catch(() => ({})) as { error?: string };
       throw new Error(errData.error || `Lasso Agent Gateway request failed (${response.status}).`);
     }
-    const data = await response.json() as { reply?: string; summary?: string };
-    const answer = data.reply || data.summary;
-    if (!answer?.trim()) throw new Error("The agent returned an empty answer.");
-    return answer.trim();
+    const data = await response.json() as { text?: string };
+    if (!data.text?.trim()) throw new Error("The agent returned an empty answer.");
+    return data.text.trim();
   };
 
-  // If the apiKey is a Lasso platform key (not a direct provider key), route through
-  // the Lasso server gateway so the server can use the user's dashboard-configured key.
   const isLassoKey = config.apiKey?.startsWith("lss_live_") || config.apiKey?.startsWith("lss_");
   if (isLassoKey && config.provider !== "ollama") {
     return await callServerGatewayAnswer(config.apiKey!);
   }
 
-  const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "nvidia/llama-3.1-nemotron-70b-instruct" : "claude-sonnet-4-20250514");
+  const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "meta/llama-3.2-11b-vision-instruct" : "claude-sonnet-4-20250514");
   let response: Response;
   try {
     if (config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia") {

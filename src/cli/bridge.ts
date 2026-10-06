@@ -349,22 +349,22 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     const configuredProviders = collabConfig?.configuredProviders || [];
 
     const allModels = [
-      // Nvidia NIM models (free open source models - listed first)
-      { id: "meta/llama-3.1-70b-instruct", label: "Llama 3.1 70B", provider: "nvidia" as const },
-      { id: "meta/llama-3.1-8b-instruct", label: "Llama 3.1 8B", provider: "nvidia" as const },
-      { id: "nvidia/llama-3.1-nemotron-70b-instruct", label: "Nemotron 70B", provider: "nvidia" as const },
-      { id: "nvidia/llama-3.1-nemotron-51b-instruct", label: "Nemotron 51B", provider: "nvidia" as const },
-      { id: "mistralai/mistral-large-2-instruct", label: "Mistral Large 2", provider: "nvidia" as const },
-      { id: "mistralai/mixtral-8x22b-v0.1", label: "Mixtral 8x22B", provider: "nvidia" as const },
-      { id: "mistralai/codestral-22b-instruct-v0.1", label: "Codestral 22B", provider: "nvidia" as const },
-      { id: "google/gemma-2-27b-it", label: "Gemma 2 27B", provider: "nvidia" as const },
-      { id: "ibm/granite-34b-code-instruct", label: "Granite 34B Code", provider: "nvidia" as const },
-      { id: "deepseek-ai/deepseek-coder-6.7b-instruct", label: "DeepSeek Coder 6.7B", provider: "nvidia" as const },
-      { id: "nvidia/nemotron-3.5-lightning-30b-a3b", label: "Nemotron Lightning 30B", provider: "nvidia" as const },
-      { id: "nvidia/nemotron-4-340b-instruct", label: "Nemotron 4 340B", provider: "nvidia" as const },
+      // NVIDIA NIM models (confirmed working with server API key)
       { id: "meta/llama-3.2-11b-vision-instruct", label: "Llama 3.2 11B Vision", provider: "nvidia" as const },
+      { id: "openai/gpt-oss-20b", label: "GPT-OSS 20B (NVIDIA)", provider: "nvidia" as const },
+      { id: "deepseek-ai/deepseek-coder-6.7b-instruct", label: "DeepSeek Coder 6.7B", provider: "nvidia" as const },
+      { id: "deepseek-ai/deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash", provider: "nvidia" as const },
+      { id: "ibm/granite-34b-code-instruct", label: "Granite 34B Code", provider: "nvidia" as const },
+      { id: "ibm/granite-3.0-8b-instruct", label: "Granite 3.0 8B", provider: "nvidia" as const },
+      { id: "mistralai/mistral-large-2-instruct", label: "Mistral Large 2", provider: "nvidia" as const },
+      { id: "mistralai/codestral-22b-instruct-v0.1", label: "Codestral 22B", provider: "nvidia" as const },
+      { id: "mistralai/mistral-large", label: "Mistral Large", provider: "nvidia" as const },
+      { id: "nv-mistralai/mistral-nemo-12b-instruct", label: "Mistral Nemo 12B", provider: "nvidia" as const },
+      { id: "nvidia/nemotron-3.5-lightning-30b-a3b", label: "Nemotron Lightning 30B", provider: "nvidia" as const },
       { id: "microsoft/phi-3.5-moe-instruct", label: "Phi-3.5 MoE", provider: "nvidia" as const },
-      { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", label: "Nemotron Nano 30B", provider: "nvidia" as const },
+      { id: "google/gemma-4-31b-it", label: "Gemma 4 31B", provider: "nvidia" as const },
+      { id: "moonshotai/kimi-k2.6", label: "Kimi K2.6", provider: "nvidia" as const },
+      { id: "poolside/laguna-xs-2.1", label: "Laguna XS 2.1", provider: "nvidia" as const },
       // Existing models
       { id: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5", provider: "anthropic" as const },
       { id: "claude-opus-4-1-20250805", label: "Claude Opus 4.1", provider: "anthropic" as const },
