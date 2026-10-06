@@ -101,6 +101,7 @@ export type CollabConfig = {
   projectId?: string;
   realtimeUrl?: string;
   apiUrl?: string;
+  serverUrl?: string;
   name?: string;
   version?: string;
   registered?: boolean;

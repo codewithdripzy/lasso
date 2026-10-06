@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import chalk from "chalk";
 import { detectFramework } from "./utils/framework";
-import { loadCredentials, fetchWithTimeout } from "./auth";
+import { loadCredentials, fetchWithTimeout, serverUrlFrom } from "./auth";
 import { loadRegistry, findByDirectory, generateUniqueDomain } from "./host/registry";
 import { registerWithHost } from "./host/client";
 import { hostProxyPort } from "./host/paths";
@@ -22,6 +22,7 @@ export interface CollabConfig {
     version?: string;
     realtimeUrl: string;
     apiUrl: string;
+    serverUrl: string;
     registered: boolean;
     registeredAt?: string;
     claimed: boolean;
@@ -218,7 +219,8 @@ function promptForApiKey(): Promise<string | null> {
  */
 export async function initProject(cwd: string, fileEnv: Record<string, string>, forcedDomain?: string): Promise<InitResult> {
     const realtimeUrl = realtimeUrlFrom(fileEnv).replace(/\/$/, "");
-    const apiUrl = `${realtimeUrl}/api/v1`;
+    const serverUrl = serverUrlFrom(fileEnv).replace(/\/$/, "");
+    const collabApi = `${realtimeUrl}/api/v1`;
 
     const framework = detectFramework(cwd);
     const { name, payload } = await buildProjectMetadata(cwd, framework);
@@ -242,14 +244,27 @@ export async function initProject(cwd: string, fileEnv: Record<string, string>, 
     }
 
     try {
-        const response = await fetchWithTimeout(`${apiUrl}/collab/projects/register`, {
-            method: "POST",
-            headers: {
-                "content-type": "application/json",
-                authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify(payload),
-        });
+        let response: Response;
+        try {
+            response = await fetchWithTimeout(`${collabApi}/collab/projects/register`, {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    authorization: `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify(payload),
+            });
+        } catch {
+            // Fall back to main server if collab server unreachable
+            response = await fetchWithTimeout(`${serverUrl}/api/v1/collab/projects/register`, {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    authorization: `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify(payload),
+            });
+        }
 
         const body = (await response.json().catch(() => ({}))) as {
             message?: string;
@@ -302,13 +317,16 @@ export async function initProject(cwd: string, fileEnv: Record<string, string>, 
  */
 export async function resolveCollabSession(cwd: string, fileEnv: Record<string, string>, projectId: string): Promise<CollabConfig> {
     const realtimeUrl = realtimeUrlFrom(fileEnv).replace(/\/$/, "");
-    const apiUrl = `${realtimeUrl}/api/v1`;
+    const serverUrl = serverUrlFrom(fileEnv).replace(/\/$/, "");
+    const collabApi = `${realtimeUrl}/api/v1`;
+    const apiUrl = `${serverUrl}/api/v1`;
 
     const config: CollabConfig = {
         projectId,
         name: "",
         version: "",
         realtimeUrl,
+        serverUrl,
         apiUrl,
         registered: false,
         claimed: false,
@@ -321,18 +339,35 @@ export async function resolveCollabSession(cwd: string, fileEnv: Record<string, 
     }
 
     try {
-        const response = await fetchWithTimeout(`${apiUrl}/collab/projects/${encodeURIComponent(projectId)}/session`, {
-            method: "POST",
-            headers: { authorization: `Bearer ${apiKey}` },
-        });
+        let response: Response | null = null;
+        try {
+            response = await fetchWithTimeout(`${collabApi}/collab/projects/${encodeURIComponent(projectId)}/session`, {
+                method: "POST",
+                headers: { authorization: `Bearer ${apiKey}` },
+            });
+        } catch {
+            // Collab server unreachable, will fall back below
+        }
 
-        if (!response.ok) {
+        if (!response || (!response.ok && (response.status === 502 || response.status === 503 || response.status === 504 || response.status === 404))) {
+            try {
+                response = await fetchWithTimeout(`${serverUrl}/api/v1/collab/projects/${encodeURIComponent(projectId)}/session`, {
+                    method: "POST",
+                    headers: { authorization: `Bearer ${apiKey}` },
+                });
+            } catch {
+                // Both unreachable
+            }
+        }
+
+        if (!response || !response.ok) {
+            const status = response?.status;
             const reason =
-                response.status === 401
+                status === 401
                     ? "Your Lasso API key is invalid or inactive."
-                    : response.status === 403
+                    : status === 403
                         ? "This project belongs to another workspace."
-                        : `The server rejected the project session (${response.status}).`;
+                        : `The server rejected the project session (${status || "unreachable"}).`;
             console.warn(chalk.yellow("!") + ` Realtime collaboration unavailable: ${reason}`);
             return config;
         }
@@ -364,7 +399,7 @@ export async function resolveCollabSession(cwd: string, fileEnv: Record<string, 
         return config;
     } catch (error) {
         const reason = error instanceof Error ? error.message : "request failed";
-        console.warn(chalk.yellow("!") + ` Realtime collaboration unavailable: cannot reach ${realtimeUrl} (${reason}).`);
+        console.warn(chalk.yellow("!") + ` Realtime collaboration unavailable: cannot reach server (${reason}).`);
         return config;
     }
 }

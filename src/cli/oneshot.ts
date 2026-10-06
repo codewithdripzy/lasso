@@ -231,11 +231,17 @@ export async function runOneShotAgent(
       onProgress("thinking", "Inspecting application...", `Detected ${framework} framework`);
     }
 
-    const targetServerUrl =
+    let rawServerUrl =
       serverUrl ||
       process.env.LASSO_SERVER_URL ||
       process.env.NEXT_PUBLIC_LASSO_SERVER_URL ||
+      process.env.LASSO_API_URL ||
       "https://api.lasso.byorello.space";
+
+    if (rawServerUrl.includes("collab.lasso.byorello.space")) {
+      rawServerUrl = rawServerUrl.replace("collab.lasso.byorello.space", "api.lasso.byorello.space");
+    }
+    const targetServerUrl = rawServerUrl.replace(/\/$/, "").replace(/\/api\/v1$/, "");
 
     const isCliProvider =
       config.provider === "claude-code" ||

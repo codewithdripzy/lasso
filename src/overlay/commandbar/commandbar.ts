@@ -100,17 +100,20 @@ export function isRetryIntent(prompt: string): boolean {
   return /^(try\s+again|retry|re-?try|do\s+it\s+again|run\s+again|attempt\s+again|go\s+again|one\s+more\s+time|again)$/.test(p);
 }
 
-/** Derive the API base URL from the collab config or fall back to Lasso API */
+/** Derive the API base URL for Lasso main server */
 function getApiBase(): string {
-  let collabUrl = (state.collab?.apiUrl || "").replace(/\/+$/, "");
-  if (!collabUrl) {
-    collabUrl =
+  let apiUrl = (state.collab?.serverUrl || state.collab?.apiUrl || "").replace(/\/+$/, "");
+  if (apiUrl.includes("collab.lasso.byorello.space")) {
+    apiUrl = apiUrl.replace("collab.lasso.byorello.space", "api.lasso.byorello.space");
+  }
+  if (!apiUrl) {
+    apiUrl =
       typeof location !== "undefined" &&
       (location.hostname === "localhost" || location.hostname === "127.0.0.1")
         ? "http://localhost:3005"
         : "https://api.lasso.byorello.space";
   }
-  return collabUrl.endsWith("/api/v1") ? collabUrl : `${collabUrl}/api/v1`;
+  return apiUrl.endsWith("/api/v1") ? apiUrl : `${apiUrl}/api/v1`;
 }
 
 /** Best-effort fetch with auth cookie and API key if available */

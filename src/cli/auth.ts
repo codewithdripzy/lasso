@@ -29,7 +29,9 @@ export function serverUrlFrom(fileEnv: Record<string, string>): string {
     fileEnv.LASSO_AUTH_URL ||
     process.env.LASSO_API_URL ||
     fileEnv.LASSO_API_URL ||
-    "https://api.lasso.byorello.space"
+    process.env.LASSO_SERVER_URL ||
+    fileEnv.LASSO_SERVER_URL ||
+    (process.env.NODE_ENV === "development" ? "http://localhost:3005" : "https://api.lasso.byorello.space")
   ).replace(/\/$/, "");
 }
 

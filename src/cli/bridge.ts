@@ -753,10 +753,9 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
 
         socket.send(JSON.stringify({ type: "agent_status", taskId, status: "thinking", message: "Planning your request..." }));
 
-        // Import the one-shot agent function
         const { runOneShotAgent } = await import("./oneshot.js");
-
-        const targetApiUrl = collabConfig?.apiUrl || process.env.LASSO_SERVER_URL || process.env.API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:3005" : "https://api.lasso.byorello.space");
+        const serverUrl = collabConfig?.serverUrl || serverUrlFrom(fileEnv);
+        const targetApiUrl = (serverUrl.includes("collab.lasso.byorello.space") ? "https://api.lasso.byorello.space" : serverUrl).replace(/\/api\/v1\/?$/, "");
         
         runOneShotAgent(
           cwd,
