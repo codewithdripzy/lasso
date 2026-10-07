@@ -230,7 +230,6 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   let workspaceConfig: WorkspaceConfig | null = null;
   if (lassoKeyConfigured) {
     workspaceConfig = await resolveWorkspaceConfig(fileEnv);
-    console.log('[Lasso] Workspace config:', workspaceConfig);
   }
   const localProviderKeys: Record<string, string | undefined> = {
     google: process.env.GOOGLE_GENERATIVE_AI_API_KEY || fileEnv.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || fileEnv.GEMINI_API_KEY,
@@ -368,7 +367,6 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
 
     // Use the highest-tier plan available
     const isPaidPlan = workspacePlan !== "free" || projectPlan !== "free";
-    console.log('[Lasso] Config check:', { workspacePlan, workspaceProviders, projectPlan, projectProviders, isPaidPlan });
     // Use workspace providers if available, otherwise fall back to project providers
     const configuredProviders = workspaceProviders.length > 0 ? workspaceProviders : projectProviders;
 
