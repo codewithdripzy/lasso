@@ -1152,7 +1152,7 @@ RULES:
 - Each oldString must match the existing file context exactly.
 - CRITICAL: Return ONLY valid JSON with no markdown formatting, no code blocks, no prose, no thinking tags, and no progress output. Just the JSON object.
 - Do NOT include phrases like "Thinking...", "Working...", or any progress indicators in your response.
-- Do NOT wrap the JSON in ```json``` code blocks. Return raw JSON only.`;
+- Do NOT wrap the JSON in code blocks. Return raw JSON only.`;
 
     const model = config.model;
 
