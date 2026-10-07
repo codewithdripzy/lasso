@@ -1,6 +1,6 @@
 {
   "name": "@lasso-ai/cli",
-  "version": "1.3.4",
+  "version": "1.3.5",
   "description": "Select any part of your running app, describe a change, and let AI edit the real source code.",
   "type": "commonjs",
   "main": "dist/cli/index.js",

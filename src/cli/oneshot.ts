@@ -74,26 +74,44 @@ export interface ConversationMessage {
   content: string;
 }
 
-export function isConversationalPrompt(prompt: string): boolean {
-  const p = prompt.trim().toLowerCase().replace(/[!?.,;:]+$/, "");
-  const greetings = [
-    "hi", "hello", "hey", "heya", "howdy", "sup", "yo",
-    "good morning", "good afternoon", "good evening",
-    "thanks", "thank you", "thx", "ty", "cool", "awesome", "great", "nice",
-    "who are you", "what are you", "what can you do", "help", "help me",
-    "what is lasso", "how do you work", "how does this work",
-  ];
-  if (greetings.includes(p)) return true;
-  if (/^(hi|hello|hey|howdy|yo)\b/i.test(p) && p.split(/\s+/).length <= 4) {
-    const buildKeywords = /(build|create|add|make|fix|update|modify|change|refactor|implement|delete|remove|style|install|wire|code)/i;
-    if (!buildKeywords.test(p)) return true;
+async function isConversationalPrompt(prompt: string, apiKey?: string): Promise<boolean> {
+  // Use AI to intelligently detect if prompt is conversational vs. action-oriented
+  try {
+    const model = apiKey ? "claude-sonnet-4-5-20250929" : "claude-sonnet-4-5-20250929";
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey || "",
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 10,
+        messages: [
+          {
+            role: "user",
+            content: `Classify this user prompt as either "conversational" or "action". Return ONLY the word "conversational" or "action" - nothing else.
+
+Prompt: "${prompt}"
+`,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      // If AI call fails, fall back to simple heuristic: short prompts are likely conversational
+      return prompt.trim().split(/\s+/).length <= 5;
+    }
+
+    const data = await response.json() as { content?: Array<{ text?: string }> };
+    const classification = data.content?.[0]?.text?.toLowerCase().trim();
+    return classification === "conversational";
+  } catch {
+    // If AI call fails, fall back to simple heuristic
+    return prompt.trim().split(/\s+/).length <= 5;
   }
-  const questionOnly = /^(what is|what's|how do i|why does|can you explain|tell me about)\b/i.test(p);
-  const actionVerbs = /(build|create|add|make|fix|update|modify|change|refactor|implement|write code|code this|delete|remove|generate)/i;
-  if (questionOnly && !actionVerbs.test(p)) {
-    return true;
-  }
-  return false;
 }
 
 function runtimeErrorObservation(pageContext?: any): string {
@@ -245,7 +263,7 @@ export async function runOneShotAgent(
       return { ok: false, error: "Operation was cancelled" };
     }
 
-    const isConversational = isConversationalPrompt(prompt);
+    const isConversational = await isConversationalPrompt(prompt, apiKey);
 
     // Browser inspection & snapshot steps - skip for simple conversational queries
     if (pageContext && !isConversational) {
