@@ -36,7 +36,7 @@ export type BridgeMessage =
   | { type: "transcribe"; requestId: string; audio: string; mimeType?: string; language?: string }
   | { type: "oneshot"; prompt: string; scope?: "project" | "component"; model?: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli"; messages?: Array<{ role: "user" | "assistant"; content: string }>; taskId?: string; pageContext?: any };
 
-type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli" };
+type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli"; locked?: boolean; lockedReason?: string };
 type PageEntry = { name: string; path: string; type: "directory" | "file" };
 
 export type ServerBridgeMessage =
@@ -213,7 +213,9 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     ...readEnvFile(root, ".env.local"),
     ...readEnvFile(root, ".env.production"),
   }), {});
-  const resolvedLassoKey =
+  // Prioritize CLI auth credentials over env vars
+  const cliCredentials = loadCredentials();
+  const resolvedLassoKey = cliCredentials?.apiKey ||
     resolveLassoApiKey(fileEnv) ||
     process.env.LASSO_API_KEY ||
     fileEnv.LASSO_API_KEY ||
@@ -232,8 +234,9 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
   };
   let agentConfig: AgentConfig | null = (() => {
     const provider = (process.env.LASSO_AGENT_PROVIDER || fileEnv.LASSO_AGENT_PROVIDER || process.env.AI_PROVIDER || fileEnv.AI_PROVIDER || "").toLowerCase();
-    const selectedProvider = provider === "google" || provider === "gemini" ? "google" : provider === "openai" ? "openai" : provider === "ollama" ? "ollama" : provider === "anthropic" ? "anthropic" : provider === "nvidia" ? "nvidia" : localProviderKeys.ollama ? "ollama" : localProviderKeys.nvidia ? "nvidia" : localProviderKeys.google ? "google" : localProviderKeys.openai ? "openai" : localProviderKeys.anthropic ? "anthropic" : "google";
+    const selectedProvider = provider === "google" || provider === "gemini" ? "google" : provider === "openai" ? "openai" : provider === "ollama" ? "ollama" : provider === "anthropic" ? "anthropic" : provider === "nvidia" ? "nvidia" : localProviderKeys.ollama ? "ollama" : localProviderKeys.nvidia ? "nvidia" : localProviderKeys.google ? "google" : localProviderKeys.openai ? "openai" : localProviderKeys.anthropic ? "anthropic" : (cliCredentials ? "anthropic" : "google");
     const apiKey = selectedProvider === "ollama" ? "ollama" : localProviderKeys[selectedProvider];
+    // If user has CLI auth, use Lasso gateway by default
     if (!apiKey && !lassoKeyConfigured) return null;
     return {
       provider: selectedProvider as AgentConfig["provider"],
@@ -345,8 +348,13 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       agentConfig = { provider: "ollama", apiKey: "ollama", model: process.env.OLLAMA_MODEL || fileEnv.OLLAMA_MODEL, baseUrl: `${base.replace(/\/api\/?$/, "")}/v1` };
     }
 
+    // Check if user has CLI auth credentials (lasso auth login)
+    const cliCredentials = loadCredentials();
+    const hasCliAuth = Boolean(cliCredentials?.apiKey);
+
     const isPaidPlan = Boolean(collabConfig?.plan && collabConfig.plan.toLowerCase() !== "free");
-    const configuredProviders = collabConfig?.configuredProviders || [];
+    // Use configuredProviders from server if user has CLI auth, otherwise fall back to env-based detection
+    const configuredProviders = hasCliAuth ? (collabConfig?.configuredProviders || []) : [];
 
     const allModels = [
       // NVIDIA NIM models (confirmed working with server API key)
@@ -427,17 +435,29 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       }
 
       // Free plans: check if provider is configured
-      const envKey = providerKeyMapping[model.provider];
-      const isConfigured = configuredProviders.includes(model.provider) || 
-                          Boolean(process.env[envKey]) || 
-                          Boolean(fileEnv[envKey as keyof typeof fileEnv]) ||
-                          Boolean(localProviderKeys[model.provider as keyof typeof localProviderKeys]);
+      let isConfigured = false;
+      let lockedReason = "Configure your API key in the dashboard to use this model";
+
+      if (hasCliAuth) {
+        // User has CLI auth: check server-configured providers
+        isConfigured = configuredProviders.includes(model.provider);
+        lockedReason = "Upgrade your plan or configure this provider in your workspace to use this model";
+      } else {
+        // No CLI auth: fall back to env-based detection
+        const envKey = providerKeyMapping[model.provider];
+        isConfigured = Boolean(process.env[envKey]) ||
+                        Boolean(fileEnv[envKey as keyof typeof fileEnv]) ||
+                        Boolean(localProviderKeys[model.provider as keyof typeof localProviderKeys]);
+        lockedReason = isConfigured
+          ? ""
+          : "Run `lasso auth login` to see available models, or set the provider API key in your .env file";
+      }
 
       if (!isConfigured) {
         return {
           ...model,
           locked: true,
-          lockedReason: "Configure your API key in the dashboard to use this model",
+          lockedReason: lockedReason || "Configure your API key to use this model",
         };
       }
 

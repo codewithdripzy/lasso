@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile, spawn, exec } from "node:child_process";
 import { promisify } from "node:util";
+import { loadCredentials } from "./auth";
 
 const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
@@ -1018,6 +1019,10 @@ CRITICAL INSTRUCTIONS:
 Do NOT return prose or markdown outside the JSON.`;
 
   const callServerGateway = async (gatewayKey: string) => {
+    // Use CLI auth key if available, otherwise use the provided gateway key
+    const cliCredentials = loadCredentials();
+    const apiKeyToUse = cliCredentials?.apiKey || gatewayKey;
+
     let serverUrl = config.serverUrl || process.env.LASSO_SERVER_URL || process.env.NEXT_PUBLIC_LASSO_SERVER_URL || "https://api.lasso.byorello.space";
     if (serverUrl.includes("collab.lasso.byorello.space")) {
       serverUrl = serverUrl.replace("collab.lasso.byorello.space", "api.lasso.byorello.space");
@@ -1034,7 +1039,7 @@ Do NOT return prose or markdown outside the JSON.`;
     const response = await fetch(endpoint, {
       method: "POST",
       signal,
-      headers: { "content-type": "application/json", authorization: `Bearer ${gatewayKey}` },
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKeyToUse}` },
       body: JSON.stringify({
         sessionId: input.taskId,
         prompt: instruction,
@@ -1099,7 +1104,9 @@ Do NOT return prose or markdown outside the JSON.`;
   if (config.provider === "claude-code" || config.provider === "codex" || config.provider === "opencode" || config.provider === "cursor") {
     proposal = await proposeWithLocalAgent(cwd, instruction, context, config, signal, onProgress, input.taskId, onPrompt);
   } else {
-    const isLassoKey = config.apiKey?.startsWith("lss_live_") || config.apiKey?.startsWith("lss_");
+    // Check if using Lasso platform key (from CLI auth or env)
+    const cliCredentials = loadCredentials();
+    const isLassoKey = cliCredentials?.apiKey || config.apiKey?.startsWith("lss_live_") || config.apiKey?.startsWith("lss_");
     const system = `You are Lasso, an autonomous agentic AI coding assistant.
 You have the ability to run inspection commands, search the live web for documentation or libraries, ask the user for input or single/multi-selection choices, install npm packages, and edit source code.
 
@@ -1153,7 +1160,8 @@ RULES:
         // If using a Lasso platform key, route this turn through the /generate endpoint
         // (full agentic loop via Lasso gateway instead of one-shot session endpoint)
         if (isLassoKey && config.provider !== "ollama") {
-          rawText = await callGatewayGenerate(config.apiKey!, system, currentPrompt);
+          const apiKeyToUse = cliCredentials?.apiKey || config.apiKey!;
+          rawText = await callGatewayGenerate(apiKeyToUse, system, currentPrompt);
         } else {
           // Provider-direct inference path
           let response: Response;
@@ -1297,6 +1305,10 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
   }
 
   const callServerGatewayAnswer = async (gatewayKey: string): Promise<string> => {
+    // Use CLI auth key if available, otherwise use the provided gateway key
+    const cliCredentials = loadCredentials();
+    const apiKeyToUse = cliCredentials?.apiKey || gatewayKey;
+
     let serverUrl = config.serverUrl || process.env.LASSO_SERVER_URL || process.env.NEXT_PUBLIC_LASSO_SERVER_URL || "https://api.lasso.byorello.space";
     if (serverUrl.includes("collab.lasso.byorello.space")) {
       serverUrl = serverUrl.replace("collab.lasso.byorello.space", "api.lasso.byorello.space");
@@ -1305,7 +1317,7 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
     const response = await fetch(endpoint, {
       method: "POST",
       signal,
-      headers: { "content-type": "application/json", authorization: `Bearer ${gatewayKey}` },
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKeyToUse}` },
       body: JSON.stringify({
         provider: config.provider,
         model: config.model,
@@ -1327,9 +1339,12 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
     return data.text.trim();
   };
 
-  const isLassoKey = config.apiKey?.startsWith("lss_live_") || config.apiKey?.startsWith("lss_");
+  // Check if using Lasso platform key (from CLI auth or env)
+  const cliCredentials = loadCredentials();
+  const isLassoKey = cliCredentials?.apiKey || config.apiKey?.startsWith("lss_live_") || config.apiKey?.startsWith("lss_");
   if (isLassoKey && config.provider !== "ollama") {
-    return await callServerGatewayAnswer(config.apiKey!);
+    const apiKeyToUse = cliCredentials?.apiKey || config.apiKey!;
+    return await callServerGatewayAnswer(apiKeyToUse);
   }
 
   const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "meta/llama-3.2-11b-vision-instruct" : "claude-sonnet-4-20250514");

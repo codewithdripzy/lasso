@@ -4,6 +4,7 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import type { AgentConfig, AgentInput, AgentProgress, AgentPrompt, SourceChange } from "./agent";
 import { proposeChanges, runLocalAgentPrompt } from "./agent";
+import { loadCredentials } from "./auth";
 
 const execAsync = promisify(exec);
 
@@ -294,7 +295,9 @@ export async function runOneShotAgent(
     const targetServerUrl = rawServerUrl.replace(/\/$/, "").replace(/\/api\/v1$/, "");
 
     const useCliAgent = isCliProvider(config.provider);
-    const gatewayKey = apiKey || config.lassoKey || (config.apiKey && (config.apiKey.startsWith("lss_live_") || config.apiKey.startsWith("lss_")) ? config.apiKey : "") || process.env.LASSO_API_KEY || "";
+    // Prioritize CLI auth credentials over env vars
+    const cliCredentials = loadCredentials();
+    const gatewayKey = cliCredentials?.apiKey || apiKey || config.lassoKey || (config.apiKey && (config.apiKey.startsWith("lss_live_") || config.apiKey.startsWith("lss_")) ? config.apiKey : "") || process.env.LASSO_API_KEY || "";
 
     const hasLocalProviderKey = Boolean(
       config.apiKey &&
@@ -303,10 +306,11 @@ export async function runOneShotAgent(
       !config.apiKey.startsWith("lss_")
     );
 
+    // If the user has CLI auth, always route to server (unless using local agents)
     // If the user does NOT have a local provider key in .env, route to Lasso Agent Gateway on server.
     // When they DO have a local key in .env, it runs locally to save server resources!
     // Ollama always runs locally (the server cannot reach the user's localhost).
-    const shouldRouteToServer = !useCliAgent && config.provider !== "ollama" && !hasLocalProviderKey && Boolean(targetServerUrl);
+    const shouldRouteToServer = !useCliAgent && config.provider !== "ollama" && (Boolean(cliCredentials) || !hasLocalProviderKey) && Boolean(targetServerUrl);
 
     const callGateway = async (target: { provider: AgentConfig["provider"]; model?: string }): Promise<OneShotResult> => {
       try {
