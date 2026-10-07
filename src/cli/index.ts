@@ -98,6 +98,22 @@ program.command("create [name]")
     });
 
 // prettier-ignore
+program.command("whoami")
+    .description("Show the currently authenticated Lasso user")
+    .action(() => {
+        const credentials = loadCredentials();
+        if (!credentials) {
+            console.log(chalk.dim("Not authenticated. Run ") + chalk.cyan("lasso auth login") + chalk.dim(" to sign in."));
+            process.exitCode = 1;
+            return;
+        }
+        const summary = credentialSummary(credentials);
+        console.log(chalk.green("✓") + ` Authenticated as ${chalk.bold(summary.userEmail || "your account")}` + (summary.userName ? ` (${summary.userName})` : ""));
+        if (summary.workspaceName) console.log(chalk.dim(`Workspace: ${summary.workspaceName} (${summary.workspaceId})`));
+        if (summary.masked) console.log(chalk.dim("Credential: ") + summary.masked);
+    });
+
+// prettier-ignore
 const daemon = program.command("daemon [action]")
     .description("Start/stop Lasso Host — the local .lasso domain server (start|status|stop|restart|install|uninstall)")
     .usage("[action]")
