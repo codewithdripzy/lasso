@@ -40,6 +40,20 @@ export interface WorkspaceConfig {
     configuredProviders?: string[];
 }
 
+export interface ModelInfo {
+    id: string;
+    name: string;
+    provider: string;
+    capabilities?: string[];
+}
+
+export interface ModelsResponse {
+    anthropic: ModelInfo[];
+    openai: ModelInfo[];
+    google: ModelInfo[];
+    nvidia: ModelInfo[];
+}
+
 export interface InitResult {
     ok: boolean;
     error?: string;
@@ -455,5 +469,29 @@ export async function resolveWorkspaceConfig(fileEnv: Record<string, string>): P
         };
     } catch {
         return {};
+    }
+}
+
+/**
+ * Fetch available models from the server's models endpoint.
+ * This fetches from provider APIs dynamically and caches results.
+ */
+export async function fetchModels(fileEnv: Record<string, string>): Promise<ModelsResponse> {
+    const serverUrl = serverUrlFrom(fileEnv).replace(/\/$/, "");
+    const apiUrl = `${serverUrl}/api/v1`;
+
+    try {
+        const response = await fetchWithTimeout(`${apiUrl}/models`, {
+            method: "GET",
+        });
+
+        if (!response.ok) {
+            return { anthropic: [], openai: [], google: [], nvidia: [] };
+        }
+
+        const body = await response.json() as ModelsResponse;
+        return body;
+    } catch {
+        return { anthropic: [], openai: [], google: [], nvidia: [] };
     }
 }

@@ -7,8 +7,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import chalk from "chalk";
 import { answerQuestion, detectLocalAgents, proposeChanges, generateCommitMessage, respondToAgentPrompt, type AgentConfig, type SourceChange, type LocalAgent, type AgentPrompt } from "./agent";
-import type { CollabConfig, WorkspaceConfig } from "./project";
-import { resolveLassoApiKey, resolveWorkspaceConfig } from "./project";
+import type { CollabConfig, WorkspaceConfig, ModelsResponse } from "./project";
+import { resolveLassoApiKey, resolveWorkspaceConfig, fetchModels } from "./project";
 import { serverUrlFrom, loadCredentials } from "./auth";
 
 export const DEFAULT_BRIDGE_PORT = 3056;
@@ -231,6 +231,14 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   if (lassoKeyConfigured) {
     workspaceConfig = await resolveWorkspaceConfig(fileEnv);
   }
+
+  // Fetch available models from server
+  let dynamicModels: ModelsResponse = { anthropic: [], openai: [], google: [], nvidia: [] };
+  try {
+    dynamicModels = await fetchModels(fileEnv);
+  } catch (error) {
+    console.warn('[Lasso] Failed to fetch dynamic models, using fallback');
+  }
   const localProviderKeys: Record<string, string | undefined> = {
     google: process.env.GOOGLE_GENERATIVE_AI_API_KEY || fileEnv.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || fileEnv.GEMINI_API_KEY,
     openai: process.env.OPENAI_API_KEY || fileEnv.OPENAI_API_KEY,
@@ -370,39 +378,33 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     // Use workspace providers if available, otherwise fall back to project providers
     const configuredProviders = workspaceProviders.length > 0 ? workspaceProviders : projectProviders;
 
-    const allModels = [
-      // NVIDIA NIM models (updated from official catalog)
-      { id: "meta/llama-3.3-70b-instruct", label: "Llama 3.3 70B Instruct", provider: "nvidia" as const },
-      { id: "meta/llama-3.3-nemotron-super-49b-v1", label: "Llama 3.3 Nemotron Super 49B", provider: "nvidia" as const },
-      { id: "meta/llama-3.2-11b-vision-instruct", label: "Llama 3.2 11B Vision", provider: "nvidia" as const },
-      { id: "meta/llama-3.2-3b-instruct", label: "Llama 3.2 3B Instruct", provider: "nvidia" as const },
-      { id: "meta/llama-3.2-1b-instruct", label: "Llama 3.2 1B Instruct", provider: "nvidia" as const },
-      { id: "meta/llama-3.1-70b-instruct", label: "Llama 3.1 70B Instruct", provider: "nvidia" as const },
-      { id: "meta/llama-3.1-8b-instruct", label: "Llama 3.1 8B Instruct", provider: "nvidia" as const },
-      { id: "nvidia/llama-3.1-nemotron-70b-instruct", label: "Llama 3.1 Nemotron 70B", provider: "nvidia" as const },
-      { id: "deepseek-ai/deepseek-v4-flash-0731", label: "DeepSeek V4 Flash", provider: "nvidia" as const },
-      { id: "deepseek-ai/deepseek-v4-pro", label: "DeepSeek V4 Pro", provider: "nvidia" as const },
-      { id: "deepseek-ai/deepseek-r1-distill-llama-70b", label: "DeepSeek R1 Distill 70B", provider: "nvidia" as const },
-      { id: "deepseek-ai/deepseek-r1-distill-llama-8b", label: "DeepSeek R1 Distill 8B", provider: "nvidia" as const },
-      { id: "ibm/granite-34b-code-instruct", label: "Granite 34B Code", provider: "nvidia" as const },
-      { id: "ibm/granite-3.0-8b-instruct", label: "Granite 3.0 8B", provider: "nvidia" as const },
-      { id: "mistralai/mistral-large-2-instruct", label: "Mistral Large 2", provider: "nvidia" as const },
-      { id: "mistralai/codestral-22b-instruct-v0.1", label: "Codestral 22B", provider: "nvidia" as const },
-      { id: "nv-mistralai/mistral-nemo-12b-instruct", label: "Mistral Nemo 12B", provider: "nvidia" as const },
-      { id: "nvidia/nemotron-3.5-lightning-30b-a3b", label: "Nemotron Lightning 30B", provider: "nvidia" as const },
-      { id: "microsoft/phi-3.5-moe-instruct", label: "Phi-3.5 MoE", provider: "nvidia" as const },
-      { id: "google/gemma-4-31b-it", label: "Gemma 4 31B", provider: "nvidia" as const },
-      { id: "google/gemma-3-1b-it", label: "Gemma 3 1B", provider: "nvidia" as const },
-      { id: "moonshotai/kimi-k2.6", label: "Kimi K2.6", provider: "nvidia" as const },
-      { id: "gpt-oss-120b", label: "GPT-OSS 120B", provider: "nvidia" as const },
-      { id: "gpt-oss-20b", label: "GPT-OSS 20B", provider: "nvidia" as const },
-      // Existing models
-      { id: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5", provider: "anthropic" as const },
-      { id: "claude-opus-4-1-20250805", label: "Claude Opus 4.1", provider: "anthropic" as const },
-      { id: "gpt-4.1", label: "GPT-4.1", provider: "openai" as const },
-      { id: "gpt-4.1-mini", label: "GPT-4.1 mini", provider: "openai" as const },
-      { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "google" as const },
-      { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "google" as const },
+    // Build model list from dynamic server fetch, falling back to hardcoded models
+    const allModels: ModelOption[] = [
+      // Dynamic models from server API
+      ...dynamicModels.anthropic.map(m => ({ id: m.id, label: m.name, provider: m.provider as "anthropic" })),
+      ...dynamicModels.openai.map(m => ({ id: m.id, label: m.name, provider: m.provider as "openai" })),
+      ...dynamicModels.google.map(m => ({ id: m.id, label: m.name, provider: m.provider as "google" })),
+      ...dynamicModels.nvidia.map(m => ({ id: m.id, label: m.name, provider: m.provider as "nvidia" })),
+      // Fallback hardcoded models (only if dynamic fetch failed)
+      ...(dynamicModels.anthropic.length === 0 ? [
+        { id: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5", provider: "anthropic" as const },
+        { id: "claude-opus-4-1-20250805", label: "Claude Opus 4.1", provider: "anthropic" as const },
+      ] : []),
+      ...(dynamicModels.openai.length === 0 ? [
+        { id: "gpt-4.1", label: "GPT-4.1", provider: "openai" as const },
+        { id: "gpt-4.1-mini", label: "GPT-4.1 mini", provider: "openai" as const },
+      ] : []),
+      ...(dynamicModels.google.length === 0 ? [
+        { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "google" as const },
+        { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "google" as const },
+      ] : []),
+      ...(dynamicModels.nvidia.length === 0 ? [
+        { id: "meta/llama-3.3-70b-instruct", label: "Llama 3.3 70B Instruct", provider: "nvidia" as const },
+        { id: "meta/llama-3.2-11b-vision-instruct", label: "Llama 3.2 11B Vision", provider: "nvidia" as const },
+        { id: "deepseek-ai/deepseek-v4-flash-0731", label: "DeepSeek V4 Flash", provider: "nvidia" as const },
+        { id: "google/gemma-4-31b-it", label: "Gemma 4 31B", provider: "nvidia" as const },
+      ] : []),
+      // Local CLI agents (always included)
       ...(localAgents.has("claude-code") ? [
         { id: "claude-code:sonnet", label: "Claude Code · Sonnet", provider: "cli" as const },
         { id: "claude-code:opus", label: "Claude Code · Opus", provider: "cli" as const },
