@@ -247,8 +247,8 @@ export async function runOneShotAgent(
 
     const isConversational = isConversationalPrompt(prompt);
 
-    // Browser inspection & snapshot steps
-    if (pageContext) {
+    // Browser inspection & snapshot steps - skip for simple conversational queries
+    if (pageContext && !isConversational) {
       onProgress(
         "thinking",
         "Inspecting browser page...",
@@ -275,8 +275,9 @@ export async function runOneShotAgent(
       onProgress("thinking", isConversational ? "Thinking..." : "Analyzing project structure...", isConversational ? undefined : "Scanning files and dependencies");
     }
 
-    const projectStructure = await analyzeProject(cwd);
-    const framework = detectFramework(cwd);
+    // Skip project structure analysis for simple conversational queries
+    const projectStructure = isConversational ? null : await analyzeProject(cwd);
+    const framework = isConversational ? null : detectFramework(cwd);
 
     if (!isConversational && !pageContext) {
       onProgress("thinking", "Inspecting application...", `Detected ${framework} framework`);
@@ -340,7 +341,7 @@ export async function runOneShotAgent(
         // Build sourceHints: read relevant file contents to give the AI real code context.
         // This is what enables code changes instead of "please share the file" responses.
         const sourceHints: Record<string, string> = {};
-        if (!isConversational) {
+        if (!isConversational && projectStructure) {
           const promptLower = prompt.toLowerCase();
           const allCssFiles = projectStructure.files.filter((f) => /\.(css|scss)$/i.test(f));
           const entryFiles = projectStructure.files.filter((f) =>
@@ -372,15 +373,15 @@ export async function runOneShotAgent(
               provider: target.provider,
             },
             context: {
-              framework,
-              hasTypeScript: projectStructure.hasTypeScript,
-              hasTailwind: projectStructure.hasTailwind,
-              hasReact: projectStructure.hasReact,
-              hasNext: projectStructure.hasNext,
-              hasVite: projectStructure.hasVite,
-              dependencies: projectStructure.dependencies,
-              devDependencies: projectStructure.devDependencies,
-              files: projectStructure.files.slice(0, 100),
+              framework: framework || undefined,
+              hasTypeScript: projectStructure?.hasTypeScript,
+              hasTailwind: projectStructure?.hasTailwind,
+              hasReact: projectStructure?.hasReact,
+              hasNext: projectStructure?.hasNext,
+              hasVite: projectStructure?.hasVite,
+              dependencies: projectStructure?.dependencies,
+              devDependencies: projectStructure?.devDependencies,
+              files: projectStructure?.files.slice(0, 100) || [],
               sourceHints: Object.keys(sourceHints).length > 0 ? sourceHints : undefined,
               currentRoute: pageContext?.route || "/",
               pageContext,
@@ -565,7 +566,7 @@ export async function runOneShotAgent(
         const reply = await generateConversationalReply(
           cwd,
           prompt,
-          framework,
+          framework || "",
           config,
           signal,
           messages,
@@ -595,7 +596,7 @@ export async function runOneShotAgent(
 
     // If it's a conversational prompt and server was not used or failed, respond directly without modifying files!
     if (isConversational) {
-      const reply = await generateConversationalReply(cwd, prompt, framework, config, signal, messages, pageContext);
+      const reply = await generateConversationalReply(cwd, prompt, framework || "", config, signal, messages, pageContext);
       return {
         ok: true,
         summary: reply,
@@ -607,7 +608,7 @@ export async function runOneShotAgent(
 
     // Phase 2: Local agent generation fallback for code changes
     onProgress("thinking", "Generating implementation plan...", `Planning components for ${prompt}`);
-    const plan = await generatePlan(cwd, prompt, scope, projectStructure, framework, config, signal, messages, pageContext);
+    const plan = await generatePlan(cwd, prompt, scope, projectStructure || { framework: "", hasTypeScript: false, hasTailwind: false, hasReact: false, hasNext: false, hasVite: false, dependencies: [], devDependencies: [], files: [] }, framework || "", config, signal, messages, pageContext);
 
     if (signal.aborted) {
       return { ok: false, error: "Operation was cancelled during planning" };
@@ -767,8 +768,8 @@ async function analyzeProject(cwd: string): Promise<ProjectStructure> {
     hasReact,
     hasNext,
     hasVite,
-    dependencies,
-    devDependencies,
+    dependencies: dependencies as string[],
+    devDependencies: devDependencies as string[],
     files,
   };
 }
