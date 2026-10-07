@@ -99,14 +99,21 @@ Prompt: "${prompt}"`,
     if (response.ok) {
       const data = await response.json() as { reply?: string };
       const classification = data.reply?.toLowerCase().trim();
+      console.log('[Lasso] Classification result:', classification);
       return classification === "conversational";
+    } else {
+      console.log('[Lasso] Classification failed:', response.status);
     }
-  } catch {
-    // Ignore errors and fall back
+  } catch (err) {
+    console.log('[Lasso] Classification error:', err);
   }
 
-  // Fallback: simple heuristic
-  return prompt.trim().split(/\s+/).length <= 5;
+  // Fallback: smarter heuristic
+  const p = prompt.trim().toLowerCase();
+  const actionKeywords = /(add|create|build|make|fix|update|modify|change|refactor|implement|delete|remove|style|install|wire|code|replace|insert|append|generate)/i;
+  const isAction = actionKeywords.test(p);
+  console.log('[Lasso] Fallback classification:', isAction ? 'action' : 'conversational');
+  return !isAction;
 }
 
 function runtimeErrorObservation(pageContext?: any): string {
@@ -263,6 +270,7 @@ export async function runOneShotAgent(
     }
 
     const isConversational = await isConversationalPrompt(prompt, config, apiKey);
+    console.log('[Lasso] Is conversational:', isConversational);
 
     // Browser inspection & snapshot steps - skip for simple conversational queries
     if (pageContext && !isConversational) {
