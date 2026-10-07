@@ -342,8 +342,19 @@ function jsonObjectCandidates(text: string): string[] {
 }
 
 function jsonFrom(text: string): { summary: string; packages?: string[]; changes: SourceChange[] } {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
-  const candidates = [...(fenced ? [fenced] : []), ...jsonObjectCandidates(text)];
+  // Remove common progress prefixes and tool output noise
+  const cleaned = text
+    .replace(/^(Thinking|Working|Planning|Analyzing|Executing|Searching|Scanning)\.\.\.?$/gm, '')
+    .replace(/^›/gm, '')
+    .replace(/^>/gm, '')
+    .replace(/^(grep|find|cat|ls|cd|npm|pnpm|yarn|git).*$/gm, '')
+    .replace(/^src\/.*:\d+:.*$/gm, '')
+    .replace(/^(The agent|Error|Warning|Info|Note):.*$/gm, '')
+    .replace(/^(Progress|Activity|Output|Result):.*$/gm, '')
+    .trim();
+
+  const fenced = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  const candidates = [...(fenced ? [fenced] : []), ...jsonObjectCandidates(cleaned)];
   for (const candidate of candidates) {
     try {
       const parsed = JSON.parse(candidate.trim()) as { summary?: string; packages?: string[]; changes?: SourceChange[] };
@@ -1139,7 +1150,9 @@ RULES:
 - If you already have sufficient context to fulfill the user's request immediately, return "propose_changes" (or standard {"summary": "...", "packages": [...], "changes": [...]}) directly!
 - If live console/runtime errors are provided, resolving them is part of the task. Use run_command to verify package exports and file contents before proposing changes instead of guessing.
 - Each oldString must match the existing file context exactly.
-- Return ONLY valid JSON with no markdown formatting or prose outside the JSON.`;
+- CRITICAL: Return ONLY valid JSON with no markdown formatting, no code blocks, no prose, no thinking tags, and no progress output. Just the JSON object.
+- Do NOT include phrases like "Thinking...", "Working...", or any progress indicators in your response.
+- Do NOT wrap the JSON in ```json``` code blocks. Return raw JSON only.`;
 
     const model = config.model;
 
