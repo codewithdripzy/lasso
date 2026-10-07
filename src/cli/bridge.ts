@@ -813,7 +813,16 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         }
 
         const provider = (msg.provider || agentConfig?.provider || "google") as AgentConfig["provider"];
-        const model = msg.model || agentConfig?.model || (provider === "nvidia" ? "nvidia/llama-3.1-nemotron-70b-instruct" : provider === "google" ? "gemini-2.5-flash" : "claude-3-7-sonnet");
+        const model = msg.model || agentConfig?.model;
+
+        if (!model) {
+          socket.send(JSON.stringify({
+            type: "error",
+            message: "No model selected. Please select a model in settings."
+          }));
+          return;
+        }
+
         const localKey = localProviderKeys[provider];
 
         const serverUrl = collabConfig?.serverUrl || serverUrlFrom(fileEnv);

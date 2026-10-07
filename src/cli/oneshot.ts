@@ -74,44 +74,39 @@ export interface ConversationMessage {
   content: string;
 }
 
-async function isConversationalPrompt(prompt: string, apiKey?: string): Promise<boolean> {
-  // Use AI to intelligently detect if prompt is conversational vs. action-oriented
+async function isConversationalPrompt(prompt: string, config: AgentConfig, apiKey?: string): Promise<boolean> {
+  // Use the user's selected model to intelligently detect if prompt is conversational vs. action-oriented
   try {
-    const model = apiKey ? "claude-sonnet-4-5-20250929" : "claude-sonnet-4-5-20250929";
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    // Use the gateway to classify - this respects the user's selected model
+    const response = await fetch(`${config.serverUrl || "https://api.lasso.byorello.space"}/api/v1/agent/generate`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": apiKey || "",
-        "anthropic-version": "2023-06-01",
+        "Authorization": `Bearer ${apiKey || ""}`,
       },
       body: JSON.stringify({
-        model,
-        max_tokens: 10,
-        messages: [
-          {
-            role: "user",
-            content: `Classify this user prompt as either "conversational" or "action". Return ONLY the word "conversational" or "action" - nothing else.
+        model: {
+          id: config.model,
+          provider: config.provider,
+        },
+        prompt: `Classify this user prompt as either "conversational" or "action". Return ONLY the word "conversational" or "action" - nothing else.
 
-Prompt: "${prompt}"
-`,
-          },
-        ],
+Prompt: "${prompt}"`,
+        maxTokens: 10,
       }),
     });
 
-    if (!response.ok) {
-      // If AI call fails, fall back to simple heuristic: short prompts are likely conversational
-      return prompt.trim().split(/\s+/).length <= 5;
+    if (response.ok) {
+      const data = await response.json() as { reply?: string };
+      const classification = data.reply?.toLowerCase().trim();
+      return classification === "conversational";
     }
-
-    const data = await response.json() as { content?: Array<{ text?: string }> };
-    const classification = data.content?.[0]?.text?.toLowerCase().trim();
-    return classification === "conversational";
   } catch {
-    // If AI call fails, fall back to simple heuristic
-    return prompt.trim().split(/\s+/).length <= 5;
+    // Ignore errors and fall back
   }
+
+  // Fallback: simple heuristic
+  return prompt.trim().split(/\s+/).length <= 5;
 }
 
 function runtimeErrorObservation(pageContext?: any): string {
@@ -181,7 +176,11 @@ Do not output code changes, file patches, or JSON schemas — just talk to the d
   }
 
   try {
-    const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "nvidia/llama-3.1-nemotron-70b-instruct" : "claude-3-7-sonnet-latest");
+    const model = config.model;
+
+    if (!model) {
+      return "No model selected. Please select a model in settings.";
+    }
 
     if (config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia") {
       const baseUrl = config.baseUrl || (config.provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : "https://api.openai.com/v1");
@@ -263,7 +262,7 @@ export async function runOneShotAgent(
       return { ok: false, error: "Operation was cancelled" };
     }
 
-    const isConversational = await isConversationalPrompt(prompt, apiKey);
+    const isConversational = await isConversationalPrompt(prompt, config, apiKey);
 
     // Browser inspection & snapshot steps - skip for simple conversational queries
     if (pageContext && !isConversational) {
@@ -941,7 +940,16 @@ Analyze the existing code structure, then respond in JSON:`;
   }
 
   try {
-    const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "nvidia/llama-3.1-nemotron-70b-instruct" : "claude-3-7-sonnet-latest");
+    const model = config.model;
+
+    if (!model) {
+      return {
+        steps: [],
+        isConversational: true,
+        reply: "No model selected. Please select a model in settings.",
+      };
+    }
+
     let text = "";
 
     if (config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia") {

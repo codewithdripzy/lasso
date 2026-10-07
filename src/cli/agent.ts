@@ -1141,7 +1141,16 @@ RULES:
 - Each oldString must match the existing file context exactly.
 - Return ONLY valid JSON with no markdown formatting or prose outside the JSON.`;
 
-    const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "meta/llama-3.2-11b-vision-instruct" : "claude-sonnet-4-20250514");
+    const model = config.model;
+
+    if (!model) {
+      return {
+        summary: "No model selected. Please select a model in settings.",
+        changes: [],
+        packages: [],
+      };
+    }
+
     const image = input.context?.screenshots?.element || input.context?.screenshots?.full;
     const imageData = image?.replace(/^data:image\/[^;]+;base64,/, "");
     const imageMime = image?.match(/^data:(image\/[^;]+);base64,/)?.[1] || "image/jpeg";
@@ -1347,7 +1356,12 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
     return await callServerGatewayAnswer(apiKeyToUse);
   }
 
-  const model = config.model || (config.provider === "google" ? "gemini-2.5-flash" : config.provider === "openai" ? "gpt-4.1-mini" : config.provider === "ollama" ? "llama3.2" : config.provider === "nvidia" ? "meta/llama-3.2-11b-vision-instruct" : "claude-sonnet-4-20250514");
+  const model = config.model;
+
+  if (!model) {
+    return "No model selected. Please select a model in settings.";
+  }
+
   let response: Response;
   try {
     if (config.provider === "openai" || config.provider === "ollama" || config.provider === "nvidia") {
