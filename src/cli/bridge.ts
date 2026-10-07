@@ -353,8 +353,9 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     const hasCliAuth = Boolean(cliCredentials?.apiKey);
 
     const isPaidPlan = Boolean(collabConfig?.plan && collabConfig.plan.toLowerCase() !== "free");
-    // Use configuredProviders from server if user has CLI auth, otherwise fall back to env-based detection
-    const configuredProviders = hasCliAuth ? (collabConfig?.configuredProviders || []) : [];
+    // Use configuredProviders from server if user has CLI auth AND has a project config
+    // Otherwise fall back to env-based detection
+    const configuredProviders = (hasCliAuth && collabConfig?.registered) ? (collabConfig?.configuredProviders || []) : [];
 
     const allModels = [
       // NVIDIA NIM models (confirmed working with server API key)
@@ -438,19 +439,21 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       let isConfigured = false;
       let lockedReason = "Configure your API key in the dashboard to use this model";
 
-      if (hasCliAuth) {
-        // User has CLI auth: check server-configured providers
+      if (hasCliAuth && collabConfig?.registered) {
+        // User has CLI auth AND project config: check server-configured providers
         isConfigured = configuredProviders.includes(model.provider);
         lockedReason = "Upgrade your plan or configure this provider in your workspace to use this model";
       } else {
-        // No CLI auth: fall back to env-based detection
+        // No CLI auth or no project config: fall back to env-based detection
         const envKey = providerKeyMapping[model.provider];
         isConfigured = Boolean(process.env[envKey]) ||
                         Boolean(fileEnv[envKey as keyof typeof fileEnv]) ||
                         Boolean(localProviderKeys[model.provider as keyof typeof localProviderKeys]);
         lockedReason = isConfigured
           ? ""
-          : "Run `lasso auth login` to see available models, or set the provider API key in your .env file";
+          : hasCliAuth
+            ? "Run `lasso init` to sync your workspace provider configuration, or set the provider API key in your .env file"
+            : "Run `lasso auth login` to see available models, or set the provider API key in your .env file";
       }
 
       if (!isConfigured) {
