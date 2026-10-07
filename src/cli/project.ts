@@ -246,7 +246,9 @@ export async function initProject(cwd: string, fileEnv: Record<string, string>, 
     try {
         let response: Response;
         try {
-            response = await fetchWithTimeout(`${collabApi}/collab/projects/register`, {
+            // Registration lives on the Lasso API (api.lasso.byorello.space): it owns
+            // the workspace's project records and stores the local `.lasso` domain.
+            response = await fetchWithTimeout(`${serverUrl}/api/v1/collab/projects/register`, {
                 method: "POST",
                 headers: {
                     "content-type": "application/json",
@@ -255,8 +257,8 @@ export async function initProject(cwd: string, fileEnv: Record<string, string>, 
                 body: JSON.stringify(payload),
             });
         } catch {
-            // Fall back to main server if collab server unreachable
-            response = await fetchWithTimeout(`${serverUrl}/api/v1/collab/projects/register`, {
+            // Fall back to the realtime/collab server if the API is unreachable
+            response = await fetchWithTimeout(`${collabApi}/collab/projects/register`, {
                 method: "POST",
                 headers: {
                     "content-type": "application/json",
@@ -268,6 +270,7 @@ export async function initProject(cwd: string, fileEnv: Record<string, string>, 
 
         const body = (await response.json().catch(() => ({}))) as {
             message?: string;
+            error?: string;
             project?: { id?: string; name?: string; workspaceId?: string };
         };
 
@@ -278,7 +281,8 @@ export async function initProject(cwd: string, fileEnv: Record<string, string>, 
             if (response.status === 403) {
                 return { ok: false, error: "Your API key does not have access to a Lasso workspace." };
             }
-            return { ok: false, error: body.message || `Project registration failed (${response.status}).` };
+            const detail = body.message || body.error;
+            return { ok: false, error: detail ? `${detail} (HTTP ${response.status})` : `Project registration failed (${response.status}).` };
         }
 
         const projectId = body.project?.id || existingConfig?.id;
@@ -305,7 +309,7 @@ export async function initProject(cwd: string, fileEnv: Record<string, string>, 
         };
     } catch (error) {
         const reason = error instanceof Error ? error.message : "request failed";
-        return { ok: false, error: `Could not reach the Lasso realtime server at ${realtimeUrl} (${reason}). Is it running?` };
+        return { ok: false, error: `Could not reach the Lasso API at ${serverUrl} (${reason}). Is it running?` };
     }
 }
 

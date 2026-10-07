@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`lasso init` registers against the Lasso API, not the realtime server.**
+  Project registration (`init`, `register`, `create`) now posts to
+  `serverUrlFrom()` — `https://api.lasso.byorello.space` by default — because the
+  API owns the workspace's project records and stores the local `.lasso` domain.
+  The realtime/collab server (`…/api/v1/collab/projects/register`) is only tried
+  when the API cannot be reached. Override with `LASSO_API_URL` /
+  `LASSO_SERVER_URL`.
 - **One-shot mode as sidebar panel**: Changed one-shot mode from a centered modal to a right-side sidebar panel that only appears during one-shot mode. When users exit one-shot mode, they return to the normal edit mode with just the toolbar. This provides a cleaner, more integrated experience similar to modern AI editors.
 - **Mini toolbar positioning**: Adjusted the mini toolbar position to `left: calc(50% + 140px)` (reduced from 280px) to reduce overlap with the main toolbar. Added smooth transition and centered positioning when the main toolbar is dismissed. Mini toolbar is now hidden when one-shot sidebar is open to avoid UI clutter.
 
@@ -151,6 +158,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Useless `Project registration failed (400)` from `lasso init`**: the CLI only
+  read `body.message`, but the registration endpoint answers with `{ error }`, so
+  every server-side validation message was dropped and collapsed into the generic
+  status line. The server text is surfaced now, e.g.
+  `"domain" is not allowed (HTTP 400)`.
 - **Selected element missing from one-shot page context**: `capturePageContext()`
   read `state.selectedElement`, which does not exist on the overlay state (the
   property is `state.selected`), so the inspected element never reached the page
