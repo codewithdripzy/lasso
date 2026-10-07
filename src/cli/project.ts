@@ -439,14 +439,19 @@ export async function resolveWorkspaceConfig(fileEnv: Record<string, string>): P
         }
 
         const body = (await response.json()) as {
+            success?: boolean;
             workspace?: { id?: string; name?: string; plan?: string; configuredProviders?: string[] };
         };
 
+        if (!body.success || !body.workspace) {
+            return {};
+        }
+
         return {
-            workspaceId: body.workspace?.id,
-            workspaceName: body.workspace?.name,
-            plan: body.workspace?.plan || "free",
-            configuredProviders: body.workspace?.configuredProviders || [],
+            workspaceId: body.workspace.id,
+            workspaceName: body.workspace.name,
+            plan: body.workspace.plan || "free",
+            configuredProviders: body.workspace.configuredProviders || [],
         };
     } catch {
         return {};
