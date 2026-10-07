@@ -471,7 +471,7 @@ program.command("dev", { isDefault: true }).description("Start your dev server w
         console.log(chalk.yellow("!") + ` No ${chalk.bold(LASSO_CONFIG_FILE)} found. Run ${chalk.cyan("npx @lasso-ai/cli init")} to enable realtime collaboration.`);
     }
 
-    startBridge(cwd, collabConfig);
+    await startBridge(cwd, collabConfig);
 
     switch (framework) {
       case "vite":

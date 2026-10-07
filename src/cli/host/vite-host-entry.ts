@@ -25,7 +25,7 @@ function lassoOverlayPlugin() {
 }
 
 void (async () => {
-  const bridge = startBridge(cwd, null, bridgePort);
+  const bridge = await startBridge(cwd, null, bridgePort);
   const require = createRequire(path.join(cwd, "package.json"));
   const viteEntry = require.resolve("vite");
   const { createServer } = await import(pathToFileURL(viteEntry).href);

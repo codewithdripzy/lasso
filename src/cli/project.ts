@@ -33,6 +33,13 @@ export interface CollabConfig {
     configuredProviders?: string[];
 }
 
+export interface WorkspaceConfig {
+    workspaceId?: string;
+    workspaceName?: string;
+    plan?: string;
+    configuredProviders?: string[];
+}
+
 export interface InitResult {
     ok: boolean;
     error?: string;
@@ -405,5 +412,43 @@ export async function resolveCollabSession(cwd: string, fileEnv: Record<string, 
         const reason = error instanceof Error ? error.message : "request failed";
         console.warn(chalk.yellow("!") + ` Realtime collaboration unavailable: cannot reach server (${reason}).`);
         return config;
+    }
+}
+
+/**
+ * Fetch workspace configuration from the server using CLI auth credentials.
+ * This allows users to see their dashboard-configured providers even without a project config.
+ */
+export async function resolveWorkspaceConfig(fileEnv: Record<string, string>): Promise<WorkspaceConfig> {
+    const serverUrl = serverUrlFrom(fileEnv).replace(/\/$/, "");
+    const apiUrl = `${serverUrl}/api/v1`;
+
+    const apiKey = resolveLassoApiKey(fileEnv);
+    if (!apiKey) {
+        return {};
+    }
+
+    try {
+        const response = await fetchWithTimeout(`${apiUrl}/auth/workspace`, {
+            method: "GET",
+            headers: { authorization: `Bearer ${apiKey}` },
+        });
+
+        if (!response.ok) {
+            return {};
+        }
+
+        const body = (await response.json()) as {
+            workspace?: { id?: string; name?: string; plan?: string; configuredProviders?: string[] };
+        };
+
+        return {
+            workspaceId: body.workspace?.id,
+            workspaceName: body.workspace?.name,
+            plan: body.workspace?.plan || "free",
+            configuredProviders: body.workspace?.configuredProviders || [],
+        };
+    } catch {
+        return {};
     }
 }

@@ -72,7 +72,7 @@ void (async () => {
   const nextBin = path.join(cwd, "node_modules", ".bin", "next");
   if (!fs.existsSync(nextBin)) throw new Error("Next.js is not installed in this project.");
 
-  const bridge = startBridge(cwd, null, bridgePort);
+  const bridge = await startBridge(cwd, null, bridgePort);
   const nextProcess = spawn(nextBin, ["dev", "--port", String(nextPort), "--hostname", "127.0.0.1"], {
     cwd,
     env: { ...process.env, PORT: String(nextPort) },

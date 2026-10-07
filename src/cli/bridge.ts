@@ -7,8 +7,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import chalk from "chalk";
 import { answerQuestion, detectLocalAgents, proposeChanges, generateCommitMessage, respondToAgentPrompt, type AgentConfig, type SourceChange, type LocalAgent, type AgentPrompt } from "./agent";
-import type { CollabConfig } from "./project";
-import { resolveLassoApiKey } from "./project";
+import type { CollabConfig, WorkspaceConfig } from "./project";
+import { resolveLassoApiKey, resolveWorkspaceConfig } from "./project";
 import { serverUrlFrom, loadCredentials } from "./auth";
 
 export const DEFAULT_BRIDGE_PORT = 3056;
@@ -198,7 +198,7 @@ function readEnvFile(cwd: string, filename: string) {
   }
 }
 
-export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | null = null, bridgePort = DEFAULT_BRIDGE_PORT) {
+export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | null = null, bridgePort = DEFAULT_BRIDGE_PORT) {
   const bridgeServer = http.createServer(); // dedicated, empty HTTP server
   const wss = new WebSocketServer({ server: bridgeServer });
   let overlaySocket: WebSocket | null = null;
@@ -225,6 +225,12 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     fileEnv.NEXT_LASSO_API_KEY ||
     "";
   const lassoKeyConfigured = Boolean(resolvedLassoKey);
+
+  // Fetch workspace configuration from server (dashboard-configured providers)
+  let workspaceConfig: WorkspaceConfig | null = null;
+  if (lassoKeyConfigured) {
+    workspaceConfig = await resolveWorkspaceConfig(fileEnv);
+  }
   const localProviderKeys: Record<string, string | undefined> = {
     google: process.env.GOOGLE_GENERATIVE_AI_API_KEY || fileEnv.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || fileEnv.GEMINI_API_KEY,
     openai: process.env.OPENAI_API_KEY || fileEnv.OPENAI_API_KEY,
@@ -338,7 +344,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     }
   }
 
-  const availableModels = async (collabConfig: CollabConfig | null = null) => {
+  const availableModels = async (collabConfig: CollabConfig | null = null, workspaceConfig: WorkspaceConfig | null = null) => {
     localAgents = await detectLocalAgents();
     const locals = await localModels();
     const discoveredOpenCodeModels = await openCodeModels();
@@ -352,10 +358,17 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
     const cliCredentials = loadCredentials();
     const hasCliAuth = Boolean(cliCredentials?.apiKey);
 
-    const isPaidPlan = Boolean(collabConfig?.plan && collabConfig.plan.toLowerCase() !== "free");
-    // Use configuredProviders from server if user has CLI auth AND has a project config
-    // Otherwise fall back to env-based detection
-    const configuredProviders = (hasCliAuth && collabConfig?.registered) ? (collabConfig?.configuredProviders || []) : [];
+    // Prioritize workspace config (dashboard) over project config
+    // Workspace config is fetched independently of project config
+    const workspacePlan = workspaceConfig?.plan || "free";
+    const workspaceProviders = workspaceConfig?.configuredProviders || [];
+    const projectPlan = collabConfig?.plan || "free";
+    const projectProviders = collabConfig?.configuredProviders || [];
+
+    // Use the highest-tier plan available
+    const isPaidPlan = workspacePlan !== "free" || projectPlan !== "free";
+    // Use workspace providers if available, otherwise fall back to project providers
+    const configuredProviders = workspaceProviders.length > 0 ? workspaceProviders : projectProviders;
 
     const allModels = [
       // NVIDIA NIM models (confirmed working with server API key)
@@ -439,21 +452,25 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       let isConfigured = false;
       let lockedReason = "Configure your API key in the dashboard to use this model";
 
-      if (hasCliAuth && collabConfig?.registered) {
-        // User has CLI auth AND project config: check server-configured providers
+      if (hasCliAuth) {
+        // User has CLI auth: check dashboard-configured providers first
         isConfigured = configuredProviders.includes(model.provider);
-        lockedReason = "Upgrade your plan or configure this provider in your workspace to use this model";
-      } else {
-        // No CLI auth or no project config: fall back to env-based detection
+        lockedReason = "Configure this provider in your workspace dashboard to use this model";
+      }
+
+      // If not configured via dashboard, fall back to env-based detection
+      if (!isConfigured) {
         const envKey = providerKeyMapping[model.provider];
         isConfigured = Boolean(process.env[envKey]) ||
                         Boolean(fileEnv[envKey as keyof typeof fileEnv]) ||
                         Boolean(localProviderKeys[model.provider as keyof typeof localProviderKeys]);
-        lockedReason = isConfigured
-          ? ""
-          : hasCliAuth
-            ? "Run `lasso init` to sync your workspace provider configuration, or set the provider API key in your .env file"
-            : "Run `lasso auth login` to see available models, or set the provider API key in your .env file";
+        if (!isConfigured) {
+          lockedReason = hasCliAuth
+            ? "Configure this provider in your workspace dashboard, or set the provider API key in your .env file"
+            : "Run `lasso auth login` to configure providers in your dashboard, or set the provider API key in your .env file";
+        } else {
+          lockedReason = "";
+        }
       }
 
       if (!isConfigured) {
@@ -476,7 +493,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
       ? { name: creds.userName, email: creds.userEmail }
       : (process.env.USER ? { name: process.env.USER } : null);
     socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: lassoKeyConfigured || Boolean(agentConfig) || localAgents.size > 0, models: [], collab: collabConfig?.registered ? { ...collabConfig, plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null, user: userInfo }));
-    void availableModels(collabConfig).then((models) => {
+    void availableModels(collabConfig, workspaceConfig).then((models) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "config", apiKeyConfigured: lassoKeyConfigured, agentConfigured: lassoKeyConfigured || Boolean(agentConfig) || localAgents.size > 0, models, collab: collabConfig?.registered ? { ...collabConfig, plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null, user: userInfo }));
     });
     void getGitState(cwd).then((git) => {
