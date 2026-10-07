@@ -327,6 +327,12 @@ export async function runOneShotAgent(
         const onAbort = () => controller.abort();
         signal.addEventListener("abort", onAbort, { once: true });
 
+        // Add a 5-minute timeout for gateway requests
+        const timeout = setTimeout(() => {
+          controller.abort();
+        }, 5 * 60 * 1000);
+        timeout.unref();
+
         // Build sourceHints: read relevant file contents to give the AI real code context.
         // This is what enables code changes instead of "please share the file" responses.
         const sourceHints: Record<string, string> = {};
@@ -378,11 +384,20 @@ export async function runOneShotAgent(
           }),
         });
 
+        clearTimeout(timeout);
         signal.removeEventListener("abort", onAbort);
+
+        if (signal.aborted) {
+          return { ok: false, error: "Request timed out after 5 minutes. Your plan quota may be exhausted. Please upgrade your plan or add credits to continue using this service." };
+        }
 
         if (!response.ok) {
           const errData = (await response.json().catch(() => ({}))) as { error?: string };
           const errorMessage = errData.error || `Agent request failed (${response.status})`;
+          // Check for quota/plan exhaustion
+          if (/quota exceeded|quota limit|out of quota|no quota|plan.*limit|plan.*exhausted|credit.*exhausted|billing.*quota|rate.*limit|429|too many requests|request.*limit|insufficient.*credits|no.*credits|credits.*exhausted|payment.*required|subscription.*required|upgrade.*required|upgrade.*plan|billing.*required/i.test(errorMessage)) {
+            return { ok: false, error: "Your plan quota has been exhausted. Please upgrade your plan or add credits to continue using this service." };
+          }
           return { ok: false, error: errorMessage };
         }
 
@@ -397,7 +412,12 @@ export async function runOneShotAgent(
         };
 
         if (data.status === "failed" || data.error) {
-          return { ok: false, error: data.error || data.summary || "Agent session failed on server." };
+          const error = data.error || data.summary || "Agent session failed on server.";
+          // Check for quota/plan exhaustion
+          if (/quota exceeded|quota limit|out of quota|no quota|plan.*limit|plan.*exhausted|credit.*exhausted|billing.*quota|rate.*limit|429|too many requests|request.*limit|insufficient.*credits|no.*credits|credits.*exhausted|payment.*required|subscription.*required|upgrade.*required|upgrade.*plan|billing.*required/i.test(error)) {
+            return { ok: false, error: "Your plan quota has been exhausted. Please upgrade your plan or add credits to continue using this service." };
+          }
+          return { ok: false, error };
         }
 
         if (data) {

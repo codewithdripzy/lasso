@@ -607,6 +607,18 @@ const AGENT_FAILURE_HINTS: Array<{ pattern: RegExp; message: string }> = [
     pattern: /failed to fetch models\.dev/i,
     message: "The local agent could not reach models.dev to refresh its model list. Check the network or proxy it uses, then retry.",
   },
+  {
+    pattern: /quota exceeded|quota limit|out of quota|no quota|quota.*limit|usage.*quota|plan.*limit|plan.*exhausted|credit.*exhausted|billing.*quota|rate.*limit|429|too many requests|request.*limit|insufficient.*credits|no.*credits|credits.*exhausted/i,
+    message: "Your plan quota has been exhausted. Please upgrade your plan or add credits to continue using this service.",
+  },
+  {
+    pattern: /payment.*required|subscription.*required|upgrade.*required|upgrade.*plan|billing.*required/i,
+    message: "Your subscription or plan requires an upgrade. Please check your billing settings and upgrade to continue.",
+  },
+  {
+    pattern: /api.*key.*invalid|api.*key.*expired|invalid.*api.*key|expired.*api.*key|authentication.*failed|unauthorized|forbidden|401|403/i,
+    message: "Authentication failed. Check your API key or sign in to your account, then retry.",
+  },
 ];
 
 function agentFailureHint(line: string): string | undefined {
@@ -768,6 +780,10 @@ function localAgentError(command: string, stderr: string, exitCode: number): str
   if (command === "codex" && output.includes("mcp.canva.com") && output.includes("invalid_token")) {
     return "Codex started, but the Canva MCP connection has an expired OAuth token. Re-authenticate or remove the Canva MCP server from Codex, then retry.";
   }
+  // Check for quota/plan exhaustion in the output
+  if (/quota exceeded|quota limit|out of quota|no quota|plan.*limit|plan.*exhausted|credit.*exhausted|billing.*quota|rate.*limit|429|too many requests|request.*limit|insufficient.*credits|no.*credits|credits.*exhausted/i.test(output)) {
+    return `${command === "opencode" ? "OpenCode" : command === "cursor" ? "Cursor" : command} request failed: Your plan quota has been exhausted. Please upgrade your plan or add credits to continue using this service.`;
+  }
   return `${command} exited with code ${exitCode}${output ? `: ${output.slice(0, 500)}` : ""}`;
 }
 
@@ -888,7 +904,13 @@ function runLocalCommand(
       if (taskId) activeAgentInputs.delete(taskId);
       signal?.removeEventListener("abort", abort);
       if (timedOut) {
-        reject(new Error(`${label} did not finish within 5 minutes. Check its login or approval prompt, then retry.`));
+        const stderrTail = pendingStderr.trim();
+        // Check if timeout was due to quota exhaustion
+        if (/quota exceeded|quota limit|out of quota|no quota|plan.*limit|plan.*exhausted|credit.*exhausted|billing.*quota|rate.*limit|429|too many requests|request.*limit|insufficient.*credits|no.*credits|credits.*exhausted/i.test(stderrTail)) {
+          reject(new Error(`${label} did not finish within 5 minutes: Your plan quota has been exhausted. Please upgrade your plan or add credits to continue using this service.`));
+        } else {
+          reject(new Error(`${label} did not finish within 5 minutes. Check its login or approval prompt, then retry.`));
+        }
         return;
       }
       const stdoutTail = pendingStdout.trim();
@@ -1022,7 +1044,12 @@ Do NOT return prose or markdown outside the JSON.`;
     });
     if (!response.ok) {
       const errData = await response.json().catch(() => ({})) as { error?: string; status?: string; summary?: string };
-      throw new Error(errData.error || `Lasso Agent Gateway request failed (${response.status}).`);
+      const errorMessage = errData.error || `Lasso Agent Gateway request failed (${response.status})`;
+      // Check for quota/plan exhaustion
+      if (/quota exceeded|quota limit|out of quota|no quota|plan.*limit|plan.*exhausted|credit.*exhausted|billing.*quota|rate.*limit|429|too many requests|request.*limit|insufficient.*credits|no.*credits|credits.*exhausted|payment.*required|subscription.*required|upgrade.*required|upgrade.*plan|billing.*required/i.test(errorMessage)) {
+        throw new Error("Your plan quota has been exhausted. Please upgrade your plan or add credits to continue using this service.");
+      }
+      throw new Error(errorMessage);
     }
     const data = await response.json() as { changes?: Array<{ filePath: string; oldString: string; newString: string }>; packages?: string[]; summary?: string; status?: string; error?: string };
     // If the server-side agent reported failure, surface it as a thrown error so the
@@ -1057,7 +1084,12 @@ Do NOT return prose or markdown outside the JSON.`;
     });
     if (!response.ok) {
       const errData = await response.json().catch(() => ({})) as { error?: string };
-      throw new Error(errData.error || `Lasso Gateway generate failed (${response.status}).`);
+      const errorMessage = errData.error || `Lasso Gateway generate failed (${response.status})`;
+      // Check for quota/plan exhaustion
+      if (/quota exceeded|quota limit|out of quota|no quota|plan.*limit|plan.*exhausted|credit.*exhausted|billing.*quota|rate.*limit|429|too many requests|request.*limit|insufficient.*credits|no.*credits|credits.*exhausted|payment.*required|subscription.*required|upgrade.*required|upgrade.*plan|billing.*required/i.test(errorMessage)) {
+        throw new Error("Your plan quota has been exhausted. Please upgrade your plan or add credits to continue using this service.");
+      }
+      throw new Error(errorMessage);
     }
     const data = await response.json() as { text?: string };
     if (!data.text?.trim()) throw new Error("The agent returned an empty response.");
@@ -1154,6 +1186,10 @@ RULES:
             });
           }
           if (!response.ok) {
+            // Check for quota/plan exhaustion before fallback
+            if (response.status === 429 || response.status === 402 || response.status === 403) {
+              throw new Error("Your plan quota has been exhausted. Please upgrade your plan or add credits to continue using this service.");
+            }
             if (config.lassoKey && (response.status === 429 || response.status === 401)) {
               onProgress?.("Local provider key limit reached; routing via Lasso Gateway…", undefined, "working");
               proposal = await callServerGateway(config.lassoKey);
@@ -1175,6 +1211,10 @@ RULES:
           if (!rawText) throw new Error("The agent returned an empty response.");
         }
       } catch (err: any) {
+        // Check for quota/plan exhaustion before fallback
+        if (err.message?.includes("429") || err.message?.includes("402") || err.message?.includes("403")) {
+          throw new Error("Your plan quota has been exhausted. Please upgrade your plan or add credits to continue using this service.");
+        }
         if (!isLassoKey && config.lassoKey && (err.message?.includes("429") || err.message?.includes("401"))) {
           onProgress?.("Local provider key limit reached; routing via Lasso Gateway…", undefined, "working");
           proposal = await callServerGateway(config.lassoKey);
@@ -1275,7 +1315,12 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
     });
     if (!response.ok) {
       const errData = await response.json().catch(() => ({})) as { error?: string };
-      throw new Error(errData.error || `Lasso Agent Gateway request failed (${response.status}).`);
+      const errorMessage = errData.error || `Lasso Agent Gateway request failed (${response.status})`;
+      // Check for quota/plan exhaustion
+      if (/quota exceeded|quota limit|out of quota|no quota|plan.*limit|plan.*exhausted|credit.*exhausted|billing.*quota|rate.*limit|429|too many requests|request.*limit|insufficient.*credits|no.*credits|credits.*exhausted|payment.*required|subscription.*required|upgrade.*required|upgrade.*plan|billing.*required/i.test(errorMessage)) {
+        throw new Error("Your plan quota has been exhausted. Please upgrade your plan or add credits to continue using this service.");
+      }
+      throw new Error(errorMessage);
     }
     const data = await response.json() as { text?: string };
     if (!data.text?.trim()) throw new Error("The agent returned an empty answer.");
@@ -1308,6 +1353,10 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
       });
     }
     if (!response.ok) {
+      // Check for quota/plan exhaustion before fallback
+      if (response.status === 429 || response.status === 402 || response.status === 403) {
+        throw new Error("Your plan quota has been exhausted. Please upgrade your plan or add credits to continue using this service.");
+      }
       if (config.lassoKey && (response.status === 429 || response.status === 401)) {
         onProgress?.("Local provider key limit reached; routing via Lasso Gateway…", undefined, "working");
         return await callServerGatewayAnswer(config.lassoKey);
