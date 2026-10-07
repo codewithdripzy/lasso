@@ -2,9 +2,41 @@ import fs from "node:fs";
 import path from "node:path";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { AgentConfig, SourceChange } from "./agent";
+import type { AgentConfig, AgentInput, AgentProgress, AgentPrompt, SourceChange } from "./agent";
+import { proposeChanges, runLocalAgentPrompt } from "./agent";
 
 const execAsync = promisify(exec);
+
+const CLI_PROVIDERS = new Set(["claude-code", "codex", "opencode", "cursor"]);
+
+function isCliProvider(provider?: string): boolean {
+  return Boolean(provider && CLI_PROVIDERS.has(provider));
+}
+
+function cliLabel(provider?: string): string {
+  return provider === "claude-code" ? "Claude Code" : provider === "opencode" ? "OpenCode" : provider === "cursor" ? "Cursor" : provider === "codex" ? "Codex" : "CLI agent";
+}
+
+function cliCommand(provider?: string): string {
+  return provider === "claude-code" ? "claude" : provider || "the agent CLI";
+}
+
+// The Lasso Agent Gateway only understands hosted providers, so a CLI selection is
+// normalized to the closest hosted provider/model when we have to fall back to it.
+const GATEWAY_MODELS = {
+  anthropic: "claude-sonnet-4-5-20250929",
+  openai: "gpt-4.1",
+  google: "gemini-2.5-flash",
+};
+
+function gatewayTargetForCli(provider?: string, model?: string): { provider: keyof typeof GATEWAY_MODELS; model: string } {
+  const bare = model && model.includes(":") ? model.slice(model.indexOf(":") + 1) : model || "";
+  if (provider === "codex") return { provider: "openai", model: GATEWAY_MODELS.openai };
+  if (provider === "cursor") return bare.includes("gpt") ? { provider: "openai", model: GATEWAY_MODELS.openai } : { provider: "anthropic", model: GATEWAY_MODELS.anthropic };
+  if (bare.startsWith("openai/") || /^gpt/i.test(bare)) return { provider: "openai", model: GATEWAY_MODELS.openai };
+  if (bare.startsWith("google/") || /^gemini/i.test(bare)) return { provider: "google", model: GATEWAY_MODELS.google };
+  return { provider: "anthropic", model: GATEWAY_MODELS.anthropic };
+}
 
 export interface OneShotThinkingStep {
   title: string;
@@ -70,12 +102,16 @@ function runtimeErrorObservation(pageContext?: any): string {
 }
 
 async function generateConversationalReply(
+  cwd: string,
   prompt: string,
   framework: string,
   config: AgentConfig,
   signal: AbortSignal,
   messages?: ConversationMessage[],
-  pageContext?: any
+  pageContext?: any,
+  onProgress?: AgentProgress,
+  taskId?: string,
+  onPrompt?: (prompt: AgentPrompt) => void
 ): Promise<string> {
   const history = messages?.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n") || "";
 
@@ -109,13 +145,20 @@ ${pageContext ? "You have live access to the browser page context. When the user
 Do not output code changes, file patches, or JSON schemas — just talk to the developer naturally and offer assistance.`;
   const userPrompt = `${history ? `Conversation History:\n${history}\n\n` : ""}${pageObservation}\nUser message: ${prompt}`;
 
+  // CLI agents (Claude Code, Codex, OpenCode, Cursor) authenticate themselves, so no
+  // provider API key is needed. Failures are thrown so the caller can fall back.
+  if (isCliProvider(config.provider)) {
+    const text = await runLocalAgentPrompt(cwd, config, `${systemPrompt}\n\n${userPrompt}`, signal, onProgress, taskId, onPrompt);
+    return text.trim() || "Hello! I'm Lasso, your AI pair programmer. You can ask me questions about your project or tell me what to build, modify, or fix.";
+  }
+
   if (!config.apiKey && config.provider !== "ollama") {
     if (pageContext && (prompt.toLowerCase().includes("landing page") || prompt.toLowerCase().includes("page"))) {
       const headings = (pageContext.domSummary?.headings || []).map((h: any) => `"${h.text}"`).join(", ");
       const sections = (pageContext.domSummary?.sections || []).map((s: any) => s.name).join(", ");
-      return `Looking at your current page ("${pageContext.title}" on ${pageContext.route}):\n\n- **Rendered Sections:** ${sections || "Standard container"}\n- **Key Headings:** ${headings || "None"}\n- **CTAs:** ${(pageContext.domSummary?.buttons || []).join(", ") || "None"}\n\nTo build or refine components, configure your AI API key in settings or ask me what to modify!`;
+      return `Looking at your current page ("${pageContext.title}" on ${pageContext.route}):\n\n- **Rendered Sections:** ${sections || "Standard container"}\n- **Key Headings:** ${headings || "None"}\n- **CTAs:** ${(pageContext.domSummary?.buttons || []).join(", ") || "None"}\n\nTo build or refine components, run \`lasso auth login\` or add an AI provider API key in settings, then ask me what to modify!`;
     }
-    return "Hello! I'm Lasso, your AI pair programmer. You can ask me questions about your project or tell me what to build, modify, or fix.";
+    return "Hello! I'm Lasso, your AI pair programmer. You can ask me questions about your project or tell me what to build, modify, or fix. Run `lasso auth login` (or add a provider API key in settings) to unlock AI replies.";
   }
 
   try {
@@ -250,11 +293,8 @@ export async function runOneShotAgent(
     }
     const targetServerUrl = rawServerUrl.replace(/\/$/, "").replace(/\/api\/v1$/, "");
 
-    const isCliProvider =
-      config.provider === "claude-code" ||
-      config.provider === "codex" ||
-      config.provider === "opencode" ||
-      config.provider === "cursor";
+    const useCliAgent = isCliProvider(config.provider);
+    const gatewayKey = apiKey || config.lassoKey || (config.apiKey && (config.apiKey.startsWith("lss_live_") || config.apiKey.startsWith("lss_")) ? config.apiKey : "") || process.env.LASSO_API_KEY || "";
 
     const hasLocalProviderKey = Boolean(
       config.apiKey &&
@@ -265,12 +305,13 @@ export async function runOneShotAgent(
 
     // If the user does NOT have a local provider key in .env, route to Lasso Agent Gateway on server.
     // When they DO have a local key in .env, it runs locally to save server resources!
-    const shouldRouteToServer = !isCliProvider && !hasLocalProviderKey && Boolean(targetServerUrl);
+    // Ollama always runs locally (the server cannot reach the user's localhost).
+    const shouldRouteToServer = !useCliAgent && config.provider !== "ollama" && !hasLocalProviderKey && Boolean(targetServerUrl);
 
-    if (shouldRouteToServer) {
+    const callGateway = async (target: { provider: AgentConfig["provider"]; model?: string }): Promise<OneShotResult> => {
       try {
         if (!isConversational && !pageContext) {
-          onProgress("thinking", "Connecting to Lasso Agent Gateway...", `Model: ${config.model || "claude-3-7-sonnet"}`);
+          onProgress("thinking", "Connecting to Lasso Agent Gateway...", `Model: ${target.model || "claude-3-7-sonnet"}`);
         }
 
         const endpoint = `${targetServerUrl.replace(/\/$/, "")}/api/v1/agent/session`;
@@ -317,8 +358,8 @@ export async function runOneShotAgent(
             prompt,
             messages,
             model: {
-              id: config.model,
-              provider: config.provider,
+              id: target.model,
+              provider: target.provider,
             },
             context: {
               framework,
@@ -413,12 +454,124 @@ export async function runOneShotAgent(
           error: serverErr instanceof Error ? serverErr.message : "Failed to connect to Lasso Agent Gateway.",
         };
       }
+      return { ok: false, error: "The agent session returned no result." };
+    };
+
+    const gatewayFallback = async (reason: string): Promise<OneShotResult> => {
+      if (!gatewayKey || !targetServerUrl) {
+        return {
+          ok: false,
+          error: `${reason} — run \`${cliCommand(config.provider)}\` once to authenticate it, or run \`lasso auth login\` to use the Lasso gateway.`,
+        };
+      }
+      onProgress("thinking", `${cliLabel(config.provider)} is unavailable; using the Lasso Agent Gateway...`, reason);
+      const target = gatewayTargetForCli(config.provider, config.model);
+      const result = await callGateway({ provider: target.provider, model: target.model });
+      if (!result.ok && result.error) {
+        return { ok: false, error: `${reason} — gateway fallback failed: ${result.error}` };
+      }
+      return result;
+    };
+
+    // CLI agents (Claude Code, Codex, OpenCode, Cursor) authenticate themselves, so they run
+    // locally first instead of demanding a provider API key from settings.
+    if (useCliAgent && !isConversational) {
+      onProgress("thinking", `Running ${cliLabel(config.provider)}...`, `Local CLI agent · ${config.model || ""}`);
+      try {
+        const selectedElement = pageContext?.selectedElement;
+        const input: AgentInput = {
+          taskId,
+          instruction: prompt,
+          model: config.model || "",
+          messages,
+          context: {
+            runtimeErrors: pageContext?.runtimeErrors,
+            screenshots: pageContext?.screenshot ? { full: pageContext.screenshot } : undefined,
+            viewport: pageContext?.viewport,
+          },
+          element: {
+            tag: selectedElement?.tag || "project",
+            group: scope === "component" ? "component" : "workspace",
+            label: selectedElement?.text || "project",
+            html: selectedElement ? `<${selectedElement.tag}> ${selectedElement.text || ""}` : undefined,
+          },
+        };
+        const proposal = await proposeChanges(
+          cwd,
+          input,
+          config,
+          signal,
+          (message, detail, level) => {
+            onProgress(level === "error" ? "error" : "working", message, detail);
+          },
+          (agentPrompt) => {
+            onPrompt({ question: agentPrompt.message, options: agentPrompt.options });
+          }
+        );
+
+        if (signal.aborted) {
+          return { ok: false, error: "Operation was cancelled" };
+        }
+
+        if (!proposal.changes.length) {
+          return { ok: true, summary: proposal.summary, changes: [], thinking: [], totalThinkingTimeMs: Date.now() - startTime };
+        }
+
+        onProgress("review", "Implementation complete", `${proposal.changes.length} files modified`);
+        return {
+          ok: true,
+          summary: proposal.summary,
+          changes: proposal.changes,
+          thinking: [
+            { title: "Analyzed project structure", detail: `Detected ${framework} framework` },
+            { title: `${cliLabel(config.provider)} generated a proposal`, detail: `${proposal.changes.length} file(s)` },
+          ],
+          totalThinkingTimeMs: Date.now() - startTime,
+        };
+      } catch (err) {
+        if (signal.aborted) {
+          return { ok: false, error: "Operation was cancelled" };
+        }
+        return await gatewayFallback(err instanceof Error ? err.message : `${cliLabel(config.provider)} failed`);
+      }
     }
 
+    if (useCliAgent && isConversational) {
+      try {
+        const reply = await generateConversationalReply(
+          cwd,
+          prompt,
+          framework,
+          config,
+          signal,
+          messages,
+          pageContext,
+          (message, detail) => onProgress("thinking", message, detail),
+          taskId,
+          (agentPrompt) => onPrompt({ question: agentPrompt.message, options: agentPrompt.options })
+        );
+        return {
+          ok: true,
+          summary: reply,
+          changes: [],
+          thinking: [],
+          totalThinkingTimeMs: Date.now() - startTime,
+        };
+      } catch (err) {
+        if (signal.aborted) {
+          return { ok: false, error: "Operation was cancelled" };
+        }
+        return await gatewayFallback(err instanceof Error ? err.message : `${cliLabel(config.provider)} failed`);
+      }
+    }
+
+    if (shouldRouteToServer) {
+      return await callGateway({ provider: config.provider, model: config.model });
+    }
 
     // If it's a conversational prompt and server was not used or failed, respond directly without modifying files!
     if (isConversational) {
-      const reply = await generateConversationalReply(prompt, framework, config, signal, messages, pageContext);
+      const reply = await generateConversationalReply(cwd, prompt, framework, config, signal, messages, pageContext);
       return {
         ok: true,
         summary: reply,
@@ -736,11 +889,11 @@ ${fileSnippets || "No existing components found. Create appropriate files in src
 
 Analyze the existing code structure, then respond in JSON:`;
 
-  if (!config.apiKey && config.provider !== "ollama") {
+  if (!config.apiKey && config.provider !== "ollama" && !isCliProvider(config.provider)) {
     return {
       steps: [],
       isConversational: true,
-      reply: "Please configure an AI provider API key or model in settings to enable code generation.",
+      reply: "I couldn't generate code because no AI provider is available. Run `lasso auth login` to use your Lasso account, or add an AI provider API key in settings, then try again.",
     };
   }
 

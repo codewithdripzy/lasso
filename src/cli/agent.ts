@@ -12,7 +12,7 @@ export type SourceChange = {
   newString: string;
 };
 
-type AgentInput = {
+export type AgentInput = {
   taskId?: string;
   instruction: string;
   model: string;
@@ -803,6 +803,12 @@ function runLocalCommand(
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
+    // Headless invocations: codex/opencode/cursor read stdin until EOF and otherwise hang
+    // until our timeout, so close stdin right away. Prompt answers can no longer be piped
+    // back in, which is fine — none of these command lines are interactive. Swallow the
+    // EPIPE that a late write would raise so it cannot crash the CLI.
+    child.stdin?.on("error", () => {});
+    child.stdin?.end();
     const label = provider === "opencode" ? "OpenCode" : provider === "codex" ? "Codex" : provider === "cursor" ? "Cursor" : "Claude Code";
     let stdout = "";
     let stderr = "";
@@ -920,6 +926,24 @@ async function proposeWithLocalAgent(cwd: string, instruction: string, context: 
   const result = await runLocalCommand(cwd, command, args, config.provider as LocalAgent, signal, onProgress, taskId, onPrompt);
   if (result.exitCode !== 0) throw new Error(localAgentError(command, result.stderr, result.exitCode));
   return extractLocalAgentProposal(result.stdout, config.provider as LocalAgent);
+}
+
+// Runs a local coding-agent CLI (claude/codex/opencode/cursor) and returns its final text.
+// The CLI authenticates itself (its own login), so no provider API key is required.
+export async function runLocalAgentPrompt(
+  cwd: string,
+  config: AgentConfig,
+  prompt: string,
+  signal?: AbortSignal,
+  onProgress?: AgentProgress,
+  taskId?: string,
+  onPrompt?: AgentPromptHandler
+): Promise<string> {
+  const provider = config.provider as LocalAgent;
+  const local = localCommand(provider, config.model, prompt);
+  const result = await runLocalCommand(cwd, local.command, local.args, provider, signal, onProgress, taskId, onPrompt);
+  if (result.exitCode !== 0) throw new Error(localAgentError(local.command, result.stderr, result.exitCode));
+  return extractLocalAgentText(result.stdout, provider);
 }
 
 export async function proposeChanges(cwd: string, input: AgentInput, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress, onPrompt?: AgentPromptHandler) {
@@ -1229,10 +1253,7 @@ export async function answerQuestion(cwd: string, input: AgentAnswer, config: Ag
   const prompt = `Answer the user's question conversationally and directly. Do not propose file changes and do not return JSON. If the question is about the selected UI, use the selection and source context below.\n\nUser question:\n${input.question}\n\nSelected element:\n${JSON.stringify(input.element, null, 2)}\n\nVisual context:\n${JSON.stringify({ ...input.context, screenshots: undefined }, null, 2)}\n\nConversation:\n${history}\n\nRelevant source context:\n${context || "No matching source context was found."}`;
 
   if (config.provider === "claude-code" || config.provider === "codex" || config.provider === "opencode" || config.provider === "cursor") {
-    const local = localCommand(config.provider as LocalAgent, config.model, prompt);
-    const result = await runLocalCommand(cwd, local.command, local.args, config.provider as LocalAgent, signal, onProgress, input.taskId, onPrompt);
-    if (result.exitCode !== 0) throw new Error(localAgentError(local.command, result.stderr, result.exitCode));
-    return extractLocalAgentText(result.stdout, config.provider as LocalAgent).trim();
+    return (await runLocalAgentPrompt(cwd, config, prompt, signal, onProgress, input.taskId, onPrompt)).trim();
   }
 
   const callServerGatewayAnswer = async (gatewayKey: string): Promise<string> => {

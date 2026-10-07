@@ -592,7 +592,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         taskControllers.set(msg.taskId, controller);
         let selectedConfig: AgentConfig;
         if (localProvider) {
-          selectedConfig = { provider: cliProvider, model: msg.model };
+          selectedConfig = { provider: cliProvider, model: msg.model, lassoKey: resolvedLassoKey, serverUrl: collabConfig?.serverUrl || serverUrlFrom(fileEnv) };
         } else {
           const requestedProvider = (msg.provider || agentConfig!.provider) as AgentConfig["provider"];
           const providerLocalKey = localProviderKeys[requestedProvider];
@@ -637,7 +637,7 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         }
         let selectedConfig: AgentConfig;
         if (localProvider) {
-          selectedConfig = { provider: cliProvider, model: msg.model };
+          selectedConfig = { provider: cliProvider, model: msg.model, lassoKey: resolvedLassoKey, serverUrl: collabConfig?.serverUrl || serverUrlFrom(fileEnv) };
         } else {
           const requestedProvider = (msg.provider || agentConfig!.provider) as AgentConfig["provider"];
           const providerLocalKey = localProviderKeys[requestedProvider];
@@ -776,13 +776,18 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         const model = msg.model || agentConfig?.model || (provider === "nvidia" ? "nvidia/llama-3.1-nemotron-70b-instruct" : provider === "google" ? "gemini-2.5-flash" : "claude-3-7-sonnet");
         const localKey = localProviderKeys[provider];
 
+        const serverUrl = collabConfig?.serverUrl || serverUrlFrom(fileEnv);
+        const targetApiUrl = (serverUrl.includes("collab.lasso.byorello.space") ? "https://api.lasso.byorello.space" : serverUrl).replace(/\/api\/v1\/?$/, "");
+
         const selectedConfig: AgentConfig = localProvider
-          ? { provider: cliProvider, model: msg.model || "claude-code:sonnet" }
+          ? { provider: cliProvider, model: msg.model || "claude-code:sonnet", lassoKey: resolvedLassoKey, serverUrl: targetApiUrl }
           : {
               ...(agentConfig || {}),
               provider,
               model,
               apiKey: localKey || apiKey,
+              lassoKey: resolvedLassoKey,
+              serverUrl: targetApiUrl,
               baseUrl: provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : provider === "ollama" ? `${(process.env.OLLAMA_BASE_URL || fileEnv.OLLAMA_BASE_URL || "http://localhost:11434/api").replace(/\/api\/?$/, "")}/v1` : undefined,
             };
 
@@ -792,8 +797,6 @@ export function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | nu
         socket.send(JSON.stringify({ type: "agent_status", taskId, status: "thinking", message: "Planning your request..." }));
 
         const { runOneShotAgent } = await import("./oneshot.js");
-        const serverUrl = collabConfig?.serverUrl || serverUrlFrom(fileEnv);
-        const targetApiUrl = (serverUrl.includes("collab.lasso.byorello.space") ? "https://api.lasso.byorello.space" : serverUrl).replace(/\/api\/v1\/?$/, "");
         
         runOneShotAgent(
           cwd,

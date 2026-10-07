@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **One-shot generation no longer demands a provider API key when a local agent is
+  selected.** Picking Claude Code, Codex, OpenCode, or Cursor for a one-shot request
+  used to bail out with *"Please configure an AI provider API key or model in settings
+  to enable code generation."* Those agents authenticate themselves, so the request now
+  runs through the local CLI first. If the local CLI cannot run (not installed, not
+  signed in, out of credits) and a Lasso key is available, the request falls back to the
+  Lasso Agent Gateway with a hosted provider/model it understands (`claude-code`/`cursor`
+  → Anthropic, `codex` → OpenAI, `opencode` by model prefix). Without a key, the error
+  now names the CLI command and `lasso auth login` instead of pointing at settings.
+- **Local agents no longer hang on stdin.** `codex exec` and `opencode run` read stdin
+  until EOF, so every local-agent request stalled until the 5-minute timeout. Stdin is
+  closed as soon as the process spawns (none of these command lines are interactive).
+- **Ollama requests stay local.** One-shot requests for Ollama are no longer routed to
+  the gateway, which cannot reach the user's `localhost`.
+
 ### Changed
 
 - **`lasso init` registers against the Lasso API, not the realtime server.**
