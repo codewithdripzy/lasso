@@ -287,8 +287,8 @@ export function connectBridge() {
           let result = message.message || "Done.";
 
           // Handle validation results
-          if (message.type === "applied" && message.validation) {
-            const { passed, errors, command } = message.validation;
+          if (message.type === "applied" && (message as any).validation) {
+            const { passed, errors, command } = (message as any).validation;
             if (!passed && errors.length > 0) {
               result = `${message.message}\n\n⚠️ Build validation failed after running \`${command}\`:\n\n${errors.slice(0, 5).join("\n")}${errors.length > 5 ? `\n...and ${errors.length - 5} more errors` : ""}\n\nThe agent is automatically attempting to fix the build errors...`;
             } else if (passed) {
