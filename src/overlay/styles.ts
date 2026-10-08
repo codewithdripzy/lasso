@@ -3100,7 +3100,6 @@ export function buildStyles(): string {
     .lasso-task-row-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; }
     .lasso-task-row-copy small, .lasso-task-message { color: var(--lo-text-3); font-size: 11px; }
     .lasso-task-review-label { margin-left: auto; padding: 4px 7px; border-radius: var(--lo-radius-full); background: color-mix(in srgb, #fbbf24 16%, transparent); color: #fbbf24; font-size: 10px; font-weight: 600; cursor: pointer; }
-    .lasso-task-fix-label { margin-left: auto; padding: 4px 7px; border-radius: var(--lo-radius-full); background: color-mix(in srgb, #f87171 16%, transparent); color: #f87171; font-size: 10px; font-weight: 600; cursor: pointer; }
     .lasso-task-stop { margin-left: auto; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 0; border-radius: var(--lo-radius-full); background: color-mix(in srgb, var(--lo-error) 20%, transparent); color: var(--lo-error); font-size: 14px; font-weight: 600; cursor: pointer; transition: background 120ms ease, color 120ms ease; }
     .lasso-task-stop:hover { background: var(--lo-error); color: #ffffff; }
     .lasso-task-empty { padding: 25px 10px; color: var(--lo-text-3); font-size: 12px; text-align: center; }

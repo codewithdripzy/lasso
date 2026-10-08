@@ -239,8 +239,7 @@ function renderTasks(): void {
       button.type = "button";
       button.className = `lasso-task-row${task.id === state.activeTaskId ? " active" : ""}`;
       const isRunning = task.status === "queued" || task.status === "thinking" || task.status === "working";
-      const hasBuildError = state.lastBuildError?.taskId === task.id;
-      button.innerHTML = `<span class="lasso-task-status ${task.status}"></span><span class="lasso-task-row-copy"><strong></strong><small>${statusLabel[task.status]}</small></span>${task.status === "review" ? '<span class="lasso-task-review-label">Review</span>' : ""}${hasBuildError ? '<span class="lasso-task-fix-label">Fix build</span>' : ""}${isRunning ? '<button class="lasso-task-stop" type="button" aria-label="Stop task">×</button>' : ""}`;
+      button.innerHTML = `<span class="lasso-task-status ${task.status}"></span><span class="lasso-task-row-copy"><strong></strong><small>${statusLabel[task.status]}</small></span>${task.status === "review" ? '<span class="lasso-task-review-label">Review</span>' : ""}${isRunning ? '<button class="lasso-task-stop" type="button" aria-label="Stop task">×</button>' : ""}`;
       button.querySelector("strong")!.textContent = task.instruction;
       button.addEventListener("click", () => selectAgentTask(task.id));
       if (task.status === "review") {
@@ -248,16 +247,6 @@ function renderTasks(): void {
         review.addEventListener("click", (event) => {
           event.stopPropagation();
           requestAgentTaskReview(task.id);
-        });
-      }
-      if (hasBuildError) {
-        const fixBtn = button.querySelector<HTMLSpanElement>(".lasso-task-fix-label")!;
-        fixBtn.addEventListener("click", (event) => {
-          event.stopPropagation();
-          const buildError = state.lastBuildError;
-          if (buildError) {
-            bridge.send({ type: "retry_build_fix", taskId: task.id, buildErrors: buildError.errors, buildCommand: buildError.command });
-          }
         });
       }
       if (isRunning) {

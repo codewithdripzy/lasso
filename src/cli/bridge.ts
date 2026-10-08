@@ -34,8 +34,7 @@ export type BridgeMessage =
   | { type: "git_push" }
   | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string }
   | { type: "transcribe"; requestId: string; audio: string; mimeType?: string; language?: string }
-  | { type: "oneshot"; prompt: string; scope?: "project" | "component"; model?: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli"; messages?: Array<{ role: "user" | "assistant"; content: string }>; taskId?: string; pageContext?: any }
-  | { type: "retry_build_fix"; taskId: string; buildErrors: string[]; buildCommand: string };
+  | { type: "oneshot"; prompt: string; scope?: "project" | "component"; model?: string; provider?: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli"; messages?: Array<{ role: "user" | "assistant"; content: string }>; taskId?: string; pageContext?: any };
 
 type ModelOption = { id: string; label: string; provider: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli"; locked?: boolean; lockedReason?: string };
 type PageEntry = { name: string; path: string; type: "directory" | "file" };
@@ -183,6 +182,197 @@ function proposalMatchesCurrentSource(cwd: string, changes: SourceChange[]): boo
   }
 }
 
+async function triggerBuildFix(
+  cwd: string,
+  taskId: string,
+  buildErrors: string[],
+  buildCommand: string,
+  originalChanges: SourceChange[],
+  resolvedLassoKey: string | undefined,
+  agentConfig: AgentConfig | null,
+  collabConfig: CollabConfig | null,
+  socket: WebSocket,
+  taskControllers: Map<string, AbortController>,
+  taskSnapshots: Map<string, Array<{ filePath: string; content: string | null }>>,
+  buildErrorContext: Map<string, { errors: string[]; command: string; originalChanges: SourceChange[]; retryCount: number }>
+): Promise<void> {
+  const MAX_RETRIES = 3;
+  const context = buildErrorContext.get(taskId);
+  if (!context) return;
+  
+  context.retryCount += 1;
+  
+  if (context.retryCount > MAX_RETRIES) {
+    // Max retries reached - revert changes and show error
+    for (const snapshot of taskSnapshots.get(taskId) || []) {
+      if (snapshot.content === null) {
+        if (fs.existsSync(snapshot.filePath)) fs.unlinkSync(snapshot.filePath);
+      } else {
+        fs.writeFileSync(snapshot.filePath, snapshot.content);
+      }
+    }
+    taskSnapshots.delete(taskId);
+    buildErrorContext.delete(taskId);
+    
+    socket.send(JSON.stringify({
+      type: "agent_status",
+      taskId,
+      status: "error",
+      message: `⚠️ Build validation failed after ${MAX_RETRIES} attempts. The change was reverted. Errors:\n${buildErrors.slice(0, 5).join("\n")}${buildErrors.length > 5 ? `\n... and ${buildErrors.length - 5} more errors` : ""}`
+    }));
+    return;
+  }
+  
+  // Re-apply the original changes
+  try {
+    const planned = new Map<string, { filePath: string; content: string; exists: boolean; start: number; end: number; oldString: string; newString: string }[]>();
+    for (const change of originalChanges) {
+      const isNew = !change.oldString;
+      const filePath = resolveProposedFile(cwd, change.filePath, true);
+      const exists = fs.existsSync(filePath);
+      const content = exists ? fs.readFileSync(filePath, "utf8") : "";
+      const prepared = (!exists || isNew)
+        ? { start: 0, end: content.length, oldString: content, newString: change.newString }
+        : prepareChange(content, change);
+      const fileChanges = planned.get(filePath) || [];
+      if (fileChanges.some((item) => prepared.start < item.end && item.start < prepared.end)) {
+        throw new Error(`Could not safely apply ${change.filePath}. Proposed changes overlap.`);
+      }
+      fileChanges.push({ filePath, content, exists, ...prepared });
+      planned.set(filePath, fileChanges);
+    }
+
+    for (const [filePath, changes] of planned) {
+      const exists = changes[0]!.exists;
+      const content = changes[0]!.content;
+      const nextContent = exists
+        ? [...changes]
+            .sort((a, b) => b.start - a.start)
+            .reduce((value, change) => value.slice(0, change.start) + change.newString + value.slice(change.end), content)
+        : changes[0]!.newString;
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, nextContent);
+    }
+  } catch (applyError) {
+    socket.send(JSON.stringify({
+      type: "agent_status",
+      taskId,
+      status: "error",
+      message: `Failed to re-apply original changes: ${applyError instanceof Error ? applyError.message : "Unknown error"}`
+    }));
+    return;
+  }
+
+  // Run agent to fix build errors
+  const { runOneShotAgent } = await import("./oneshot.js");
+  const fixPrompt = `The previous change caused build errors. Please fix them. Build command: ${buildCommand}\n\nBuild errors:\n${buildErrors.slice(0, 10).join("\n")}${buildErrors.length > 10 ? `\n... and ${buildErrors.length - 10} more errors` : ""}\n\nFix these errors by making minimal changes to the files. Attempt ${context.retryCount} of ${MAX_RETRIES}.`;
+
+  const controller = new AbortController();
+  taskControllers.set(taskId, controller);
+
+  socket.send(JSON.stringify({ type: "agent_status", taskId, status: "thinking", message: `Fixing build errors (attempt ${context.retryCount}/${MAX_RETRIES})...` }));
+
+  try {
+    const result = await runOneShotAgent(
+      cwd,
+      fixPrompt,
+      "project",
+      { provider: "google", model: "gemini-2.5-flash", lassoKey: resolvedLassoKey, serverUrl: "https://api.lasso.byorello.space" },
+      controller.signal,
+      (status: "thinking" | "working" | "review" | "error" | "stopped", message: string, detail?: string) => {
+        if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
+          socket.send(JSON.stringify({ type: "agent_status", taskId, status, message, detail }));
+        }
+      },
+      (prompt: { question: string; options?: string[] }) => {
+        if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
+          socket.send(JSON.stringify({ type: "agent_prompt", taskId, prompt }));
+        }
+      },
+      undefined,
+      "https://api.lasso.byorello.space",
+      resolvedLassoKey || agentConfig?.apiKey || collabConfig?.apiKey,
+      taskId,
+      undefined
+    );
+
+    if (result.ok && result.changes && result.changes.length > 0) {
+      // Apply the fix
+      const snapshots: Array<{ filePath: string; content: string | null }> = [];
+      const planned = new Map<string, { filePath: string; content: string; exists: boolean; start: number; end: number; oldString: string; newString: string }[]>();
+      for (const change of result.changes) {
+        const isNew = !change.oldString;
+        const filePath = resolveProposedFile(cwd, change.filePath, true);
+        const exists = fs.existsSync(filePath);
+        const content = exists ? fs.readFileSync(filePath, "utf8") : "";
+        const prepared = (!exists || isNew)
+          ? { start: 0, end: content.length, oldString: content, newString: change.newString }
+          : prepareChange(content, change);
+        const fileChanges = planned.get(filePath) || [];
+        if (fileChanges.some((item) => prepared.start < item.end && item.start < prepared.end)) {
+          throw new Error(`Could not safely apply ${change.filePath}. Proposed changes overlap.`);
+        }
+        fileChanges.push({ filePath, content, exists, ...prepared });
+        planned.set(filePath, fileChanges);
+      }
+
+      taskSnapshots.set(taskId, snapshots);
+      for (const [filePath, changes] of planned) {
+        const exists = changes[0]!.exists;
+        const content = changes[0]!.content;
+        snapshots.push({ filePath, content: exists ? content : null });
+        const nextContent = exists
+          ? [...changes]
+              .sort((a, b) => b.start - a.start)
+              .reduce((value, change) => value.slice(0, change.start) + change.newString + value.slice(change.end), content)
+          : changes[0]!.newString;
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, nextContent);
+      }
+
+      // Validate the fix
+      const validation = await validateBuild(cwd);
+      
+      if (validation.passed) {
+        // Build fixed!
+        buildErrorContext.delete(taskId);
+        socket.send(JSON.stringify({
+          type: "applied",
+          taskId,
+          message: `Build errors fixed after ${context.retryCount} attempt${context.retryCount > 1 ? "s" : ""}. ${result.changes.length} file${result.changes.length === 1 ? "" : "s"} updated.`,
+          validation
+        }));
+      } else {
+        // Still failing - trigger another retry
+        socket.send(JSON.stringify({
+          type: "agent_status",
+          taskId,
+          status: "working",
+          message: `⚠️ Build still failing. Retrying...`,
+          detail: `Build command: ${validation.command}\nErrors:\n${validation.errors.slice(0, 5).join("\n")}${validation.errors.length > 5 ? `\n... and ${validation.errors.length - 5} more errors` : ""}`
+        }));
+        
+        // Update context with new errors
+        buildErrorContext.set(taskId, {
+          errors: validation.errors,
+          command: validation.command,
+          originalChanges: originalChanges,
+          retryCount: context.retryCount
+        });
+        
+        await triggerBuildFix(cwd, taskId, validation.errors, validation.command, originalChanges, resolvedLassoKey, agentConfig, collabConfig, socket, taskControllers, taskSnapshots, buildErrorContext);
+      }
+    } else {
+      // Agent failed to produce a fix
+      socket.send(JSON.stringify({ type: "agent_status", taskId, status: "error", message: result.error || "Failed to fix build errors" }));
+    }
+  } catch (error: unknown) {
+    socket.send(JSON.stringify({ type: "agent_status", taskId, status: "error", message: error instanceof Error ? error.message : "Build fix encountered an error" }));
+  } finally {
+    if (taskControllers.get(taskId) === controller) taskControllers.delete(taskId);
+  }
+}
+
 async function validateBuild(cwd: string): Promise<{ passed: boolean; errors: string[]; command: string }> {
   const pkgPath = path.join(cwd, "package.json");
   if (!fs.existsSync(pkgPath)) {
@@ -300,7 +490,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   const editRequests = new Map<string, Extract<BridgeMessage, { type: "edit" }>>();
   const editConfigs = new Map<string, AgentConfig>();
   const reviewRefreshAttempts = new Map<string, number>();
-  const buildErrorContext = new Map<string, { errors: string[]; command: string; originalChanges: SourceChange[] }>();
+  const buildErrorContext = new Map<string, { errors: string[]; command: string; originalChanges: SourceChange[]; retryCount: number }>();
   const envRoots = [cwd, path.join(cwd, "web"), path.join(cwd, "server")];
   const fileEnv = envRoots.reduce<Record<string, string>>((values, root) => ({
     ...values,
@@ -1041,32 +1231,26 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
           const validation = await validateBuild(cwd);
           
           if (!validation.passed) {
-            // Build failed - revert changes and store error context for retry
-            for (const snapshot of taskSnapshots.get(msg.taskId) || []) {
-              if (snapshot.content === null) {
-                if (fs.existsSync(snapshot.filePath)) fs.unlinkSync(snapshot.filePath);
-              } else {
-                fs.writeFileSync(snapshot.filePath, snapshot.content);
-              }
-            }
-            taskSnapshots.delete(msg.taskId);
-            
+            // Build failed - automatically trigger retry with build error context
             const errorContext = validation.errors.slice(0, 10).join("\n");
             socket.send(JSON.stringify({
               type: "agent_status",
               taskId: msg.taskId,
-              status: "error",
-              message: `⚠️ Build validation failed after running \`${validation.command}\`. The change was reverted. Errors:\n${errorContext}${validation.errors.length > 10 ? `\n... and ${validation.errors.length - 10} more errors` : ""}\n\nClick "Fix build errors" to have the agent retry with the build error context.`,
-              buildErrors: validation.errors,
-              buildCommand: validation.command
+              status: "working",
+              message: `⚠️ Build validation failed. Attempting to fix build errors automatically...`,
+              detail: `Build command: ${validation.command}\nErrors:\n${errorContext}${validation.errors.length > 10 ? `\n... and ${validation.errors.length - 10} more errors` : ""}`
             }));
             
             // Store context for retry
             buildErrorContext.set(msg.taskId, {
               errors: validation.errors,
               command: validation.command,
-              originalChanges: msg.changes
+              originalChanges: msg.changes,
+              retryCount: 0
             });
+            
+            // Trigger automatic build fix
+            await triggerBuildFix(cwd, msg.taskId, validation.errors, validation.command, msg.changes, resolvedLassoKey, agentConfig, collabConfig, socket, taskControllers, taskSnapshots, buildErrorContext);
             return;
           }
           
@@ -1099,114 +1283,6 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
             socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "error", message }));
           }
         }
-      } else if (msg.type === "retry_build_fix") {
-        // Trigger agent to fix build errors
-        const errorContext = buildErrorContext.get(msg.taskId);
-        if (!errorContext) {
-          socket.send(JSON.stringify({
-            type: "agent_status",
-            taskId: msg.taskId,
-            status: "error",
-            message: "No build error context found for this task."
-          }));
-          return;
-        }
-
-        // First, re-apply the original changes
-        try {
-          const snapshots: Array<{ filePath: string; content: string | null }> = [];
-          const planned = new Map<string, { filePath: string; content: string; exists: boolean; start: number; end: number; oldString: string; newString: string }[]>();
-          for (const change of errorContext.originalChanges) {
-            const isNew = !change.oldString;
-            const filePath = resolveProposedFile(cwd, change.filePath, true);
-            const exists = fs.existsSync(filePath);
-            const content = exists ? fs.readFileSync(filePath, "utf8") : "";
-            const prepared = (!exists || isNew)
-              ? { start: 0, end: content.length, oldString: content, newString: change.newString }
-              : prepareChange(content, change);
-            const fileChanges = planned.get(filePath) || [];
-            if (fileChanges.some((item) => prepared.start < item.end && item.start < prepared.end)) {
-              throw new Error(`Could not safely apply ${change.filePath}. Proposed changes overlap.`);
-            }
-            fileChanges.push({ filePath, content, exists, ...prepared });
-            planned.set(filePath, fileChanges);
-          }
-
-          taskSnapshots.set(msg.taskId, snapshots);
-          for (const [filePath, changes] of planned) {
-            const exists = changes[0]!.exists;
-            const content = changes[0]!.content;
-            snapshots.push({ filePath, content: exists ? content : null });
-            const nextContent = exists
-              ? [...changes]
-                  .sort((a, b) => b.start - a.start)
-                  .reduce((value, change) => value.slice(0, change.start) + change.newString + value.slice(change.end), content)
-              : changes[0]!.newString;
-            fs.mkdirSync(path.dirname(filePath), { recursive: true });
-            fs.writeFileSync(filePath, nextContent);
-          }
-        } catch (applyError) {
-          socket.send(JSON.stringify({
-            type: "agent_status",
-            taskId: msg.taskId,
-            status: "error",
-            message: `Failed to re-apply original changes: ${applyError instanceof Error ? applyError.message : "Unknown error"}`
-          }));
-          return;
-        }
-
-        const { runOneShotAgent } = await import("./oneshot.js");
-        const fixPrompt = `The previous change caused build errors. Please fix them. Build command: ${errorContext.command}\n\nBuild errors:\n${errorContext.errors.slice(0, 10).join("\n")}${errorContext.errors.length > 10 ? `\n... and ${errorContext.errors.length - 10} more errors` : ""}\n\nFix these errors by making minimal changes to the files.`;
-
-        const controller = new AbortController();
-        taskControllers.set(msg.taskId, controller);
-
-        socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "thinking", message: "Fixing build errors..." }));
-
-        runOneShotAgent(
-          cwd,
-          fixPrompt,
-          "project",
-          { provider: "google", model: "gemini-2.5-flash", lassoKey: resolvedLassoKey, serverUrl: "https://api.lasso.byorello.space" },
-          controller.signal,
-          (status: "thinking" | "working" | "review" | "error" | "stopped", message: string, detail?: string) => {
-            if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
-              socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status, message, detail }));
-            }
-          },
-          (prompt: { question: string; options?: string[] }) => {
-            if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
-              socket.send(JSON.stringify({ type: "agent_prompt", taskId: msg.taskId, prompt }));
-            }
-          },
-          undefined,
-          "https://api.lasso.byorello.space",
-          resolvedLassoKey || agentConfig?.apiKey || collabConfig?.apiKey,
-          msg.taskId,
-          undefined
-        ).then((result) => {
-          if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
-            if (result.ok && result.changes && result.changes.length > 0) {
-              socket.send(JSON.stringify({
-                type: "agent_status",
-                taskId: msg.taskId,
-                status: "review",
-                message: result.summary,
-                changes: result.changes,
-                isBuildFix: true
-              }));
-            } else {
-              socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "error", message: result.error || "Failed to fix build errors" }));
-            }
-          }
-        }).catch((error: unknown) => {
-          if (!controller.signal.aborted && socket.readyState === socket.OPEN) {
-            socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "error", message: error instanceof Error ? error.message : "Build fix encountered an error" }));
-          }
-        }).finally(() => {
-          if (taskControllers.get(msg.taskId) === controller) taskControllers.delete(msg.taskId);
-          buildErrorContext.delete(msg.taskId);
-        });
       } else if (msg.type === "undo") {
         const snapshots = taskSnapshots.get(msg.taskId || "") || [];
         for (const snapshot of snapshots) {
