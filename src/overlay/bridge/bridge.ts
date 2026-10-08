@@ -284,7 +284,18 @@ export function connectBridge() {
             recordTaskActivity(task.id, message.message || "Done.");
           }
           const isPromptTask = !taskId || taskId === state.promptTaskId;
-          const result = message.message || "Done.";
+          let result = message.message || "Done.";
+
+          // Handle validation results
+          if (message.type === "applied" && message.validation) {
+            const { passed, errors, command } = message.validation;
+            if (!passed && errors.length > 0) {
+              result = `${message.message}\n\n⚠️ Build validation failed after running \`${command}\`:\n\n${errors.slice(0, 5).join("\n")}${errors.length > 5 ? `\n...and ${errors.length - 5} more errors` : ""}\n\nYou may need to manually fix these errors or undo the change.`;
+            } else if (passed) {
+              result = `${message.message}\n\n✅ Build validation passed.`;
+            }
+          }
+
           void notifyAgent(message.type === "applied" ? "Changes applied" : "Change undone", result);
           appendChat("assistant", result, taskId);
           if (task?.element) releaseHeldLock(elementKey(task.element));

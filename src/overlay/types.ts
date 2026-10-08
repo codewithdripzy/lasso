@@ -4,6 +4,12 @@ export type PendingChange = {
   newString: string;
 };
 
+export type BuildValidation = {
+  passed: boolean;
+  errors: string[];
+  command: string;
+};
+
 export type AgentTaskStatus = "queued" | "thinking" | "working" | "review" | "complete" | "error" | "stopped";
 
 export type AgentTask = {

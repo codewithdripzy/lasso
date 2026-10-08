@@ -51,7 +51,7 @@ export type ServerBridgeMessage =
   | { type: "page_created"; path: string; error?: string }
   | { type: "page_folder_created"; path: string; error?: string }
   | { type: "assistant_message"; taskId?: string; message: string }
-  | { type: "applied"; taskId?: string; message: string }
+  | { type: "applied"; taskId?: string; message: string; validation?: { passed: boolean; errors: string[]; command: string } }
   | { type: "undone"; taskId?: string; message: string }
   | { type: "transcribe_result"; requestId: string; success: boolean; text?: string; provider?: string; error?: string };
 
@@ -179,6 +179,99 @@ function proposalMatchesCurrentSource(cwd: string, changes: SourceChange[]): boo
     return true;
   } catch {
     return false;
+  }
+}
+
+async function validateBuild(cwd: string): Promise<{ passed: boolean; errors: string[]; command: string }> {
+  const pkgPath = path.join(cwd, "package.json");
+  if (!fs.existsSync(pkgPath)) {
+    return { passed: true, errors: [], command: "none" };
+  }
+
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+  const scripts = pkg.scripts || {};
+
+  // Determine which build command to run
+  let buildCommand = "";
+  if (scripts.build) {
+    buildCommand = "build";
+  } else if (scripts["build:cli"] || scripts["build:overlay"]) {
+    // Monorepo with separate build scripts
+    buildCommand = scripts["build:cli"] ? "build:cli" : "build:overlay";
+  } else if (scripts.compile) {
+    buildCommand = "compile";
+  } else if (scripts.check) {
+    buildCommand = "check";
+  } else if (scripts.lint) {
+    buildCommand = "lint";
+  } else if (scripts.typecheck) {
+    buildCommand = "typecheck";
+  } else if (fs.existsSync(path.join(cwd, "tsconfig.json"))) {
+    buildCommand = "tsc"; // Run TypeScript compiler directly
+  } else {
+    // No suitable build command found
+    return { passed: true, errors: [], command: "none" };
+  }
+
+  try {
+    const result = await execFileAsync(
+      buildCommand === "tsc" ? "tsc" : "npm",
+      buildCommand === "tsc" ? [] : ["run", buildCommand],
+      { cwd, maxBuffer: 1024 * 1024 * 10, timeout: 60000 }
+    );
+
+    const output = result.stdout + result.stderr;
+    const errors: string[] = [];
+
+    // Parse TypeScript errors
+    if (output.includes("error TS")) {
+      const tsErrors = output.match(/error TS\d+.*$/gm) || [];
+      errors.push(...tsErrors);
+    }
+
+    // Parse general build errors
+    if (output.includes("Error:") || output.includes("error:")) {
+      const lines = output.split("\n");
+      for (const line of lines) {
+        if (line.includes("Error:") || line.includes("error:")) {
+          errors.push(line.trim());
+        }
+      }
+    }
+
+    return {
+      passed: errors.length === 0,
+      errors,
+      command: buildCommand === "tsc" ? "tsc" : `npm run ${buildCommand}`
+    };
+  } catch (error: any) {
+    const stderr = error.stderr || "";
+    const errors: string[] = [];
+
+    if (stderr.includes("error TS")) {
+      const tsErrors = stderr.match(/error TS\d+.*$/gm) || [];
+      errors.push(...tsErrors);
+    }
+
+    if (stderr.includes("Error:") || stderr.includes("error:")) {
+      const lines = stderr.split("\n");
+      for (const line of lines) {
+        if (line.includes("Error:") || line.includes("error:")) {
+          errors.push(line.trim());
+        }
+      }
+    }
+
+    // If no specific errors found, include the full stderr
+    if (errors.length === 0 && stderr) {
+      errors.push(stderr);
+    }
+
+    return {
+      passed: false,
+      errors,
+      command: buildCommand === "tsc" ? "tsc" : `npm run ${buildCommand}`
+    };
   }
 }
 
@@ -941,7 +1034,15 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
             fs.mkdirSync(path.dirname(filePath), { recursive: true });
             fs.writeFileSync(filePath, nextContent);
           }
-          socket.send(JSON.stringify({ type: "applied", taskId: msg.taskId, message: `${msg.changes.length} file${msg.changes.length === 1 ? "" : "s"} updated. Your dev server will reload.` }));
+
+          // Run build validation after applying changes
+          const validation = await validateBuild(cwd);
+          socket.send(JSON.stringify({
+            type: "applied",
+            taskId: msg.taskId,
+            message: `${msg.changes.length} file${msg.changes.length === 1 ? "" : "s"} updated. Your dev server will reload.`,
+            validation
+          }));
         } catch (error) {
           // Validation happens before writes, but restore this task's snapshot
           // if a filesystem error occurs during the write phase.
