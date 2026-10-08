@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import type { AgentConfig, AgentInput, AgentProgress, AgentPrompt, SourceChange } from "./agent";
 import { proposeChanges, runLocalAgentPrompt } from "./agent";
 import { loadCredentials } from "./auth";
+import { detectFramework } from "./utils/framework";
 
 const execAsync = promisify(exec);
 
@@ -407,6 +408,11 @@ export async function runOneShotAgent(
               dependencies: projectStructure?.dependencies,
               devDependencies: projectStructure?.devDependencies,
               files: projectStructure?.files.slice(0, 100) || [],
+              directories: projectStructure?.directories.slice(0, 50) || [],
+              sourceRoot: projectStructure?.sourceRoot,
+              appRouter: projectStructure?.appRouter,
+              pagesRouter: projectStructure?.pagesRouter,
+              multipleAppDirs: projectStructure?.multipleAppDirs,
               sourceHints: Object.keys(sourceHints).length > 0 ? sourceHints : undefined,
               currentRoute: pageContext?.route || "/",
               pageContext,
@@ -633,7 +639,7 @@ export async function runOneShotAgent(
 
     // Phase 2: Local agent generation fallback for code changes
     onProgress("thinking", "Generating implementation plan...", `Planning components for ${prompt}`);
-    const plan = await generatePlan(cwd, prompt, scope, projectStructure || { framework: "", hasTypeScript: false, hasTailwind: false, hasReact: false, hasNext: false, hasVite: false, dependencies: [], devDependencies: [], files: [] }, framework || "", config, signal, messages, pageContext);
+    const plan = await generatePlan(cwd, prompt, scope, projectStructure || { framework: "", hasTypeScript: false, hasTailwind: false, hasReact: false, hasNext: false, hasVite: false, dependencies: [], devDependencies: [], files: [], directories: [], sourceRoot: ".", appRouter: false, pagesRouter: false, multipleAppDirs: [] }, framework || "", config, signal, messages, pageContext);
 
     if (signal.aborted) {
       return { ok: false, error: "Operation was cancelled during planning" };
@@ -739,6 +745,11 @@ interface ProjectStructure {
   dependencies: string[];
   devDependencies: string[];
   files: string[];
+  directories: string[];
+  sourceRoot: string;
+  appRouter: boolean;
+  pagesRouter: boolean;
+  multipleAppDirs: string[];
 }
 
 async function analyzeProject(cwd: string): Promise<ProjectStructure> {
@@ -757,22 +768,30 @@ async function analyzeProject(cwd: string): Promise<ProjectStructure> {
   const hasNext = dependencies.includes("next") || devDependencies.includes("next");
   const hasVite = dependencies.includes("vite") || devDependencies.includes("vite");
 
-  // Scan src / app directory
+  // Scan directory structure
   const files: string[] = [];
-  const roots = ["src", "app", "pages", "."];
+  const directories: string[] = [];
+  const appDirs: string[] = [];
+  const pagesDirs: string[] = [];
+
+  const roots = ["src", "app", "pages", ".", "web", "lib", "components"];
   for (const root of roots) {
     const rootPath = path.join(cwd, root);
     if (!fs.existsSync(rootPath)) continue;
     const scanDir = (dir: string, base: string = "", depth = 0) => {
-      if (depth > 4) return;
+      if (depth > 5) return;
       try {
         const entries = fs.readdirSync(dir, { withFileTypes: true });
         for (const entry of entries) {
-          if (entry.name.startsWith(".") || entry.name === "node_modules" || entry.name === "dist" || entry.name === "build") {
+          if (entry.name.startsWith(".") || entry.name === "node_modules" || entry.name === "dist" || entry.name === "build" || entry.name === ".next") {
             continue;
           }
           const rel = base ? path.join(base, entry.name) : entry.name;
           if (entry.isDirectory()) {
+            directories.push(rel);
+            // Track app and pages directories
+            if (entry.name === "app") appDirs.push(rel);
+            if (entry.name === "pages") pagesDirs.push(rel);
             scanDir(path.join(dir, entry.name), rel, depth + 1);
           } else if (/\.(tsx?|jsx?|vue|svelte|css|html|json)$/i.test(entry.name)) {
             files.push(rel);
@@ -783,8 +802,21 @@ async function analyzeProject(cwd: string): Promise<ProjectStructure> {
       }
     };
     scanDir(rootPath);
-    if (files.length > 60) break;
+    if (files.length > 100) break;
   }
+
+  // Determine source root
+  let sourceRoot = ".";
+  if (directories.includes("src/app")) sourceRoot = "src";
+  else if (directories.includes("app")) sourceRoot = ".";
+  else if (directories.includes("src")) sourceRoot = "src";
+
+  // Detect App Router vs Pages Router
+  const appRouter = appDirs.length > 0 && appDirs.some(dir => {
+    const appPath = path.join(cwd, dir);
+    return fs.existsSync(path.join(appPath, "layout.tsx")) || fs.existsSync(path.join(appPath, "page.tsx"));
+  });
+  const pagesRouter = pagesDirs.length > 0 && fs.existsSync(path.join(cwd, "pages", "_app.tsx")) || fs.existsSync(path.join(cwd, "pages", "_document.tsx"));
 
   return {
     framework: detectFramework(cwd),
@@ -796,25 +828,12 @@ async function analyzeProject(cwd: string): Promise<ProjectStructure> {
     dependencies: dependencies as string[],
     devDependencies: devDependencies as string[],
     files,
+    directories,
+    sourceRoot,
+    appRouter,
+    pagesRouter,
+    multipleAppDirs: appDirs,
   };
-}
-
-function detectFramework(cwd: string): string {
-  const pkgPath = path.join(cwd, "package.json");
-  if (fs.existsSync(pkgPath)) {
-    try {
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
-      const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-      if (deps.next) return "next";
-      if (deps.vite) return "vite";
-      if (deps.react) return "react";
-      if (deps.vue) return "vue";
-      if (deps.svelte) return "svelte";
-    } catch {
-      // fallback
-    }
-  }
-  return "unknown";
 }
 
 interface ExecutionPlan {

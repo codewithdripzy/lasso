@@ -1,4 +1,4 @@
-import fs from "node:fs/promises";
+import fs from "node:fs";
 import path from "node:path";
 import { execFile, spawn, exec } from "node:child_process";
 import { promisify } from "node:util";
@@ -6,6 +6,54 @@ import { loadCredentials } from "./auth";
 
 const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
+
+interface ProjectStructureInfo {
+  framework: string;
+  sourceRoot: string;
+  directories: string[];
+  multipleAppDirs: string[];
+}
+
+function detectProjectStructure(cwd: string): ProjectStructureInfo {
+  const pkgPath = path.join(cwd, "package.json");
+  let framework = "unknown";
+  const directories: string[] = [];
+  const appDirs: string[] = [];
+
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+      const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+      if (deps.next) framework = "Next.js";
+      else if (deps.vite) framework = "Vite";
+      else if (deps.react) framework = "React";
+    } catch {
+      // Ignore errors
+    }
+  }
+
+  // Scan for important directories
+  const scanDirs = ["src", "app", "pages", "web", "lib", "components"];
+  for (const dir of scanDirs) {
+    if (fs.existsSync(path.join(cwd, dir))) {
+      directories.push(dir);
+      if (dir === "app") appDirs.push(dir);
+      // Check for src/app structure
+      if (dir === "src" && fs.existsSync(path.join(cwd, "src", "app"))) {
+        directories.push("src/app");
+        appDirs.push("src/app");
+      }
+    }
+  }
+
+  // Determine source root
+  let sourceRoot = ".";
+  if (directories.includes("src/app")) sourceRoot = "src";
+  else if (directories.includes("app")) sourceRoot = ".";
+  else if (directories.includes("src")) sourceRoot = "src";
+
+  return { framework, sourceRoot, directories, multipleAppDirs: appDirs };
+}
 
 export type SourceChange = {
   filePath: string;
@@ -49,7 +97,7 @@ export async function installPackages(
   let existingDeps: Record<string, string> = {};
   try {
     const pkgJsonPath = path.join(cwd, "package.json");
-    const raw = await fs.readFile(pkgJsonPath, "utf8");
+    const raw = fs.readFileSync(pkgJsonPath, "utf8");
     const parsed = JSON.parse(raw);
     existingDeps = { ...(parsed.dependencies || {}), ...(parsed.devDependencies || {}) };
   } catch {}
@@ -60,7 +108,7 @@ export async function installPackages(
   // Detect package manager
   let cmd = "npm install";
   try {
-    const rootFiles = await fs.readdir(cwd);
+    const rootFiles = fs.readdirSync(cwd);
     if (rootFiles.includes("bun.lockb") || rootFiles.includes("bun.lock")) cmd = "bun add";
     else if (rootFiles.includes("pnpm-lock.yaml")) cmd = "pnpm add";
     else if (rootFiles.includes("yarn.lock")) cmd = "yarn add";
@@ -201,7 +249,7 @@ const sourceExtensions = /\.(tsx?|jsx?|vue|svelte|css|scss|html)$/i;
 const layoutFiles = /^(layout|_layout|_app|app|_document|document|template|_template)\.(tsx?|jsx?)$/i;
 const sourceFileCache = new Map<string, { expiresAt: number; files: string[] }>();
 
-async function sourceFiles(directory: string, budget = { remaining: 25 }): Promise<string[]> {
+function sourceFiles(directory: string, budget = { remaining: 25 }): string[] {
   if (budget.remaining <= 0) return [];
   const cached = sourceFileCache.get(directory);
   if (cached && cached.expiresAt > Date.now()) {
@@ -209,17 +257,17 @@ async function sourceFiles(directory: string, budget = { remaining: 25 }): Promi
     budget.remaining -= files.length;
     return files;
   }
-  const entries = await fs.readdir(directory, { withFileTypes: true });
+  const entries = fs.readdirSync(directory, { withFileTypes: true });
   const files: string[] = [];
   const layoutFilesList: string[] = [];
   const otherFiles: string[] = [];
-  
+
   for (const entry of entries) {
     if (ignored.has(entry.name) || entry.name.startsWith(".")) continue;
     const fullPath = path.join(directory, entry.name);
     if (budget.remaining <= 0) break;
     if (entry.isDirectory()) {
-      const nested = await sourceFiles(fullPath, budget);
+      const nested = sourceFiles(fullPath, budget);
       files.push(...nested);
     } else if (sourceExtensions.test(entry.name)) {
       if (layoutFiles.test(entry.name)) {
@@ -229,26 +277,38 @@ async function sourceFiles(directory: string, budget = { remaining: 25 }): Promi
       }
     }
   }
-  
+
   // Prioritize layout files first, then other files
   files.push(...layoutFilesList, ...otherFiles);
   budget.remaining -= files.length;
-  
+
   sourceFileCache.set(directory, { expiresAt: Date.now() + 30000, files });
   return files;
 }
 
-async function contextFor(cwd: string, element: AgentInput["element"]): Promise<string> {
+function contextFor(cwd: string, element: AgentInput["element"]): string {
   const needle = element.label.replace(/^[^.#]+[.#]?/, "");
   const hintedPath = element.sourceHint?.split(":")[0];
   const sourceFile = hintedPath ? path.basename(hintedPath) : "";
-  
+
+  // Add project structure information at the top
+  const structure = detectProjectStructure(cwd);
+  let projectStructureInfo = `PROJECT STRUCTURE:
+- Framework: ${structure.framework}
+- Source root: ${structure.sourceRoot}
+- Directories found: ${structure.directories.join(", ") || "root"}
+- Multiple app directories: ${structure.multipleAppDirs.length > 0 ? structure.multipleAppDirs.join(", ") : "none"}
+- IMPORTANT: When creating files, use the existing directory structure. Do not create duplicate directories (e.g., if "src/app/" exists, use it instead of creating a new "app/").
+- Path aliases: Check tsconfig.json or jsconfig.json for path aliases like "@/components"
+
+`;
+
   // Extract unique class names and attributes from the element for better matching
   const classMatches = element.html?.match(/class="([^"]+)"/);
   const classNames = classMatches ? classMatches[1].split(/\s+/).filter((c: string) => c.length > 3) : [];
   const hrefMatch = element.html?.match(/href="([^"]+)"/);
   const href = hrefMatch ? hrefMatch[1] : "";
-  
+
   if (hintedPath) {
     const candidates = [
       path.isAbsolute(hintedPath) ? hintedPath : path.resolve(cwd, hintedPath),
@@ -259,21 +319,21 @@ async function contextFor(cwd: string, element: AgentInput["element"]): Promise<
     if (srcIndex >= 0) candidates.push(path.join(cwd, normalizedHint.slice(srcIndex + 1)));
     for (const candidate of candidates) {
       try {
-        const content = await fs.readFile(candidate, "utf8");
-        return `FILE: ${path.relative(cwd, candidate)}\n${content.slice(0, 16000)}`;
+        const content = fs.readFileSync(candidate, "utf8");
+        return `${projectStructureInfo}FILE: ${path.relative(cwd, candidate)}\n${content.slice(0, 16000)}`;
       } catch {
         // The runtime source hint can point to a different checkout.
       }
     }
   }
-  
-  const files = await sourceFiles(cwd);
+
+  const files = sourceFiles(cwd);
   const snippets: string[] = [];
   const scoredFiles: Array<{ file: string; score: number; content: string }> = [];
   
-  const results = await Promise.all(files.map(async (file) => {
+  const results = files.map((file) => {
     try {
-      const content = await fs.readFile(file, "utf8");
+      const content = fs.readFileSync(file, "utf8");
       let score = 0;
       
       // Score files based on relevance
@@ -299,7 +359,7 @@ async function contextFor(cwd: string, element: AgentInput["element"]): Promise<
       // A file can disappear while a dev server is rebuilding; skip it.
     }
     return null;
-  }));
+  }).filter((r): r is NonNullable<typeof r> => r !== null);
   
   // Sort by score and take top files
   const sortedResults = results.filter((r): r is NonNullable<typeof r> => r !== null).sort((a, b) => b.score - a.score);
@@ -309,8 +369,8 @@ async function contextFor(cwd: string, element: AgentInput["element"]): Promise<
       snippets.push(`FILE: ${path.relative(cwd, result.file)}\n${result.content.slice(0, 6000)}`);
     }
   }
-  
-  return snippets.join("\n\n---\n\n");
+
+  return projectStructureInfo + snippets.join("\n\n---\n\n");
 }
 
 function jsonObjectCandidates(text: string): string[] {
@@ -981,7 +1041,7 @@ export async function runLocalAgentPrompt(
 }
 
 export async function proposeChanges(cwd: string, input: AgentInput, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress, onPrompt?: AgentPromptHandler) {
-  const context = await contextFor(cwd, input.element);
+  const context = contextFor(cwd, input.element);
   const runtimeErrors = input.context?.runtimeErrors || [];
   const visualContext = input.context ? { ...input.context, screenshots: undefined, runtimeErrors: undefined } : undefined;
   const history = input.messages?.map((message) => `${message.role}: ${message.content}`).join("\n") || input.instruction;
@@ -992,6 +1052,10 @@ export async function proposeChanges(cwd: string, input: AgentInput, config: Age
   const runtimeErrorHint = runtimeErrors.length
     ? `\n\nLIVE CONSOLE/RUNTIME ERRORS (reported by the user's browser — the page is currently broken by these):\n${runtimeErrors.map((error) => `! ${error}`).join("\n")}`
     : "";
+
+  // Detect project structure for instruction
+  const structure = detectProjectStructure(cwd);
+
   const instruction = `Selection context:
 ${JSON.stringify(input.element, null, 2)}
 ${JSON.stringify(visualContext, null, 2)}
@@ -1009,6 +1073,8 @@ Relevant source context:
 ${context || "No matching source context was found. Ask for a more specific selection rather than inventing a file."}${dragHint}${runtimeErrorHint}
 
 CRITICAL INSTRUCTIONS:
+0. PROJECT STRUCTURE AWARENESS: This project has specific directory structure. Before creating or moving files, verify the actual structure. Do not assume standard locations.
+${structure.multipleAppDirs.length > 0 ? `   WARNING: Multiple app directories detected: ${structure.multipleAppDirs.join(", ")}. Use the correct one for this project.\n` : ""}
 1. You are an autonomous agent with the ability to install npm packages and edit source code.
 2. If the user's request requires or asks for third-party libraries, icon packs, animation tools, or utility packages (e.g. icon libraries, motion, charts, UI primitives, etc.), determine the best npm package for this project and declare them in the "packages" array (e.g. ["@iconify/react", "@hugeicons/react"]).
 3. In the "changes" array, propose concrete, minimal edits to the source code to implement the request. You may freely import and use the packages you specified in "packages".
@@ -1318,7 +1384,7 @@ RULES:
 }
 
 export async function answerQuestion(cwd: string, input: AgentAnswer, config: AgentConfig, signal?: AbortSignal, onProgress?: AgentProgress, onPrompt?: AgentPromptHandler): Promise<string> {
-  const context = await contextFor(cwd, input.element);
+  const context = contextFor(cwd, input.element);
   const history = input.messages?.map((message) => `${message.role}: ${message.content}`).join("\n") || "None";
   const prompt = `Answer the user's question conversationally and directly. Do not propose file changes and do not return JSON. If the question is about the selected UI, use the selection and source context below.\n\nUser question:\n${input.question}\n\nSelected element:\n${JSON.stringify(input.element, null, 2)}\n\nVisual context:\n${JSON.stringify({ ...input.context, screenshots: undefined }, null, 2)}\n\nConversation:\n${history}\n\nRelevant source context:\n${context || "No matching source context was found."}`;
 
