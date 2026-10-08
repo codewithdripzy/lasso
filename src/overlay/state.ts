@@ -131,6 +131,7 @@ export class OverlayState {
   // Agent State
   apiKeyConfigured = false;
   agentRunning = false;
+  lastBuildError: { errors: string[]; command: string; taskId: string } | undefined;
 
   // Bridge
   bridgeSocket: WebSocket | null = null;

@@ -290,9 +290,12 @@ export function connectBridge() {
           if (message.type === "applied" && message.validation) {
             const { passed, errors, command } = message.validation;
             if (!passed && errors.length > 0) {
-              result = `${message.message}\n\n⚠️ Build validation failed after running \`${command}\`:\n\n${errors.slice(0, 5).join("\n")}${errors.length > 5 ? `\n...and ${errors.length - 5} more errors` : ""}\n\nYou may need to manually fix these errors or undo the change.`;
+              result = `${message.message}\n\n⚠️ Build validation failed after running \`${command}\`:\n\n${errors.slice(0, 5).join("\n")}${errors.length > 5 ? `\n...and ${errors.length - 5} more errors` : ""}\n\nThe change was reverted. Click "Fix build errors" to have the agent retry with the build error context.`;
+              // Store build error context for retry
+              state.lastBuildError = { errors, command, taskId };
             } else if (passed) {
               result = `${message.message}\n\n✅ Build validation passed.`;
+              state.lastBuildError = undefined;
             }
           }
 
