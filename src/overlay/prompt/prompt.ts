@@ -5,7 +5,7 @@ import openaiIcon from "@iconify-icons/logos/openai-icon";
 import nvidiaIcon from "@iconify-icons/logos/nvidia";
 import terminalIcon from "@iconify-icons/logos/terminal";
 
-import { state, rememberModel } from "../state";
+import { state, rememberModel, loadChatHistory, saveChatHistory } from "../state";
 import {
   appendTaskMessage,
   createAgentTask,
@@ -88,6 +88,7 @@ function loadComponentConversation(element: Element): void {
   state.selectionId = selectionId;
   state.chatHistory = conversation.messages;
   state.changesHistory = conversation.changesHistory;
+  saveChatHistory(state.chatHistory, state.changesHistory);
 }
 
 export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement } {
@@ -286,6 +287,14 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
     if (task) restoreTaskPrompt(task);
     else resetPromptSession();
   });
+
+  // Load chat history from localStorage on initialization
+  const { chatHistory, changesHistory } = loadChatHistory();
+  if (chatHistory.length > 0) {
+    state.chatHistory = chatHistory;
+    state.changesHistory = changesHistory;
+    renderChatThread();
+  }
   onAgentTaskReviewRequested((task) => {
     state.promptTaskId = task.id;
     state.pendingChanges = [...(task.pendingChanges.length ? task.pendingChanges : task.changes || [])];
@@ -866,6 +875,9 @@ export function appendChat(role: "user" | "assistant" | "error", text: string, t
     });
   }
 
+  // Save chat history to localStorage
+  saveChatHistory(state.chatHistory, state.changesHistory);
+
   renderChatThread();
 }
 
@@ -977,6 +989,7 @@ function resetPromptSession(element: Element | null = state.selected): void {
     state.chatHistory = [];
     state.changesHistory = [];
     state.selectionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    saveChatHistory(state.chatHistory, state.changesHistory);
   }
   state.screenshotPromise = Promise.resolve({});
   hideReview();

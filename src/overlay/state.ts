@@ -57,6 +57,8 @@ export function timeAgo(value: string | Date | undefined): string {
 }
 
 export const modelSessionKey = "lasso:selected-model";
+export const chatHistoryKey = "lasso:chat-history";
+export const changesHistoryKey = "lasso:changes-history";
 
 export function storedModelId(): string | null {
   try {
@@ -69,6 +71,34 @@ export function storedModelId(): string | null {
 export function rememberModel(model: ModelOption): void {
   try {
     window.sessionStorage.setItem(modelSessionKey, model.id);
+  } catch {
+    // Storage may be disabled
+  }
+}
+
+export function loadChatHistory(): { chatHistory: ChatMessage[]; changesHistory: Array<{ summary: string; changes: PendingChange[]; createdAt: string }> } {
+  try {
+    const chatHistory = JSON.parse(localStorage.getItem(chatHistoryKey) || "[]");
+    const changesHistory = JSON.parse(localStorage.getItem(changesHistoryKey) || "[]");
+    return { chatHistory, changesHistory };
+  } catch {
+    return { chatHistory: [], changesHistory: [] };
+  }
+}
+
+export function saveChatHistory(chatHistory: ChatMessage[], changesHistory: Array<{ summary: string; changes: PendingChange[]; createdAt: string }>): void {
+  try {
+    localStorage.setItem(chatHistoryKey, JSON.stringify(chatHistory));
+    localStorage.setItem(changesHistoryKey, JSON.stringify(changesHistory));
+  } catch {
+    // Storage may be disabled or quota exceeded
+  }
+}
+
+export function clearChatHistory(): void {
+  try {
+    localStorage.removeItem(chatHistoryKey);
+    localStorage.removeItem(changesHistoryKey);
   } catch {
     // Storage may be disabled
   }

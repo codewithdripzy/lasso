@@ -1,5 +1,5 @@
 import { getDOM } from "../dom";
-import { state } from "../state";
+import { state, saveChatHistory } from "../state";
 import { bridge } from "../bridge/bridge";
 import type { AgentTask, AgentTaskStatus, ChatMessage, PendingChange } from "../types";
 
@@ -128,6 +128,9 @@ export function recordTaskChangeHistory(id: string | undefined, summary: string,
   updateAgentTask(id, {
     changesHistory: [...task.changesHistory, { summary, changes: changes.map((change) => ({ ...change })), createdAt: new Date().toISOString() }],
   });
+  // Sync changesHistory to state and save to localStorage
+  state.changesHistory = task.changesHistory;
+  saveChatHistory(state.chatHistory, state.changesHistory);
 }
 
 export function appendTaskMessage(id: string | undefined, role: ChatMessage["role"], text: string): ChatMessage | undefined {
@@ -143,6 +146,9 @@ export function appendTaskMessage(id: string | undefined, role: ChatMessage["rol
     contextId: task.selectionId || undefined,
   };
   updateAgentTask(task.id, { messages: [...task.messages, message] });
+  // Sync messages to state and save to localStorage
+  state.chatHistory = task.messages;
+  saveChatHistory(state.chatHistory, state.changesHistory);
   return message;
 }
 
