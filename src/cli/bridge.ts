@@ -606,6 +606,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     messages: any[] | undefined,
     socket: WebSocket,
     signal: AbortSignal,
+    conversationId?: string,
   ): Promise<void> {
     const requestController = new AbortController();
     const abortRequest = () => requestController.abort();
@@ -631,6 +632,8 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
           prompt,
           model: { id: model, provider },
           messages: Array.isArray(messages) ? messages : undefined,
+          conversationId: conversationId || undefined,
+          projectId: projectId || undefined,
         }),
         signal: requestController.signal,
       });
@@ -695,7 +698,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
 
     const isLocalAgent = ["claude_code", "opencode", "codex_cli", "cursor"].includes(provider || "");
     if ((message.type === "ask" || isConversationalPrompt(instruction)) && !isLocalAgent) {
-      await handleHostedConversation(taskId, instruction, model, provider, messages, socket, controller.signal);
+      await handleHostedConversation(taskId, instruction, model, provider, messages, socket, controller.signal, message.conversationId);
       return;
     }
 
@@ -1039,7 +1042,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     try {
       const isLocalAgent = ["claude_code", "opencode", "codex_cli", "cursor"].includes(provider || "");
       if (isConversationalPrompt(prompt) && !isLocalAgent) {
-        await handleHostedConversation(taskId, prompt, model, provider, message.messages, socket, controller.signal);
+        await handleHostedConversation(taskId, prompt, model, provider, message.messages, socket, controller.signal, message.conversationId);
         return;
       }
       const backendModelId = modelIdForBackend(model || "", provider || "");

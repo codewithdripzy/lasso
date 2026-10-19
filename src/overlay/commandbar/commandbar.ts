@@ -45,6 +45,8 @@ export interface CommandMessage {
   showDiff?: boolean;
   error?: string;
   isStreaming?: boolean;
+  activeDiffFile?: string;
+  rejectedFilePaths?: string[];
 }
 
 let commandBarEl: HTMLDivElement | null = null;
@@ -150,6 +152,68 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<any | 
   }
 }
 
+function getStorageProjectKey(): string {
+  const proj = state.collab?.projectId || state.collabProjectId || "default";
+  return `lasso:sessions:${proj}`;
+}
+
+function saveLocalSession(): void {
+  try {
+    const projKey = getStorageProjectKey();
+    if (!activeConversationId) {
+      activeConversationId = `local-session-${Date.now()}`;
+    }
+    const sessionData = {
+      id: activeConversationId,
+      messages: commandMessages,
+      updatedAt: new Date().toISOString(),
+      title: commandMessages.find((m) => m.role === "user")?.content?.slice(0, 80) || "Untitled Session",
+    };
+    localStorage.setItem(`lasso:session:${activeConversationId}`, JSON.stringify(sessionData));
+
+    // Update session list index
+    const listRaw = localStorage.getItem(projKey);
+    let list: Array<{ id: string; title: string; updatedAt: string }> = listRaw ? JSON.parse(listRaw) : [];
+    list = list.filter((item) => item.id !== activeConversationId);
+    list.unshift({
+      id: activeConversationId,
+      title: sessionData.title,
+      updatedAt: sessionData.updatedAt,
+    });
+    localStorage.setItem(projKey, JSON.stringify(list.slice(0, 30)));
+  } catch (err) {
+    // Non-fatal if localStorage is restricted
+  }
+}
+
+function loadLocalSession(convId: string): boolean {
+  try {
+    const raw = localStorage.getItem(`lasso:session:${convId}`);
+    if (!raw) return false;
+    const session = JSON.parse(raw);
+    if (session && Array.isArray(session.messages)) {
+      commandMessages = session.messages;
+      activeConversationId = convId;
+      renderMessages();
+      scrollToBottom();
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+function restoreLatestSession(): void {
+  try {
+    const projKey = getStorageProjectKey();
+    const listRaw = localStorage.getItem(projKey);
+    if (!listRaw) return;
+    const list: Array<{ id: string; title: string; updatedAt: string }> = JSON.parse(listRaw);
+    if (list && list.length > 0 && !activeConversationId) {
+      loadLocalSession(list[0].id);
+    }
+  } catch {}
+}
+
 /**
  * Create a new server-side conversation for the current project.
  * Silently no-ops if the project is not registered or user is not authed.
@@ -168,11 +232,33 @@ async function createServerConversation(scope: "private" | "team" = "private"): 
 /** Fetch conversation list for the sidebar/history. */
 async function loadConversationList(): Promise<void> {
   const projectId = state.collab?.projectId || state.collabProjectId;
+  
+  // First load local sessions
+  try {
+    const projKey = getStorageProjectKey();
+    const listRaw = localStorage.getItem(projKey);
+    if (listRaw) {
+      const localList: Array<{ id: string; title: string; updatedAt: string }> = JSON.parse(listRaw);
+      conversationList = localList.map((item) => ({
+        id: item.id,
+        title: item.title,
+        scope: "local",
+        updatedAt: item.updatedAt,
+      }));
+    }
+  } catch {}
+
   if (!projectId) return;
 
   const data = await apiFetch(`/agent/conversations?projectId=${encodeURIComponent(projectId)}`);
-  if (data?.conversations) {
-    conversationList = data.conversations;
+  if (data?.conversations && Array.isArray(data.conversations)) {
+    // Merge server sessions with local, avoiding duplicates
+    const serverIds = new Set(data.conversations.map((c: any) => c.id));
+    const merged = [
+      ...data.conversations,
+      ...conversationList.filter((local) => !serverIds.has(local.id)),
+    ];
+    conversationList = merged;
   }
 }
 
@@ -231,6 +317,11 @@ async function switchConversation(convId: string): Promise<void> {
   if (commandHistoryPopover) commandHistoryPopover.hidden = true;
   commandHistoryBtn?.classList.remove("active");
 
+  // Try local first
+  if (loadLocalSession(convId)) {
+    return;
+  }
+
   const data = await apiFetch(`/agent/conversations/${convId}`);
   if (data?.conversation?.messages && Array.isArray(data.conversation.messages)) {
     commandMessages = data.conversation.messages.map((m: any, idx: number) => ({
@@ -248,6 +339,7 @@ async function switchConversation(convId: string): Promise<void> {
       changesApplied: m.changesApplied,
       error: m.error,
     }));
+    saveLocalSession();
   } else {
     commandMessages = [];
   }
@@ -765,6 +857,40 @@ export function buildCommandBar(): void {
       return;
     }
 
+    // Individual file inclusion/exclusion checkbox
+    const fileCheck = target.closest<HTMLInputElement>(".lasso-command-file-check");
+    if (fileCheck) {
+      const msgId = fileCheck.closest<HTMLElement>(".lasso-command-msg")?.dataset.msgId;
+      const filePath = fileCheck.dataset.filePath;
+      const msg = commandMessages.find((m) => m.id === msgId);
+      if (msg && filePath) {
+        msg.rejectedFilePaths = msg.rejectedFilePaths || [];
+        if (fileCheck.checked) {
+          msg.rejectedFilePaths = msg.rejectedFilePaths.filter((p) => p !== filePath);
+        } else {
+          if (!msg.rejectedFilePaths.includes(filePath)) {
+            msg.rejectedFilePaths.push(filePath);
+          }
+        }
+        renderMessages();
+      }
+      return;
+    }
+
+    // View specific file diff
+    const viewFileDiffBtn = target.closest<HTMLButtonElement>(".lasso-command-view-file-diff-btn");
+    if (viewFileDiffBtn) {
+      const msgId = viewFileDiffBtn.closest<HTMLElement>(".lasso-command-msg")?.dataset.msgId;
+      const filePath = viewFileDiffBtn.dataset.filePath;
+      const msg = commandMessages.find((m) => m.id === msgId);
+      if (msg && filePath) {
+        msg.activeDiffFile = filePath;
+        msg.showDiff = true;
+        renderMessages();
+      }
+      return;
+    }
+
     // Toggle diff visibility
     const diffToggle = target.closest<HTMLButtonElement>(".lasso-command-toggle-diff");
     if (diffToggle) {
@@ -777,12 +903,18 @@ export function buildCommandBar(): void {
       return;
     }
 
-    // Apply changes
+    // Apply changes (filtered to only approved files)
     const applyBtn = target.closest<HTMLButtonElement>(".lasso-command-apply-btn");
     if (applyBtn) {
       const msgId = applyBtn.closest<HTMLElement>(".lasso-command-msg")?.dataset.msgId;
       const msg = commandMessages.find((m) => m.id === msgId);
       if (msg && msg.changes?.length && state.bridgeSocket?.readyState === WebSocket.OPEN) {
+        const rejected = new Set(msg.rejectedFilePaths || []);
+        const approvedChanges = msg.changes.filter((c) => !rejected.has(c.filePath));
+        if (approvedChanges.length === 0) {
+          alert("Please select at least one file to keep.");
+          return;
+        }
         applyBtn.disabled = true;
         applyBtn.textContent = "Applying…";
         state.runtimeErrors = [];
@@ -790,7 +922,7 @@ export function buildCommandBar(): void {
           JSON.stringify({
             type: "apply",
             taskId: msg.id,
-            changes: msg.changes,
+            changes: approvedChanges,
           })
         );
       }
@@ -812,6 +944,14 @@ export function buildCommandBar(): void {
           })
         );
       }
+      return;
+    }
+
+    // Continue with what agent has thought so far
+    const continueBtn = target.closest<HTMLButtonElement>(".lasso-command-continue-btn");
+    if (continueBtn) {
+      const msgId = continueBtn.closest<HTMLElement>(".lasso-command-msg")?.dataset.msgId;
+      continueWithThoughts(msgId);
       return;
     }
 
@@ -856,6 +996,11 @@ export function openCommandBar(): void {
   updateEmptyStateUserName();
   renderSuggestions();
   populateModelMenu();
+
+  if (commandMessages.length === 0) {
+    restoreLatestSession();
+  }
+
   renderMessages();
 
   // Load existing conversations for the current project (non-blocking)
@@ -951,6 +1096,35 @@ function retryLastFailedPrompt(failedMsgId?: string): void {
 
   // Re-run without re-appending the user message (it's already there)
   void runPrompt(promptToRetry, true);
+}
+
+/** Continue execution leveraging what the agent has thought and analyzed so far. */
+function continueWithThoughts(msgId?: string): void {
+  if (activeTaskId) return;
+
+  const targetMsg = msgId
+    ? commandMessages.find((m) => m.id === msgId)
+    : [...commandMessages].reverse().find((m) => m.role === "assistant");
+  if (!targetMsg) return;
+
+  const targetIndex = commandMessages.indexOf(targetMsg);
+  const precedingUserMsg = [...commandMessages].slice(0, targetIndex).reverse().find((m) => m.role === "user");
+  const originalPrompt = precedingUserMsg?.content || "";
+
+  // Compile the thoughts generated so far
+  const thoughtSummary = (targetMsg.thinking?.steps || [])
+    .map((s) => `- ${s.title}${s.detail ? `: ${s.detail}` : ""}`)
+    .join("\n");
+
+  const continuationPrompt = thoughtSummary
+    ? `Continue executing the previous task: "${originalPrompt}".\n\nHere is your prior analysis and plan:\n${thoughtSummary}\n\nPlease proceed directly with the implementation and code changes from this point.`
+    : originalPrompt;
+
+  // Clear the error state on the target message and continue
+  targetMsg.error = undefined;
+  saveLocalSession();
+
+  void runPrompt(continuationPrompt);
 }
 
 async function handleSubmit(): Promise<void> {
@@ -1176,31 +1350,25 @@ export function handleCommandBarAgentStatus(message: any): void {
     const hasChanges = Array.isArray(message.changes) && message.changes.length > 0;
 
     if (targetMsg.thinking) {
-      if (!hasChanges) {
-        // Pure conversational reply — remove thinking widget entirely
-        targetMsg.thinking = undefined;
+      for (const step of targetMsg.thinking.steps) {
+        step.status = "completed";
+      }
+      targetMsg.thinking.completed = true;
+      targetMsg.thinking.expanded = false;
+
+      if (message.totalThinkingTimeMs) {
+        targetMsg.thinking.durationSeconds = Math.max(1, Math.round(message.totalThinkingTimeMs / 1000));
       } else {
-        for (const step of targetMsg.thinking.steps) {
-          step.status = "completed";
-        }
-        targetMsg.thinking.completed = true;
-        // Requirement: it collapses once thinking is done so user can choose to expand later!
-        targetMsg.thinking.expanded = false;
+        targetMsg.thinking.durationSeconds = Math.max(1, Math.round((Date.now() - activeStartTime) / 1000));
+      }
 
-        if (message.totalThinkingTimeMs) {
-          targetMsg.thinking.durationSeconds = Math.max(1, Math.round(message.totalThinkingTimeMs / 1000));
-        } else {
-          targetMsg.thinking.durationSeconds = Math.max(1, Math.round((Date.now() - activeStartTime) / 1000));
-        }
-
-        // If server returned detailed thinking steps, append them
-        if (Array.isArray(message.thinking) && message.thinking.length) {
-          targetMsg.thinking.steps = message.thinking.map((s: any) => ({
-            title: s.title || "Completed step",
-            detail: s.detail,
-            status: "completed",
-          }));
-        }
+      // If server returned detailed thinking steps, append them
+      if (Array.isArray(message.thinking) && message.thinking.length) {
+        targetMsg.thinking.steps = message.thinking.map((s: any) => ({
+          title: s.title || "Completed step",
+          detail: s.detail,
+          status: "completed",
+        }));
       }
     }
 
@@ -1238,6 +1406,7 @@ export function handleCommandBarAgentStatus(message: any): void {
       }
     }
 
+    saveLocalSession();
     renderMessages();
     scrollToBottom();
   } else if (message.status === "error" || message.status === "stopped") {
@@ -1263,6 +1432,7 @@ export function handleCommandBarAgentStatus(message: any): void {
       status: "idle",
     });
 
+    saveLocalSession();
     renderMessages();
     scrollToBottom();
   }
@@ -1297,8 +1467,13 @@ export function handleCommandBarPrompt(message: any): void {
     activeThinkingInterval = null;
   }
 
-  // Pure conversational prompt / question — remove thinking widget so the response is front-and-center
-  targetMsg.thinking = undefined;
+  if (targetMsg.thinking) {
+    for (const step of targetMsg.thinking.steps) {
+      step.status = "completed";
+    }
+    targetMsg.thinking.completed = true;
+    targetMsg.thinking.expanded = false;
+  }
 
   const question = message.prompt?.question || message.message || "";
   targetMsg.content = question;
@@ -1356,10 +1531,18 @@ function renderMessages(): void {
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
               ${escapeHtml(msg.error)}
             </div>
-            <button class="lasso-command-retry-btn" type="button" title="Retry with current model">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-              Retry
-            </button>
+            <div class="lasso-command-error-actions" style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap;">
+              ${msg.thinking && msg.thinking.steps.length > 0 ? `
+                <button class="lasso-command-continue-btn" type="button" title="Continue execution using the thoughts and analysis generated so far" style="display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; font-size: 12px; font-weight: 500; border-radius: 6px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); color: #93c5fd; cursor: pointer;">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  Continue with thoughts so far
+                </button>
+              ` : ""}
+              <button class="lasso-command-retry-btn" type="button" title="Retry from start" style="display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; font-size: 12px; font-weight: 500; border-radius: 6px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); color: #e2e8f0; cursor: pointer;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                Retry
+              </button>
+            </div>
           ` : ""}
         </div>
       `;
@@ -1445,7 +1628,9 @@ function renderChanges(msg: CommandMessage): string {
   const changes = msg.changes;
   const isApplied = msg.changesApplied;
   const isUndone = msg.changesUndone;
-  const showDiff = msg.showDiff;
+  const showDiff = msg.showDiff !== false; // Default diff view visible on changes
+  const rejected = new Set(msg.rejectedFilePaths || []);
+  const activeFile = msg.activeDiffFile || (changes[0]?.filePath);
 
   const scopeHtml = msg.todo && msg.todo.length ? `
     <div class="lasso-command-scope-list">
@@ -1459,36 +1644,46 @@ function renderChanges(msg: CommandMessage): string {
     </div>
   ` : "";
 
+  const approvedCount = changes.length - rejected.size;
+
   return `
     <div class="lasso-command-changes-card">
       <div class="lasso-command-changes-header">
         <div class="lasso-command-changes-title">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
           </svg>
-          <span>${changes.length} file${changes.length === 1 ? "" : "s"} modified</span>
+          <span>Proposed changes (${approvedCount}/${changes.length} files selected)</span>
         </div>
         <button class="lasso-command-toggle-diff" type="button">
-          ${showDiff ? "Hide diff" : "View diff"}
+          ${showDiff ? "Hide diffs" : "Inspect diffs"}
         </button>
       </div>
       ${scopeHtml}
 
       <div class="lasso-command-files-list">
         ${changes
-          .map(
-            (c) => `
-          <div class="lasso-command-file-row">
+          .map((c) => {
+            const isExcluded = rejected.has(c.filePath);
+            const isSelected = activeFile === c.filePath;
+            return `
+          <div class="lasso-command-file-row ${isSelected ? "selected" : ""} ${isExcluded ? "excluded" : ""}" data-file-path="${escapeHtml(c.filePath)}">
+            <label class="lasso-command-file-checkbox-label" title="${isExcluded ? "Click to include file" : "Click to exclude file"}">
+              <input type="checkbox" class="lasso-command-file-check" ${isExcluded ? "" : "checked"} data-file-path="${escapeHtml(c.filePath)}" />
+            </label>
             <span class="lasso-command-file-badge ${c.oldString ? "modified" : "added"}">${c.oldString ? "M" : "+"}</span>
             <span class="lasso-command-file-name" title="${c.filePath}">${escapeHtml(c.filePath)}</span>
+            <button class="lasso-command-view-file-diff-btn" type="button" data-file-path="${escapeHtml(c.filePath)}" title="View diff for this file">
+              ${isSelected ? "Active" : "Inspect"}
+            </button>
           </div>
-        `
-          )
+        `;
+          })
           .join("")}
       </div>
 
-      ${showDiff ? renderDiffPreview(changes) : ""}
+      ${showDiff ? renderDiffPreview(changes, activeFile, rejected) : ""}
 
       <div class="lasso-command-changes-footer">
         ${
@@ -1509,7 +1704,7 @@ function renderChanges(msg: CommandMessage): string {
         `
             : `
           <button class="lasso-command-apply-btn primary" type="button">
-            <span>Keep Changes</span>
+            <span>Keep Selected (${approvedCount})</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
           </button>
           <button class="lasso-command-undo-btn secondary" type="button">Discard</button>
@@ -1520,19 +1715,26 @@ function renderChanges(msg: CommandMessage): string {
   `;
 }
 
-function renderDiffPreview(changes: SourceChange[]): string {
+function renderDiffPreview(changes: SourceChange[], activeFilePath?: string, rejected?: Set<string>): string {
+  // If activeFilePath is specified, highlight or show that file first, or show all
+  const filtered = activeFilePath ? changes.filter(c => c.filePath === activeFilePath) : changes;
+  const listToRender = filtered.length > 0 ? filtered : changes;
+
   return `
     <div class="lasso-command-diff-container">
-      ${changes
+      ${listToRender
         .map(
           (c) => `
-        <div class="lasso-command-diff-file">
-          <div class="lasso-command-diff-file-header">${escapeHtml(c.filePath)}</div>
+        <div class="lasso-command-diff-file ${rejected?.has(c.filePath) ? "excluded-diff" : ""}">
+          <div class="lasso-command-diff-file-header">
+            <span>${escapeHtml(c.filePath)}</span>
+            ${rejected?.has(c.filePath) ? `<span style="color: #f87171; font-size: 11px; margin-left: 8px;">(Excluded from apply)</span>` : ""}
+          </div>
           <pre class="lasso-command-diff-content">${
             c.operation === "deleted" || (c.newString === "" && c.oldString !== "")
-              ? `<span class="lasso-diff-del">- ${escapeHtml(c.oldString.slice(0, 300))}</span>\n<span class="lasso-diff-del">(file deleted)</span>`
-              : `${c.oldString ? `<span class="lasso-diff-del">- ${escapeHtml(c.oldString.slice(0, 300))}</span>\n` : ""}${
-                  c.newString ? `<span class="lasso-diff-add">+ ${escapeHtml(c.newString.slice(0, 300))}</span>` : ""
+              ? `<span class="lasso-diff-del">- ${escapeHtml(c.oldString.slice(0, 1000))}</span>\n<span class="lasso-diff-del">(file deleted)</span>`
+              : `${c.oldString ? `<span class="lasso-diff-del">- ${escapeHtml(c.oldString.slice(0, 1000))}</span>\n` : ""}${
+                  c.newString ? `<span class="lasso-diff-add">+ ${escapeHtml(c.newString.slice(0, 1000))}</span>` : ""
                 }`
           }</pre>
         </div>
