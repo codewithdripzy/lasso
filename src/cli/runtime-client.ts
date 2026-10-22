@@ -291,8 +291,12 @@ export class RuntimeClient {
     const executor = new ActionExecutor(projectPath, opts?.browserContextProvider);
     const verifier = new VerificationEngine(projectPath);
 
+    // Idempotent: called on agent_completed AND on stream failure, so the
+    // diff is always cached before the safety-net restore wipes the edits.
+    let finalized = false;
     const finalizeGuard = async () => {
-      if (!guard) return;
+      if (!guard || finalized) return;
+      finalized = true;
       try {
         const changes = guard.diff();
         const applyable = changes.filter((c) => !c.binary);
@@ -381,10 +385,11 @@ export class RuntimeClient {
       }
     } finally {
       reader.releaseLock();
-      // Safety net: if the stream died mid-run, still restore the workspace.
-      if (guard) {
-        guard.restore().catch(() => {});
-      }
+      // Stream died before agent_completed (network cut, server crash, model
+      // error surfaced as an error event): cache the diff first so the user's
+      // changes are recoverable, then restore the workspace. On the normal
+      // path finalizeGuard already ran and this is a no-op.
+      await finalizeGuard();
     }
   }
 
