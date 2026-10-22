@@ -65,6 +65,12 @@ export interface RuntimeSessionInput {
     screenshot?: string;
   };
   conversationUid?: string;
+  /**
+   * Prior turns of the same conversation. Follow-up prompts must carry
+   * history here — a session created with only userPrompt gives the agent
+   * no idea what was asked or done before.
+   */
+  conversation?: Array<{ role: "user" | "assistant" | "system"; content: string; timestamp?: number }>;
   backendConfig?: {
     type: "hosted_model" | "local_agent";
     provider: "claude_code" | "opencode" | "codex_cli" | "cursor";

@@ -53,6 +53,28 @@ interface LocalSessionRecord {
   running: boolean;
 }
 
+/**
+ * Seed a session's conversation from the caller's history plus the current
+ * user prompt. Skipping the history makes every follow-up a blank-slate run
+ * ("try again" becomes a literal search instead of a retry).
+ */
+function seedConversation(
+  input: RuntimeSessionInput,
+  timestamp: number
+): LocalSessionRecord["conversation"] {
+  const history = (input.conversation || []).map((msg) => ({
+    id: crypto.randomUUID(),
+    role: msg.role,
+    content: msg.content,
+    timestamp: msg.timestamp || timestamp,
+  }));
+  const last = history[history.length - 1];
+  if (!last || last.role !== "user" || last.content !== input.userPrompt) {
+    history.push({ id: crypto.randomUUID(), role: "user", content: input.userPrompt, timestamp });
+  }
+  return history;
+}
+
 export class LocalRuntime implements RuntimeFacade {
   private sessions = new Map<string, LocalSessionRecord>();
   private abortControllers = new Map<string, AbortController>();
@@ -75,9 +97,7 @@ export class LocalRuntime implements RuntimeFacade {
       iteration: 0,
       userPrompt: input.userPrompt,
       mode: input.mode || "task",
-      conversation: [
-        { id: crypto.randomUUID(), role: "user", content: input.userPrompt, timestamp: now.getTime() },
-      ],
+      conversation: seedConversation(input, now.getTime()),
       observations: [],
       actions: [],
       completedActions: [],
@@ -176,7 +196,9 @@ export class LocalRuntime implements RuntimeFacade {
             content: msg.content,
             timestamp: msg.timestamp,
           })),
-          previousObservations: [],
+          // Carry prior observations so the agent knows what was already
+          // searched/read instead of re-exploring the project every turn.
+          previousObservations: record.observations as never,
           previousErrors,
           currentPhase: "execute",
           constraints: { safetyLevel: "standard" },

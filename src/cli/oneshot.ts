@@ -138,6 +138,12 @@ export async function runOneShotAgent(
 
     const sessionInput: RuntimeSessionInput = {
       userPrompt: prompt,
+      conversation:
+        Array.isArray(messages) && messages.length > 0
+          ? messages
+              .filter((m) => typeof m?.content === "string" && m.content.trim())
+              .map((m) => ({ role: m.role, content: m.content }))
+          : undefined,
       project: {
         projectId: "", // TODO: Get from workspace config
         framework,

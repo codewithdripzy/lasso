@@ -48,6 +48,24 @@ export type BridgeMessage =
 
 type ModelOption = { id: string; label: string; provider: Provider; locked?: boolean; lockedReason?: string };
 
+/** Map overlay chat history to the runtime conversation shape. */
+function toRuntimeConversation(
+  messages: Array<{ role: string; content: string; createdAt?: string }> | undefined
+): RuntimeSessionInput["conversation"] | undefined {
+  if (!Array.isArray(messages) || messages.length === 0) return undefined;
+  const turns = messages
+    .filter((m) => typeof m?.content === "string" && m.content.trim())
+    .map((m) => ({
+      role: (m.role === "user" ? "user" : m.role === "assistant" ? "assistant" : "system") as
+        | "user"
+        | "assistant"
+        | "system",
+      content: m.content,
+      timestamp: m.createdAt ? Date.parse(m.createdAt) || Date.now() : Date.now(),
+    }));
+  return turns.length > 0 ? turns : undefined;
+}
+
 function isConversationalPrompt(prompt: string): boolean {
   const p = prompt.trim().toLowerCase().replace(/[!?.,;:]+$/, "");
   
@@ -719,6 +737,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       
       const sessionInput: RuntimeSessionInput = {
         userPrompt: instruction,
+        conversation: toRuntimeConversation(messages),
         project: {
           projectId,
           framework,

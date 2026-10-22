@@ -420,6 +420,27 @@ export abstract class LocalAgentAdapter implements IBackend {
     lines.push("2. All file changes will be captured as a diff, reviewed by the user, and only applied if approved.");
     lines.push("3. Do not commit, push, or perform operations outside this project directory.");
     lines.push("");
+
+    // Retry/continuation replies ("try again", "continue", …) must resume
+    // the previous request instead of being treated as a literal task —
+    // otherwise the agent greps for words like "again".
+    const normalizedPrompt = context.userPrompt.trim().replace(/[.!]+$/, "").toLowerCase();
+    const isContinuation =
+      /^(continue|proceed|go on|go ahead|keep going|yes|yep|yup|sure|ok|okay|alright|do it|carry on|resume|next|try again|again|retry|re-try|do it again|run again|run it again|one more time|same again)$/.test(
+        normalizedPrompt
+      ) ||
+      /^(try|do|run|go)\s+(it\s+|that\s+)?again$|^one more time$|^retry(\s+it)?$/i.test(normalizedPrompt);
+    if (isContinuation) {
+      const priorUserMessages = context.conversation.filter(
+        (m) => m.role === "user" && m.content.trim() && m.content.trim() !== context.userPrompt.trim()
+      );
+      const prior = priorUserMessages[priorUserMessages.length - 1];
+      if (prior) {
+        lines.push(`The user is continuing/retrying. Resume this previous request: ${prior.content}`);
+        lines.push("");
+      }
+    }
+
     lines.push(`User request: ${context.userPrompt}`);
     lines.push("");
     lines.push("Project context:");
