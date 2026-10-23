@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import chalk from "chalk";
 import type { CollabConfig } from "./project";
 import { resolveLassoApiKey, resolveWorkspaceConfig, fetchModels } from "./project";
-import { serverUrlFrom, loadCredentials } from "./auth";
+import { serverUrlFrom, agentRuntimeUrlFrom, loadCredentials } from "./auth";
 import { createSnapshot, restoreSnapshot, getTimeline, deleteSnapshot, type TimelineSnapshot } from "./snapshot";
 import { RuntimeClient, type RuntimeSessionInput, type RuntimeEvent, type RuntimeSession, type RuntimeFacade, type BrowserContextProvider } from "./runtime-client";
 import { detectBackends, modelIdForBackend, type DetectedBackend, type LocalAgentProvider } from "./backends";
@@ -293,7 +293,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   const lassoKeyConfigured = Boolean(resolvedLassoKey);
 
   const serverUrl = serverUrlFrom(fileEnv) || "https://api.lasso.byorello.space";
-  const runtimeClient = new RuntimeClient(serverUrl, resolvedLassoKey || undefined);
+  const runtimeClient = new RuntimeClient(agentRuntimeUrlFrom(fileEnv), resolvedLassoKey || undefined);
 
   // Load project info
   const workspaceConfig = await resolveWorkspaceConfig(fileEnv);
@@ -632,7 +632,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       requestController.abort();
     }, 30_000);
     try {
-      const response = await fetch(`${serverUrl}/api/v1/agent/session`, {
+      const response = await fetch(`${agentRuntimeUrlFrom(fileEnv)}/api/v1/agent/session`, {
         method: "POST",
         headers: {
           Accept: "text/event-stream",
@@ -1372,7 +1372,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         apiKeyConfigured: lassoKeyConfigured,
         agentConfigured: lassoKeyConfigured,
         models,
-        collab: collabConfig?.registered ? { ...collabConfig, plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null,
+        collab: collabConfig?.registered ? { ...collabConfig, agentServerUrl: agentRuntimeUrlFrom(fileEnv), plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null,
         user: userInfo,
       })
     );

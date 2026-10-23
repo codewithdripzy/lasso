@@ -99,7 +99,7 @@ export function connectBridge() {
           path?: string;
           entries?: Array<{ name: string; path: string; type: "directory" | "file" }>;
           project?: string;
-          collab?: { projectId?: string; realtimeUrl?: string; name?: string; version?: string; workspaceId?: string; token?: string; apiKey?: string; plan?: string; configuredProviders?: string[] };
+          collab?: { projectId?: string; realtimeUrl?: string; name?: string; version?: string; workspaceId?: string; token?: string; apiKey?: string; plan?: string; agentServerUrl?: string; configuredProviders?: string[] };
           user?: { name?: string; email?: string } | null;
           snapshots?: TimelineSnapshot[];
           requestId?: string;

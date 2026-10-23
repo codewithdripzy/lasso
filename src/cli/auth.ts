@@ -30,6 +30,22 @@ export function serverUrlFrom(fileEnv: Record<string, string>): string {
   );
 }
 
+/**
+ * URL for the standalone hosted agent runtime.
+ *
+ * Production has a dedicated AI hostname; local development still falls back
+ * to the local control-plane server unless an explicit runtime URL is set.
+ */
+export function agentRuntimeUrlFrom(fileEnv: Record<string, string>): string {
+  return (
+    process.env.LASSO_AGENT_RUNTIME_URL ||
+    fileEnv.LASSO_AGENT_RUNTIME_URL ||
+    (process.env.NODE_ENV === "development"
+      ? "http://localhost:3005"
+      : "https://api.ai.lasso.byorello.space")
+  ).replace(/\/$/, "");
+}
+
 export function fetchWithTimeout(url: string, init?: RequestInit, timeoutMs = 8000): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

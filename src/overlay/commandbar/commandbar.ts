@@ -101,7 +101,9 @@ function getApiBase(): string {
 /** Best-effort fetch with auth cookie and API key if available */
 async function apiFetch(path: string, options: RequestInit = {}): Promise<any | null> {
   try {
-    const base = getApiBase();
+    const base = path.startsWith("/agent/") && state.collab?.agentServerUrl
+      ? `${state.collab.agentServerUrl.replace(/\/+$/, "")}/api/v1`
+      : getApiBase();
     const apiKey = state.collab?.apiKey || "";
     const headers: Record<string, string> = {
       "content-type": "application/json",

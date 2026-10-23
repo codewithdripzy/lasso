@@ -124,6 +124,7 @@ export type CollabConfig = {
   realtimeUrl?: string;
   apiUrl?: string;
   serverUrl?: string;
+  agentServerUrl?: string;
   name?: string;
   version?: string;
   registered?: boolean;
