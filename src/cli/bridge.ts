@@ -63,13 +63,12 @@ export type BridgeMessage =
   | { type: "transcribe"; requestId: string; audio: string; mimeType?: string; language?: string }
   | {
       type: "oneshot";
-      prompt: string;
+      prompt?: string;
       scope?: "project" | "component";
       model?: string;
       provider?: "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor";
       messages?: Array<{ role: "user" | "assistant"; content: string }>;
       conversation?: Array<{ role: "user" | "assistant" | "system"; content: string; timestamp?: number }>;
-      conversationId?: string;
       taskId?: string;
     }
   | { type: "page_context_response"; requestId: string; pageContext?: any; error?: string }
@@ -1169,8 +1168,18 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
 
   // Handler for oneshot
   async function handleOneshot(message: any, socket: WebSocket, cwd: string) {
-    const { taskId, prompt, model, provider, messages, conversation, conversationId } = message;
-    const instruction = prompt;
+    const { taskId, prompt, model, provider, messages, conversation } = message;
+    const runtimeConversation = toRuntimeConversation(conversation || messages);
+    const instruction =
+      [...(runtimeConversation || [])]
+        .reverse()
+        .find((entry) => entry.role === "user")
+        ?.content?.trim() || (typeof prompt === "string" ? prompt.trim() : "");
+
+    if (!instruction) {
+      socket.send(JSON.stringify({ type: "agent_status", taskId, status: "error", message: "A user message is required." } satisfies ServerBridgeMessage));
+      return;
+    }
 
     taskControllers.get(taskId)?.abort();
     const controller = new AbortController();
@@ -1184,11 +1193,10 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       const backendModelId = modelIdForBackend(model || "", provider || "");
 
       const sessionInput: RuntimeSessionInput = {
-        userPrompt: prompt,
-        // The sidebar is the source of truth for history. `conversation` is
-        // preferred; `messages` remains a compatibility alias for older overlays.
-        conversation: toRuntimeConversation(conversation || messages),
-        conversationUid: conversationId || undefined,
+        userPrompt: instruction,
+        // The sidebar is the source of truth for history. The runtime prompt
+        // is derived from its final user message rather than sent separately.
+        conversation: runtimeConversation,
         project: {
           projectId,
           framework,

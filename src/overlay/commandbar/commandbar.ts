@@ -183,21 +183,6 @@ function restoreLatestSession(): void {
   } catch {}
 }
 
-/**
- * Create a new server-side conversation for the current project.
- * Silently no-ops if the project is not registered or user is not authed.
- */
-async function createServerConversation(scope: "private" | "team" = "private"): Promise<string | null> {
-  const projectId = state.collab?.projectId || state.collabProjectId;
-  if (!projectId) return null;
-
-  const data = await apiFetch("/agent/conversations", {
-    method: "POST",
-    body: JSON.stringify({ projectId, scope, title: "New Session" }),
-  });
-  return data?.conversation?.id || null;
-}
-
 /** Fetch conversation list for the sidebar/history. */
 async function loadConversationList(): Promise<void> {
   const projectId = state.collab?.projectId || state.collabProjectId;
@@ -1070,11 +1055,7 @@ function startNewSession(): void {
   updateSubmitButton(false);
   renderSuggestions();
   renderMessages();
-  // Eagerly create the new server conversation in the background
-  createServerConversation().then((id) => {
-    if (id) activeConversationId = id;
-    loadConversationList();
-  });
+  void loadConversationList();
 }
 
 function updateSubmitButton(isWorking: boolean): void {
@@ -1271,13 +1252,6 @@ async function runPrompt(prompt: string, skipUserMessage = false): Promise<void>
     }
   }, 1000);
 
-  // Ensure the conversation exists before sending the runtime request. The
-  // ID links this run to the persisted conversation; the full history itself
-  // is sent below from the sidebar's in-memory conversation state.
-  if (!activeConversationId) {
-    activeConversationId = await createServerConversation();
-  }
-
   // Let the agent determine whether this needs project work.
   collabEmit("collab:action", {
     sessionId: state.collabProjectId,
@@ -1290,19 +1264,13 @@ async function runPrompt(prompt: string, skipUserMessage = false): Promise<void>
     state.bridgeSocket.send(
       JSON.stringify({
         type: "oneshot",
-        prompt,
         taskId,
-        conversationId: activeConversationId || undefined,
         scope: "project",
         model: state.selectedModel.id,
         provider: state.selectedModel.provider,
-        // The current prompt is sent in its dedicated `prompt` field. Keep it
-        // out of history so the model sees it once, not once as history and
-        // once as the active request.
-        conversation: commandMessages
-          .map((message, index) => ({ message, index }))
-          .filter(({ message, index }) => Boolean(message.content) && !message.error && index !== commandMessages.reduce((last, item, itemIndex) => (item.role === "user" && item.content === prompt ? itemIndex : last), -1))
-          .map(({ message }) => ({ role: message.role, content: message.content, timestamp: message.timestamp })),
+        // The conversation already includes the current user message. It is
+        // the only prompt context sent to the runtime.
+        conversation: commandMessages.filter((message) => Boolean(message.content) && !message.error).map((message) => ({ role: message.role, content: message.content, timestamp: message.timestamp })),
       })
     );
   } else {
