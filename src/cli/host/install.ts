@@ -39,7 +39,7 @@ export function spawnDaemon(env: Record<string, string>): Promise<{ ok: boolean;
         console.log(chalk.yellow(`!`) + ` Lasso Host is running version ${health.version} but installed version is ${CURRENT_VERSION}. Restarting...`);
         await stopDaemon(env);
         // Wait a moment for the daemon to stop
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       } else {
         return { ok: true, alreadyRunning: true };
       }

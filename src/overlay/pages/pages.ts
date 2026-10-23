@@ -484,12 +484,17 @@ function createPage(): void {
 function starterContent(fileName: string): string {
   const extension = (fileName.split(".").pop() || "").toLowerCase();
   const base = (fileName.split("/").pop() || "page").replace(/\.[^.]+$/, "");
-  const component = base
-    .split(/[^A-Za-z0-9]+/)
-    .filter(Boolean)
-    .map((part) => part[0]!.toUpperCase() + part.slice(1))
-    .join("") || "Page";
-  const className = base.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "page";
+  const component =
+    base
+      .split(/[^A-Za-z0-9]+/)
+      .filter(Boolean)
+      .map((part) => part[0]!.toUpperCase() + part.slice(1))
+      .join("") || "Page";
+  const className =
+    base
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "page";
 
   if (extension === "tsx" || extension === "jsx") {
     return `export default function ${component}() {\n  return (\n    <main className="${className}">\n      <h1>${component}</h1>\n    </main>\n  );\n}\n`;

@@ -24,15 +24,10 @@ const CREDENTIALS_FILE = path.join(CREDENTIALS_DIR, "credentials.json");
  * local development.
  */
 export function serverUrlFrom(fileEnv: Record<string, string>): string {
-  return (
-    process.env.LASSO_AUTH_URL ||
-    fileEnv.LASSO_AUTH_URL ||
-    process.env.LASSO_API_URL ||
-    fileEnv.LASSO_API_URL ||
-    process.env.LASSO_SERVER_URL ||
-    fileEnv.LASSO_SERVER_URL ||
-    (process.env.NODE_ENV === "development" ? "http://localhost:3005" : "https://api.lasso.byorello.space")
-  ).replace(/\/$/, "");
+  return (process.env.LASSO_AUTH_URL || fileEnv.LASSO_AUTH_URL || process.env.LASSO_API_URL || fileEnv.LASSO_API_URL || process.env.LASSO_SERVER_URL || fileEnv.LASSO_SERVER_URL || (process.env.NODE_ENV === "development" ? "http://localhost:3005" : "https://api.lasso.byorello.space")).replace(
+    /\/$/,
+    ""
+  );
 }
 
 export function fetchWithTimeout(url: string, init?: RequestInit, timeoutMs = 8000): Promise<Response> {

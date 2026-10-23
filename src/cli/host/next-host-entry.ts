@@ -43,15 +43,18 @@ function waitForNext(nextPort: number, nextProcess: ReturnType<typeof spawn>, ti
 
     const check = () => {
       if (settled) return;
-      const request = http.get({
-        hostname: "127.0.0.1",
-        port: nextPort,
-        path: "/",
-        headers: { connection: "close" },
-      }, (response) => {
-        response.resume();
-        response.once("end", () => finish());
-      });
+      const request = http.get(
+        {
+          hostname: "127.0.0.1",
+          port: nextPort,
+          path: "/",
+          headers: { connection: "close" },
+        },
+        (response) => {
+          response.resume();
+          response.once("end", () => finish());
+        }
+      );
 
       request.once("error", () => {
         if (settled) return;
@@ -107,9 +110,7 @@ void (async () => {
     }
     const forward = (attempt = 0) => {
       proxy.web(req, res, { headers: { "accept-encoding": "identity" } }, (error) => {
-        const retryable = (error as NodeJS.ErrnoException).code === "ECONNREFUSED" ||
-          (error as NodeJS.ErrnoException).code === "ECONNRESET" ||
-          (error as NodeJS.ErrnoException).code === "EPIPE";
+        const retryable = (error as NodeJS.ErrnoException).code === "ECONNREFUSED" || (error as NodeJS.ErrnoException).code === "ECONNRESET" || (error as NodeJS.ErrnoException).code === "EPIPE";
         if (!res.headersSent && req.method !== "POST" && retryable && attempt < 12) {
           setTimeout(() => forward(attempt + 1), 250);
           return;

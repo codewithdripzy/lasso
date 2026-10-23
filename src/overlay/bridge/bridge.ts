@@ -2,30 +2,13 @@ import { state, rememberModel, storedModelId } from "../state";
 import { connectCollab, collabEmit } from "../collab/socket";
 import { releaseHeldLock } from "../collab/locks";
 import { renderGitState, setGitMessage, setGeneratedCommitMessage } from "../git/git";
-import {
-  setAgentStatus,
-  appendChat,
-  showReview,
-  closeReview,
-  resetAgentState,
-  refreshModelMenu,
-  syncModelMenu,
-  showAgentPrompt,
-  showTimeline,
-} from "../prompt/prompt";
+import { setAgentStatus, appendChat, showReview, closeReview, resetAgentState, refreshModelMenu, syncModelMenu, showAgentPrompt, showTimeline } from "../prompt/prompt";
 import { setDragCardStatus, resetDrag } from "../drag/drag";
 import { elementKey } from "../toolbar/select";
 import { notifyAgent } from "../notifications";
 import { capturePageContext } from "../browser/context";
 import { getAgentTask, recordTaskActivity, recordTaskChangeHistory, updateAgentTask } from "../tasks/tasks";
-import {
-  handleCommandBarAgentStatus,
-  handleCommandBarAction,
-  handleCommandBarPrompt,
-  isCommandBarTaskId,
-  updateEmptyStateUserName,
-  populateModelMenu,
-} from "../commandbar/commandbar";
+import { handleCommandBarAgentStatus, handleCommandBarAction, handleCommandBarPrompt, isCommandBarTaskId, updateEmptyStateUserName, populateModelMenu } from "../commandbar/commandbar";
 import type { GitState, ModelOption, PendingChange, TimelineSnapshot } from "../types";
 
 export function reportRuntimeError(details: string, notifyBridge = true) {
@@ -33,9 +16,7 @@ export function reportRuntimeError(details: string, notifyBridge = true) {
   if (!clean || state.runtimeErrors.includes(clean)) return;
   state.runtimeErrors = [...state.runtimeErrors.slice(-4), clean];
   if (notifyBridge && state.bridgeSocket?.readyState === WebSocket.OPEN) {
-    state.bridgeSocket.send(
-      JSON.stringify({ type: "runtime_error", selectionId: state.selectionId, details: clean })
-    );
+    state.bridgeSocket.send(JSON.stringify({ type: "runtime_error", selectionId: state.selectionId, details: clean }));
   }
 }
 
@@ -56,15 +37,10 @@ export function initErrorListeners() {
   errorListenersInstalled = true;
 
   window.addEventListener("error", (event) => {
-    reportRuntimeError(
-      `${event.message || "Runtime error"}${event.filename ? ` · ${event.filename}:${event.lineno}` : ""}`
-    );
+    reportRuntimeError(`${event.message || "Runtime error"}${event.filename ? ` · ${event.filename}:${event.lineno}` : ""}`);
   });
   window.addEventListener("unhandledrejection", (event) => {
-    const reason =
-      event.reason instanceof Error
-        ? event.reason.message
-        : String(event.reason || "Unhandled promise rejection");
+    const reason = event.reason instanceof Error ? event.reason.message : String(event.reason || "Unhandled promise rejection");
     reportRuntimeError(reason);
   });
 
@@ -170,8 +146,7 @@ export function connectBridge() {
               rememberModel(state.selectedModel);
             }
           } else {
-            state.selectedModel =
-              state.MODELS.find((m) => m.id === storedModelId()) || state.MODELS.find((m) => !m.locked) || state.MODELS[0];
+            state.selectedModel = state.MODELS.find((m) => m.id === storedModelId()) || state.MODELS.find((m) => !m.locked) || state.MODELS[0];
             rememberModel(state.selectedModel);
           }
           refreshModelMenu();
@@ -210,7 +185,7 @@ export function connectBridge() {
           window.dispatchEvent(
             new CustomEvent("lasso-page-folders", {
               detail: { path: message.path || ".", entries: message.entries || [], project: message.project, error: message.error },
-            }),
+            })
           );
           return;
         }

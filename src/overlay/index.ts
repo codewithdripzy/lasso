@@ -1,14 +1,7 @@
 import { state } from "./state";
 import { getDOM } from "./dom";
 import { buildToolbar, setCommentMode } from "./toolbar/toolbar";
-import {
-  setSelectMode,
-  setPreviewMode,
-  setHovered,
-  updateHoverVisual,
-  updateSelectedVisual,
-  elementKey,
-} from "./toolbar/select";
+import { setSelectMode, setPreviewMode, setHovered, updateHoverVisual, updateSelectedVisual, elementKey } from "./toolbar/select";
 import { buildPinCompose, openPinCompose, closePinCompose, isPinComposeOpen } from "./comments/compose";
 import { buildPinThread, closePinThread, isPinThreadOpen } from "./comments/thread";
 import { renderCommentPins } from "./comments/pins";
@@ -19,14 +12,7 @@ import { buildClipboardPanel } from "./clipboard/clipboard";
 import { buildTaskPanel } from "./tasks/tasks";
 import { buildPagePanel, isPagePanelOpen, closePagePanel } from "./pages/pages";
 import { buildDrag, resetDrag, setDragMode } from "./drag/drag";
-import {
-  buildPrompt,
-  openPromptForSelected,
-  cancelPrompt,
-  positionPrompt,
-  captureScreenshots,
-  isPromptOpen,
-} from "./prompt/prompt";
+import { buildPrompt, openPromptForSelected, cancelPrompt, positionPrompt, captureScreenshots, isPromptOpen } from "./prompt/prompt";
 import { connectBridge, initErrorListeners } from "./bridge/bridge";
 import { initCollabPagehide, sendPresenceUpdate, initCursorTracking } from "./collab/socket";
 import { renderRemoteBoxes } from "./collab/presence";

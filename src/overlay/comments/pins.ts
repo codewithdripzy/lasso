@@ -5,12 +5,7 @@ import { collabEmit } from "../collab/socket";
 import type { CollabComment, CommentThread } from "../types";
 
 function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 }
 
 export function isCommentAuthor(thread: CommentThread): boolean {
@@ -82,9 +77,7 @@ export function updateCommentsBadge() {
 export function commentPosition(thread: CommentThread): { left: number; top: number; width?: number; height?: number } | null {
   const saved = thread.root.meta?.position;
   if (saved) {
-    return saved.space === "document"
-      ? { ...saved, left: saved.left - window.scrollX, top: saved.top - window.scrollY }
-      : saved;
+    return saved.space === "document" ? { ...saved, left: saved.left - window.scrollX, top: saved.top - window.scrollY } : saved;
   }
   if (thread.root.elementId) {
     const element = state.elementRegistry.get(thread.root.elementId);
@@ -108,12 +101,7 @@ export function renderCommentPins() {
     const pinLeft = position.left + (position.width || 0) * 0.5 - 17;
     const pinTop = position.top - 17;
 
-    if (
-      pinLeft < -32 ||
-      pinLeft > window.innerWidth + 32 ||
-      pinTop < -32 ||
-      pinTop > window.innerHeight + 32
-    ) {
+    if (pinLeft < -32 || pinLeft > window.innerWidth + 32 || pinTop < -32 || pinTop > window.innerHeight + 32) {
       return;
     }
 

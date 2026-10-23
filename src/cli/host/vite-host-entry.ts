@@ -36,13 +36,7 @@ void (async () => {
       host: "127.0.0.1",
       port,
       strictPort: true,
-      allowedHosts: [
-        ".lasso",
-        "lasso",
-        "localhost",
-        "127.0.0.1",
-        ...(process.env.LASSO_HOST_ALLOWED_HOSTS ? process.env.LASSO_HOST_ALLOWED_HOSTS.split(",") : []),
-      ],
+      allowedHosts: [".lasso", "lasso", "localhost", "127.0.0.1", ...(process.env.LASSO_HOST_ALLOWED_HOSTS ? process.env.LASSO_HOST_ALLOWED_HOSTS.split(",") : [])],
     },
     plugins: [lassoOverlayPlugin()],
   });

@@ -169,7 +169,9 @@ export class LassoHost {
         route: "POST /_host/register",
         handler: async (req, res) => {
           const body = await readBody(req);
-          const domain = String(body.domain || "").trim().toLowerCase();
+          const domain = String(body.domain || "")
+            .trim()
+            .toLowerCase();
           const directory = String(body.directory || "").trim();
           const projectId = String(body.projectId || "").trim();
 
@@ -196,7 +198,9 @@ export class LassoHost {
         route: "POST /_host/unregister",
         handler: async (req, res) => {
           const body = await readBody(req);
-          const domain = String(body.domain || "").trim().toLowerCase();
+          const domain = String(body.domain || "")
+            .trim()
+            .toLowerCase();
           if (!domain) return writeJson(res, 400, { ok: false, error: "A domain is required." });
           const had = domain in this.registry;
           this.running.get(domain)?.child.kill("SIGTERM");
@@ -211,7 +215,9 @@ export class LassoHost {
         route: "POST /_host/stop",
         handler: async (req, res) => {
           const body = await readBody(req);
-          const domain = String(body.domain || "").trim().toLowerCase();
+          const domain = String(body.domain || "")
+            .trim()
+            .toLowerCase();
           const runtime = this.running.get(domain);
           if (!runtime) return writeJson(res, 200, { ok: true, domain, status: "stopped" });
           runtime.child.kill("SIGTERM");
@@ -240,7 +246,9 @@ export class LassoHost {
         route: "POST /_host/restart-project",
         handler: async (req, res) => {
           const body = await readBody(req);
-          const domain = String(body.domain || "").trim().toLowerCase();
+          const domain = String(body.domain || "")
+            .trim()
+            .toLowerCase();
           if (!domain) return writeJson(res, 400, { ok: false, error: "A project domain is required." });
           const runtime = this.running.get(domain);
           this.cleanupOnStart.add(domain);
@@ -396,7 +404,10 @@ export class LassoHost {
         fs.writeFileSync(PID_FILE, String(process.pid), { encoding: "utf8" });
         this.log(`proxy listening on 127.0.0.1:${this.opts.proxyPort}`);
         if (!certificate.ok) return resolve({});
-        this.secureServer.once("error", (error) => { this.log(`https proxy failed: ${line(error)}`); resolve({}); });
+        this.secureServer.once("error", (error) => {
+          this.log(`https proxy failed: ${line(error)}`);
+          resolve({});
+        });
         this.secureServer.listen(this.opts.httpsPort, "127.0.0.1", () => {
           this.log(`https proxy listening on 127.0.0.1:${this.opts.httpsPort}`);
           resolve({});

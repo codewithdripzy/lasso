@@ -381,8 +381,15 @@ export function setGeneratedCommitMessage(message: string, error?: string) {
   const input = gitPanelEl?.querySelector<HTMLTextAreaElement>(".lasso-git-commit-textarea");
   const button = gitPanelEl?.querySelector<HTMLButtonElement>(".lasso-git-ai-btn");
   if (button) button.disabled = false;
-  if (error) { setGitMessage(error, true); return; }
-  if (input && message) { input.value = message; input.focus(); setGitMessage("Commit message ready."); }
+  if (error) {
+    setGitMessage(error, true);
+    return;
+  }
+  if (input && message) {
+    input.value = message;
+    input.focus();
+    setGitMessage("Commit message ready.");
+  }
 }
 
 export function toggleGitPanel(force?: boolean): void {

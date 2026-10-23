@@ -6,10 +6,10 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import chalk from "chalk";
-import type { CollabConfig, WorkspaceConfig, ModelsResponse } from "./project";
+import type { CollabConfig } from "./project";
 import { resolveLassoApiKey, resolveWorkspaceConfig, fetchModels } from "./project";
 import { serverUrlFrom, loadCredentials } from "./auth";
-import { createSnapshot, restoreSnapshot, getTimeline, deleteSnapshot, getSnapshotByTaskId, getSnapshotBySessionId, type TimelineSnapshot } from "./snapshot";
+import { createSnapshot, restoreSnapshot, getTimeline, deleteSnapshot, type TimelineSnapshot } from "./snapshot";
 import { RuntimeClient, type RuntimeSessionInput, type RuntimeEvent, type RuntimeSession, type RuntimeFacade, type BrowserContextProvider } from "./runtime-client";
 import { detectBackends, modelIdForBackend, type DetectedBackend, type LocalAgentProvider } from "./backends";
 import { getLocalRuntime } from "./local-runtime";
@@ -22,8 +22,27 @@ type Provider = "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claud
 
 export type BridgeMessage =
   | { type: "hello"; from: "overlay" | "cli" }
-  | { type: "edit"; taskId: string; instruction: string; model: string; provider?: "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor"; messages?: Array<{ role: string; content: string; createdAt?: string }>; changesHistory?: Array<{ summary: string; changes: any[]; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
-  | { type: "ask"; taskId: string; question: string; model: string; provider?: "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor"; messages?: Array<{ role: string; content: string; createdAt?: string }>; context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } }; element: { tag: string; group: string; label: string; html?: string; sourceHint?: string } }
+  | {
+      type: "edit";
+      taskId: string;
+      instruction: string;
+      model: string;
+      provider?: "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor";
+      messages?: Array<{ role: string; content: string; createdAt?: string }>;
+      changesHistory?: Array<{ summary: string; changes: any[]; createdAt?: string }>;
+      context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } };
+      element: { tag: string; group: string; label: string; html?: string; sourceHint?: string };
+    }
+  | {
+      type: "ask";
+      taskId: string;
+      question: string;
+      model: string;
+      provider?: "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor";
+      messages?: Array<{ role: string; content: string; createdAt?: string }>;
+      context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } };
+      element: { tag: string; group: string; label: string; html?: string; sourceHint?: string };
+    }
   | { type: "runtime_error"; selectionId?: string; details: string }
   | { type: "apply"; taskId: string; changes: any[] }
   | { type: "undo"; taskId?: string }
@@ -49,58 +68,16 @@ export type BridgeMessage =
 type ModelOption = { id: string; label: string; provider: Provider; locked?: boolean; lockedReason?: string };
 
 /** Map overlay chat history to the runtime conversation shape. */
-function toRuntimeConversation(
-  messages: Array<{ role: string; content: string; createdAt?: string }> | undefined
-): RuntimeSessionInput["conversation"] | undefined {
+function toRuntimeConversation(messages: Array<{ role: string; content: string; createdAt?: string }> | undefined): RuntimeSessionInput["conversation"] | undefined {
   if (!Array.isArray(messages) || messages.length === 0) return undefined;
   const turns = messages
     .filter((m) => typeof m?.content === "string" && m.content.trim())
     .map((m) => ({
-      role: (m.role === "user" ? "user" : m.role === "assistant" ? "assistant" : "system") as
-        | "user"
-        | "assistant"
-        | "system",
+      role: (m.role === "user" ? "user" : m.role === "assistant" ? "assistant" : "system") as "user" | "assistant" | "system",
       content: m.content,
       timestamp: m.createdAt ? Date.parse(m.createdAt) || Date.now() : Date.now(),
     }));
   return turns.length > 0 ? turns : undefined;
-}
-
-function isConversationalPrompt(prompt: string): boolean {
-  const p = prompt.trim().toLowerCase().replace(/[!?.,;:]+$/, "");
-  
-  // 1. Direct greetings and conversational niceties
-  const greetings = [
-    "hi", "hello", "hey", "heya", "howdy", "sup", "yo",
-    "good morning", "good afternoon", "good evening",
-    "thanks", "thank you", "thx", "ty", "cool", "awesome", "great", "nice",
-    "who are you", "what are you", "what can you do", "help", "help me",
-    "what is lasso", "how do you work", "how does this work",
-  ];
-  if (greetings.includes(p)) return true;
-
-  // Short greetings
-  if (/^(hi|hello|hey|howdy|yo)\b/i.test(p) && p.split(/\s+/).length <= 4) {
-    const buildKeywords = /\b(build|create|add|make|fix|update|modify|change|refactor|implement|delete|remove|style|install|wire|code)\b/i;
-    if (!buildKeywords.test(p)) return true;
-  }
-
-  // 2. Action verbs indicating deliberate code changes
-  const mutationVerbs = /\b(build|create|add|make|fix|update|modify|change|refactor|implement|delete|remove|style|install|wire|code|replace|set|switch|swap|rewrite|restyle|rebuild|apply)\b/i;
-
-  // 3. Question / informational prefixes
-  const infoPrefixes = /^(what|how|why|when|where|who|which|can you explain|explain|describe|tell me|check out|check|look at|summarize|give me an overview|overview|inspect)\b/i;
-
-  if (infoPrefixes.test(p) && !mutationVerbs.test(p)) {
-    return true;
-  }
-
-  // 4. Questions about the project / app / page without mutation verbs
-  if (/\b(about|doing|does this|is this|mean|purpose|work|repo|project|codebase|app|application|page|overview|summary)\b/i.test(p) && !mutationVerbs.test(p)) {
-    return true;
-  }
-
-  return false;
 }
 
 function cleanConversationReply(value: unknown): string {
@@ -143,7 +120,7 @@ export type ServerBridgeMessage =
 export async function restartBridge(port = DEFAULT_BRIDGE_PORT): Promise<{ ok: boolean; error?: string }> {
   try {
     const response = await fetch(`http://127.0.0.1:${port}/__lasso/bridge/restart`, { method: "POST" });
-    const body = await response.json().catch(() => ({})) as { ok?: boolean; error?: string };
+    const body = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
     if (!response.ok || !body.ok) return { ok: false, error: body.error || "The bridge rejected the restart request." };
     return { ok: true };
   } catch {
@@ -170,15 +147,18 @@ async function getGitState(cwd: string): Promise<GitState> {
 
 function readEnvFile(filename: string, cwd: string): Record<string, string> {
   try {
-    return fs.readFileSync(path.join(cwd, filename), "utf8").split(/\r?\n/).reduce<Record<string, string>>((values, line) => {
-      const match = line.match(/^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-      if (match) {
-        let value = match[2].trim();
-        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
-        values[match[1]] = value.trim();
-      }
-      return values;
-    }, {});
+    return fs
+      .readFileSync(path.join(cwd, filename), "utf8")
+      .split(/\r?\n/)
+      .reduce<Record<string, string>>((values, line) => {
+        const match = line.match(/^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+        if (match) {
+          let value = match[2].trim();
+          if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
+          values[match[1]] = value.trim();
+        }
+        return values;
+      }, {});
   } catch {
     return {};
   }
@@ -258,12 +238,15 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   const pendingBrowserContext = new Map<string, { resolve: (value: any) => void; reject: (error: Error) => void }>();
   const correctiveAttempts = new Map<string, number>();
   const envRoots = [cwd, path.join(cwd, "web"), path.join(cwd, "server")];
-  const fileEnv = envRoots.reduce<Record<string, string>>((values, root) => ({
-    ...values,
-    ...readEnvFile(root, ".env"),
-    ...readEnvFile(root, ".env.local"),
-    ...readEnvFile(root, ".env.production"),
-  }), {});
+  const fileEnv = envRoots.reduce<Record<string, string>>(
+    (values, root) => ({
+      ...values,
+      ...readEnvFile(root, ".env"),
+      ...readEnvFile(root, ".env.local"),
+      ...readEnvFile(root, ".env.production"),
+    }),
+    {}
+  );
 
   // Resolve the user's own model-provider key (BYOK) for hosted runs: the
   // server calls the provider with it and never stores it.
@@ -293,15 +276,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   }
 
   const cliCredentials = loadCredentials();
-  const resolvedLassoKey = cliCredentials?.apiKey ||
-    resolveLassoApiKey(fileEnv) ||
-    process.env.LASSO_API_KEY ||
-    fileEnv.LASSO_API_KEY ||
-    process.env.VITE_LASSO_API_KEY ||
-    process.env.NEXT_LASSO_API_KEY ||
-    fileEnv.VITE_LASSO_API_KEY ||
-    fileEnv.NEXT_LASSO_API_KEY ||
-    "";
+  const resolvedLassoKey = cliCredentials?.apiKey || resolveLassoApiKey(fileEnv) || process.env.LASSO_API_KEY || fileEnv.LASSO_API_KEY || process.env.VITE_LASSO_API_KEY || process.env.NEXT_LASSO_API_KEY || fileEnv.VITE_LASSO_API_KEY || fileEnv.NEXT_LASSO_API_KEY || "";
   const lassoKeyConfigured = Boolean(resolvedLassoKey);
 
   const serverUrl = serverUrlFrom(fileEnv) || "https://api.lasso.byorello.space";
@@ -316,12 +291,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   let models: ModelOption[] = [];
   try {
     const modelsResponse = await fetchModels(fileEnv);
-    const allModels = [
-      ...(modelsResponse.anthropic || []),
-      ...(modelsResponse.openai || []),
-      ...(modelsResponse.google || []),
-      ...(modelsResponse.nvidia || []),
-    ];
+    const allModels = [...(modelsResponse.anthropic || []), ...(modelsResponse.openai || []), ...(modelsResponse.google || []), ...(modelsResponse.nvidia || [])];
     models = allModels.map((m: any) => ({
       id: m.id,
       label: m.name || m.id,
@@ -366,6 +336,11 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     return target === root || target.startsWith(`${root}${path.sep}`) ? target : null;
   };
 
+  const resolveWorkspacePath = (relative: unknown): string | null => {
+    if (typeof relative !== "string" || !relative || path.isAbsolute(relative)) return null;
+    return resolveInsideProject(path.resolve(cwd), relative);
+  };
+
   const pageEntries = (root: string, relative: string): PageEntry[] => {
     const directory = resolveInsideProject(root, relative);
     if (!directory) return [];
@@ -380,9 +355,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         });
       }
     } catch {}
-    return entries.sort((a, b) =>
-      a.type === b.type ? a.name.localeCompare(b.name) : a.type === "directory" ? -1 : 1
-    );
+    return entries.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "directory" ? -1 : 1));
   };
 
   bridgeServer.on("request", (req, res) => {
@@ -396,14 +369,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
 
   // Shared runtime event handling for edit/ask, oneshot, and corrective runs.
   // review=true opens the diff review on agent_completed (edit/ask flow).
-  function handleRuntimeEvent(
-    event: RuntimeEvent,
-    socket: WebSocket,
-    taskId: string,
-    session: RuntimeSession,
-    instruction: string,
-    review: boolean
-  ): void {
+  function handleRuntimeEvent(event: RuntimeEvent, socket: WebSocket, taskId: string, session: RuntimeSession, instruction: string, review: boolean): void {
     if (taskControllers.get(taskId)?.signal.aborted) return;
 
     switch (event.type) {
@@ -419,19 +385,16 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         const summary = (event.data as any)?.summary;
         if (summary) {
           const raw = (event.data as any)?.raw;
-          const detail =
-            typeof raw === "string" && raw.trim()
-              ? raw.length > 800
-                ? `${raw.slice(0, 800)}…`
-                : raw
-              : undefined;
-          socket.send(JSON.stringify({
-            type: "agent_status",
-            taskId,
-            status: "thinking",
-            message: summary,
-            detail,
-          } satisfies ServerBridgeMessage));
+          const detail = typeof raw === "string" && raw.trim() ? (raw.length > 800 ? `${raw.slice(0, 800)}…` : raw) : undefined;
+          socket.send(
+            JSON.stringify({
+              type: "agent_status",
+              taskId,
+              status: "thinking",
+              message: summary,
+              detail,
+            } satisfies ServerBridgeMessage)
+          );
         }
         break;
       }
@@ -443,13 +406,15 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         if (data.actionType === "model") break;
         const message = data.label || data.tool;
         if (message) {
-          socket.send(JSON.stringify({
-            type: "agent_status",
-            taskId,
-            status: "working",
-            message,
-            detail: data.detail,
-          } satisfies ServerBridgeMessage));
+          socket.send(
+            JSON.stringify({
+              type: "agent_status",
+              taskId,
+              status: "working",
+              message,
+              detail: data.detail,
+            } satisfies ServerBridgeMessage)
+          );
         }
         break;
       }
@@ -461,13 +426,15 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         // Only failures surface, with the real error.
         if (data.success === false) {
           const message = data.label || data.tool;
-          socket.send(JSON.stringify({
-            type: "agent_status",
-            taskId,
-            status: "working",
-            message: message ? `${message} didn't finish` : "A step didn't finish",
-            detail: data.error || data.detail,
-          } satisfies ServerBridgeMessage));
+          socket.send(
+            JSON.stringify({
+              type: "agent_status",
+              taskId,
+              status: "working",
+              message: message ? `${message} didn't finish` : "A step didn't finish",
+              detail: data.error || data.detail,
+            } satisfies ServerBridgeMessage)
+          );
         }
         break;
       }
@@ -485,24 +452,18 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       case "verification_completed": {
         const data = (event.data as any) || {};
         const passed = data.success ?? data.passed;
-        const summaries: string[] = (data.observations || [])
-          .map((o: any) => o?.summary)
-          .filter(Boolean);
-        const errList: string[] = (data.errors || [])
-          .map((e: any) => e?.message)
-          .filter(Boolean);
-        const message = summaries.length
-          ? summaries.join(" · ")
-          : passed
-            ? "Checks passed"
-            : "Checks failed";
-        socket.send(JSON.stringify({
-          type: "agent_status",
-          taskId,
-          status: passed ? "working" : "error",
-          message,
-          ...(errList.length ? { detail: errList.join("\n") } : {}),
-        } satisfies ServerBridgeMessage));
+        const summaries: string[] = (data.observations || []).map((o: any) => o?.summary).filter(Boolean);
+        const errList: string[] = (data.errors || []).map((e: any) => e?.message).filter(Boolean);
+        const message = summaries.length ? summaries.join(" · ") : passed ? "Checks passed" : "Checks failed";
+        socket.send(
+          JSON.stringify({
+            type: "agent_status",
+            taskId,
+            status: passed ? "working" : "error",
+            message,
+            ...(errList.length ? { detail: errList.join("\n") } : {}),
+          } satisfies ServerBridgeMessage)
+        );
         break;
       }
 
@@ -512,80 +473,89 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         break;
 
       case "error":
-        socket.send(JSON.stringify({
-          type: "agent_status",
-          taskId,
-          status: "error",
-          message: (event.data as any).error || "Unknown error",
-        } satisfies ServerBridgeMessage));
+        socket.send(
+          JSON.stringify({
+            type: "agent_status",
+            taskId,
+            status: "error",
+            message: (event.data as any).error || "Unknown error",
+          } satisfies ServerBridgeMessage)
+        );
         break;
 
       case "waiting_for_user":
-        socket.send(JSON.stringify({
-          type: "agent_prompt",
-          taskId,
-          prompt: {
-            message: (event as any).data?.question || "Input required",
-            kind: "input",
-          },
-        } satisfies ServerBridgeMessage));
+        socket.send(
+          JSON.stringify({
+            type: "agent_prompt",
+            taskId,
+            prompt: {
+              message: (event as any).data?.question || "Input required",
+              kind: "input",
+            },
+          } satisfies ServerBridgeMessage)
+        );
         break;
     }
   }
 
-  async function sendLocalConversationReply(
-    facade: RuntimeFacade,
-    session: RuntimeSession,
-    taskId: string,
-    socket: WebSocket
-  ): Promise<void> {
+  async function sendLocalConversationReply(facade: RuntimeFacade, session: RuntimeSession, taskId: string, socket: WebSocket): Promise<void> {
     const finalSession = await facade.getSession(session.id);
     const messages = (finalSession as any).conversation || [];
     const reply = [...messages]
       .reverse()
-      .find((message: any) => message?.role === "assistant" && typeof message.content === "string")?.content?.trim();
+      .find((message: any) => message?.role === "assistant" && typeof message.content === "string")
+      ?.content?.trim();
     if (reply) {
-      socket.send(JSON.stringify({
-        type: "assistant_message",
-        taskId,
-        message: reply,
-      } satisfies ServerBridgeMessage));
+      socket.send(
+        JSON.stringify({
+          type: "assistant_message",
+          taskId,
+          message: reply,
+        } satisfies ServerBridgeMessage)
+      );
     } else {
-      socket.send(JSON.stringify({
-        type: "agent_status",
-        taskId,
-        status: "stopped",
-        message: "Complete",
-      } satisfies ServerBridgeMessage));
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          taskId,
+          status: "stopped",
+          message: "Complete",
+        } satisfies ServerBridgeMessage)
+      );
     }
   }
 
   // The server rolled the workspace back before review, so the current files
   // are the originals: capture them for undo, then open the review panel.
-  async function handleReviewReady(
-    session: RuntimeSession,
-    socket: WebSocket,
-    taskId: string,
-    instruction: string
-  ): Promise<void> {
+  async function handleReviewReady(session: RuntimeSession, socket: WebSocket, taskId: string, instruction: string): Promise<void> {
     try {
       const facade = taskFacades.get(taskId) || runtimeClient;
       const finalSession = await facade.getSession(session.id);
       const changes = extractChangesFromSession(finalSession);
 
       if (changes.length > 0) {
-        taskSnapshots.set(taskId, changes.map((change: any) => {
-          const abs = path.join(cwd, change.filePath);
-          let content: string | null = null;
-          try {
-            content = fs.readFileSync(abs, "utf8");
-          } catch {
-            content = null; // did not exist before the task (created file)
-          }
-          return { filePath: change.filePath, content };
-        }));
+        taskSnapshots.set(
+          taskId,
+          changes.map((change: any) => {
+            const abs = path.join(cwd, change.filePath);
+            let content: string | null = null;
+            try {
+              content = fs.readFileSync(abs, "utf8");
+            } catch {
+              content = null; // did not exist before the task (created file)
+            }
+            return { filePath: change.filePath, content };
+          })
+        );
 
-        createSnapshot(cwd, taskId, instruction, changes.map((change: any) => change.filePath), undefined, session.id);
+        createSnapshot(
+          cwd,
+          taskId,
+          instruction,
+          changes.map((change: any) => change.filePath),
+          undefined,
+          session.id
+        );
 
         // Extract the assistant's reply from the session conversation so the user
         // sees both the explanation and the review panel — not just "Review changes".
@@ -595,47 +565,45 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
           .find((m: any) => m?.role === "assistant" && typeof m.content === "string")
           ?.content?.trim();
 
-        socket.send(JSON.stringify({
-          type: "agent_status",
-          taskId,
-          status: "review",
-          message: assistantReply || "Review changes",
-          changes,
-        } satisfies ServerBridgeMessage));
+        socket.send(
+          JSON.stringify({
+            type: "agent_status",
+            taskId,
+            status: "review",
+            message: assistantReply || "Review changes",
+            changes,
+          } satisfies ServerBridgeMessage)
+        );
       } else {
         await sendLocalConversationReply(facade, session, taskId, socket);
       }
     } catch (error) {
-      socket.send(JSON.stringify({
-        type: "agent_status",
-        taskId,
-        status: "error",
-        message: error instanceof Error ? error.message : "Failed to load review changes",
-      } satisfies ServerBridgeMessage));
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          taskId,
+          status: "error",
+          message: error instanceof Error ? error.message : "Failed to load review changes",
+        } satisfies ServerBridgeMessage)
+      );
     }
   }
 
   // Handler for edit/ask - uses runtime
-  async function handleHostedConversation(
-    taskId: string,
-    prompt: string,
-    model: string,
-    provider: string,
-    messages: any[] | undefined,
-    socket: WebSocket,
-    signal: AbortSignal,
-    conversationId?: string,
-  ): Promise<void> {
+  async function handleHostedConversation(taskId: string, prompt: string, model: string, provider: string, messages: any[] | undefined, socket: WebSocket, signal: AbortSignal, conversationId?: string): Promise<void> {
     const requestController = new AbortController();
     const abortRequest = () => requestController.abort();
     signal.addEventListener("abort", abortRequest, { once: true });
     const timeout = setTimeout(() => {
-      if (!signal.aborted) socket.send(JSON.stringify({
-        type: "agent_status",
-        taskId,
-        status: "error",
-        message: "The conversation timed out. Please try again.",
-      } satisfies ServerBridgeMessage));
+      if (!signal.aborted)
+        socket.send(
+          JSON.stringify({
+            type: "agent_status",
+            taskId,
+            status: "error",
+            message: "The conversation timed out. Please try again.",
+          } satisfies ServerBridgeMessage)
+        );
       requestController.abort();
     }, 30_000);
     try {
@@ -676,22 +644,26 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
           const event = JSON.parse(payload);
           if (event.type === "error") throw new Error(event.error || "Conversation failed");
           if (event.type === "done") {
-            socket.send(JSON.stringify({
-              type: "assistant_message",
-              taskId,
-              message: cleanConversationReply(event.reply || event.summary),
-            } satisfies ServerBridgeMessage));
+            socket.send(
+              JSON.stringify({
+                type: "assistant_message",
+                taskId,
+                message: cleanConversationReply(event.reply || event.summary),
+              } satisfies ServerBridgeMessage)
+            );
           }
         }
       }
     } catch (error) {
       if (signal.aborted) return;
-      socket.send(JSON.stringify({
-        type: "agent_status",
-        taskId,
-        status: "error",
-        message: error instanceof Error ? error.message : "Conversation failed",
-      } satisfies ServerBridgeMessage));
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          taskId,
+          status: "error",
+          message: error instanceof Error ? error.message : "Conversation failed",
+        } satisfies ServerBridgeMessage)
+      );
     } finally {
       clearTimeout(timeout);
       signal.removeEventListener("abort", abortRequest);
@@ -699,23 +671,13 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     }
   }
 
-  async function handleEditOrAsk(
-    message: any,
-    socket: WebSocket,
-    taskId: string,
-    instruction: string,
-    model: string,
-    provider: string,
-    context: any,
-    element: any,
-    messages: any[] | undefined
-  ) {
+  async function handleEditOrAsk(message: any, socket: WebSocket, taskId: string, instruction: string, model: string, provider: string, context: any, element: any, messages: any[] | undefined) {
     taskControllers.get(taskId)?.abort();
     const controller = new AbortController();
     taskControllers.set(taskId, controller);
 
     const isLocalAgent = ["claude_code", "opencode", "codex_cli", "cursor"].includes(provider || "");
-    if ((message.type === "ask" || isConversationalPrompt(instruction)) && !isLocalAgent) {
+    if (message.type === "ask" && !isLocalAgent) {
       await handleHostedConversation(taskId, instruction, model, provider, messages, socket, controller.signal, message.conversationId);
       return;
     }
@@ -723,18 +685,20 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     // Do not echo the user's prompt into the thinking feed. The prompt is
     // already visible in the conversation; use a neutral status while the
     // runtime produces its first useful event.
-    socket.send(JSON.stringify({
-      type: "agent_status",
-      taskId,
-      status: "thinking",
-      message: "Thinking…",
-    } satisfies ServerBridgeMessage));
+    socket.send(
+      JSON.stringify({
+        type: "agent_status",
+        taskId,
+        status: "thinking",
+        message: "Thinking…",
+      } satisfies ServerBridgeMessage)
+    );
 
     try {
       // Overlay model option ids are prefixed ("claude_code:sonnet") — the
       // agent CLIs need the unprefixed/normalized form.
       const backendModelId = modelIdForBackend(model || "", provider || "");
-      
+
       const sessionInput: RuntimeSessionInput = {
         userPrompt: instruction,
         conversation: toRuntimeConversation(messages),
@@ -742,30 +706,35 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
           projectId,
           framework,
           hasTypeScript: fs.existsSync(path.join(cwd, "tsconfig.json")),
-          hasReact: fs.existsSync(path.join(cwd, "package.json")) && 
-                   fs.readFileSync(path.join(cwd, "package.json"), "utf8").includes("react"),
+          hasReact: fs.existsSync(path.join(cwd, "package.json")) && fs.readFileSync(path.join(cwd, "package.json"), "utf8").includes("react"),
         },
         model: {
           provider: (provider || "anthropic") as any,
           id: model || "claude-3-5-sonnet-20241022",
         },
-        selection: context ? {
-          element: element ? {
-            tag: element.tag,
-            text: element.label,
-            source: element.sourceHint,
-            attributes: context.attributes,
-          } : undefined,
-          viewport: context?.viewport as any,
-          route: (context?.position as any)?.route as string,
-          screenshot: context?.screenshots?.full,
-        } : undefined,
-        backendConfig: isLocalAgent ? {
-          type: "local_agent",
-          provider: provider as any,
-          modelId: backendModelId,
-          projectPath: cwd,
-        } : undefined,
+        selection: context
+          ? {
+              element: element
+                ? {
+                    tag: element.tag,
+                    text: element.label,
+                    source: element.sourceHint,
+                    attributes: context.attributes,
+                  }
+                : undefined,
+              viewport: context?.viewport as any,
+              route: (context?.position as any)?.route as string,
+              screenshot: context?.screenshots?.full,
+            }
+          : undefined,
+        backendConfig: isLocalAgent
+          ? {
+              type: "local_agent",
+              provider: provider as any,
+              modelId: backendModelId,
+              projectPath: cwd,
+            }
+          : undefined,
       };
 
       const facade: RuntimeFacade = isLocalAgent ? getLocalRuntime() : runtimeClient;
@@ -776,19 +745,29 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       // Originals are captured when the review is ready (the workspace was
       // already rolled back at that point).
 
-      await facade.runSession(session.id, cwd, (event: RuntimeEvent) => {
-        handleRuntimeEvent(event, socket, taskId, session, `Runtime session: ${instruction}`, true);
-      }, controller.signal, {
-        providerApiKey: providerApiKeyFor(provider),
-        browserContextProvider: ((action) => requestBrowserContext(action, taskId)) as BrowserContextProvider,
-      });
+      await facade.runSession(
+        session.id,
+        cwd,
+        (event: RuntimeEvent) => {
+          handleRuntimeEvent(event, socket, taskId, session, `Runtime session: ${instruction}`, true);
+        },
+        controller.signal,
+        {
+          providerApiKey: providerApiKeyFor(provider),
+          browserContextProvider: ((action) => requestBrowserContext(action, taskId)) as BrowserContextProvider,
+        }
+      );
     } catch (error) {
-      socket.send(JSON.stringify({
-        type: "agent_status",
-        taskId,
-        status: "error",
-        message: error instanceof Error ? error.message : "Unknown error",
-      } satisfies ServerBridgeMessage));
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          taskId,
+          status: "error",
+          message: error instanceof Error ? error.message : "Unknown error",
+        } satisfies ServerBridgeMessage)
+      );
+    } finally {
+      if (taskControllers.get(taskId) === controller) taskControllers.delete(taskId);
     }
   }
 
@@ -797,28 +776,70 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   async function handleApply(message: any, socket: WebSocket, cwd: string) {
     const { taskId, changes } = message;
     const session = activeSessions.get(taskId);
-    const filePaths = changes.map((c: any) => c.filePath);
+    const facade = taskFacades.get(taskId) || runtimeClient;
+    if (!session || !Array.isArray(changes)) {
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          taskId,
+          status: "error",
+          message: "There is no reviewable agent session for this task.",
+        } satisfies ServerBridgeMessage)
+      );
+      return;
+    }
+
+    // The UI is only an approval surface. Never trust its diff as the source
+    // of truth; reload the authoritative diff captured by the runtime.
+    const latestSession = await facade.getSession(session.id);
+    const authoritative = (latestSession.metadata?.pendingChanges || []) as any[];
+    if (!Array.isArray(authoritative) || authoritative.length === 0) {
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          taskId,
+          status: "error",
+          message: "This task has no pending changes to apply.",
+        } satisfies ServerBridgeMessage)
+      );
+      return;
+    }
+    const filePaths = authoritative.map((c) => c.filePath);
+    if (authoritative.some((change) => !resolveWorkspacePath(change.filePath))) {
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          taskId,
+          status: "error",
+          message: "The review contains an invalid workspace path.",
+        } satisfies ServerBridgeMessage)
+      );
+      return;
+    }
 
     // The server rolled the workspace back before review, so the disk still
     // holds the originals — capture them now (if the review didn't already).
     if (filePaths.length > 0 && (!taskSnapshots.has(taskId) || (taskSnapshots.get(taskId) || []).length === 0)) {
-      taskSnapshots.set(taskId, changes.map((change: any) => {
-        const abs = path.join(cwd, change.filePath);
-        let content: string | null = null;
-        try {
-          content = fs.readFileSync(abs, "utf8");
-        } catch {
-          content = null;
-        }
-        return { filePath: change.filePath, content };
-      }));
+      taskSnapshots.set(
+        taskId,
+        changes.map((change: any) => {
+          const abs = path.join(cwd, change.filePath);
+          let content: string | null = null;
+          try {
+            content = fs.readFileSync(abs, "utf8");
+          } catch {
+            content = null;
+          }
+          return { filePath: change.filePath, content };
+        })
+      );
     }
 
     if (filePaths.length > 0) {
-      createSnapshot(cwd, taskId, `Apply changes for task ${taskId}`, filePaths, undefined, session?.id);
+      createSnapshot(cwd, taskId, `Apply changes for task ${taskId}`, filePaths, undefined, session.id);
     }
 
-    const applyError = applyChanges(changes, cwd);
+    const applyError = applyChanges(authoritative, cwd);
     if (applyError) {
       // Roll back partial application so the project stays consistent
       const originals = taskSnapshots.get(taskId) || [];
@@ -833,19 +854,20 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
           }
         } catch {}
       }
-      socket.send(JSON.stringify({
-        type: "agent_status",
-        taskId,
-        status: "error",
-        message: applyError,
-      } satisfies ServerBridgeMessage));
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          taskId,
+          status: "error",
+          message: applyError,
+        } satisfies ServerBridgeMessage)
+      );
       return;
     }
 
     // Post-apply verification (inconclusive when the engine can't run —
     // never reported as a failure of the changes themselves).
     let validation: { passed: boolean; errors: string[]; command: string } | undefined;
-    const facade = taskFacades.get(taskId) || runtimeClient;
     if (session) {
       try {
         const result = await facade.verifySession(session.id, cwd);
@@ -859,12 +881,14 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       }
     }
 
-    socket.send(JSON.stringify({
-      type: "applied",
-      taskId,
-      message: "Changes applied successfully",
-      ...(validation ? { validation } : {}),
-    } satisfies ServerBridgeMessage));
+    socket.send(
+      JSON.stringify({
+        type: "applied",
+        taskId,
+        message: "Changes applied successfully",
+        ...(validation ? { validation } : {}),
+      } satisfies ServerBridgeMessage)
+    );
 
     if (validation && !validation.passed && session) {
       await runCorrectiveFix(session, facade, taskId, socket);
@@ -874,12 +898,12 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   /** Apply approved changes to disk. Returns an error message or null. */
   function applyChanges(changes: any[], cwd: string): string | null {
     for (const change of changes) {
-      const filePath = path.join(cwd, change.filePath);
+      const filePath = resolveWorkspacePath(change.filePath);
+      if (!filePath) return `Cannot apply ${String(change.filePath)}: invalid workspace path.`;
       const dir = path.dirname(filePath);
       const oldString = typeof change.oldString === "string" ? change.oldString : "";
       const newString = typeof change.newString === "string" ? change.newString : "";
-      const operation: string = change.operation ||
-        (oldString === "" && newString === "" ? "deleted" : oldString === "" ? "created" : "modified");
+      const operation: string = change.operation || (oldString === "" && newString === "" ? "deleted" : oldString === "" ? "created" : "modified");
 
       try {
         if (!fs.existsSync(dir)) {
@@ -923,24 +947,34 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     const controller = new AbortController();
     taskControllers.set(taskId, controller);
 
-    socket.send(JSON.stringify({
-      type: "agent_status",
-      taskId,
-      status: "thinking",
-      message: "Fixing verification errors...",
-    } satisfies ServerBridgeMessage));
-
-    try {
-      await facade.runSession(session.id, cwd, (event: RuntimeEvent) => {
-        handleRuntimeEvent(event, socket, taskId, session, "Corrective run", true);
-      }, controller.signal, { providerApiKey: providerApiKeyFor(session.model?.provider || "") });
-    } catch (error) {
-      socket.send(JSON.stringify({
+    socket.send(
+      JSON.stringify({
         type: "agent_status",
         taskId,
-        status: "error",
-        message: error instanceof Error ? error.message : "Corrective run failed",
-      } satisfies ServerBridgeMessage));
+        status: "thinking",
+        message: "Fixing verification errors...",
+      } satisfies ServerBridgeMessage)
+    );
+
+    try {
+      await facade.runSession(
+        session.id,
+        cwd,
+        (event: RuntimeEvent) => {
+          handleRuntimeEvent(event, socket, taskId, session, "Corrective run", true);
+        },
+        controller.signal,
+        { providerApiKey: providerApiKeyFor(session.model?.provider || "") }
+      );
+    } catch (error) {
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          taskId,
+          status: "error",
+          message: error instanceof Error ? error.message : "Corrective run failed",
+        } satisfies ServerBridgeMessage)
+      );
     }
   }
 
@@ -950,22 +984,37 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     const snapshot = taskSnapshots.get(taskId) || [];
 
     for (const item of snapshot) {
+      const filePath = resolveWorkspacePath(item.filePath);
+      if (!filePath) {
+        socket.send(
+          JSON.stringify({
+            type: "agent_status",
+            taskId,
+            status: "error",
+            message: `Cannot undo ${item.filePath}: invalid workspace path.`,
+          } satisfies ServerBridgeMessage)
+        );
+        return;
+      }
       if (item.content === null) {
         // File didn't exist, delete if it was created
         try {
-          fs.unlinkSync(path.join(cwd, item.filePath));
+          fs.unlinkSync(filePath);
         } catch {}
       } else {
         // Restore original content
-        fs.writeFileSync(path.join(cwd, item.filePath), item.content);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, item.content);
       }
     }
 
-    socket.send(JSON.stringify({
-      type: "undone",
-      taskId,
-      message: "Changes undone",
-    } satisfies ServerBridgeMessage));
+    socket.send(
+      JSON.stringify({
+        type: "undone",
+        taskId,
+        message: "Changes undone",
+      } satisfies ServerBridgeMessage)
+    );
   }
 
   // Handler for stop
@@ -988,12 +1037,36 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       activeSessions.clear();
       taskFacades.clear();
     }
-    socket.send(JSON.stringify({
-      type: "agent_status",
-      taskId,
-      status: "stopped",
-      message: "Agent stopped",
-    } satisfies ServerBridgeMessage));
+    socket.send(
+      JSON.stringify({
+        type: "agent_status",
+        taskId,
+        status: "stopped",
+        message: "Agent stopped",
+      } satisfies ServerBridgeMessage)
+    );
+  }
+
+  /** Forward an overlay answer to the runtime's pending user question. */
+  async function handleAgentPromptResponse(message: Extract<BridgeMessage, { type: "agent_prompt_response" }>, socket: WebSocket): Promise<void> {
+    const session = activeSessions.get(message.taskId);
+    const facade = taskFacades.get(message.taskId);
+    if (!session || !facade) {
+      throw new Error("No active agent session is waiting for a response.");
+    }
+
+    if (!facade.respondToPrompt) {
+      throw new Error("This agent backend does not support interactive prompts.");
+    }
+    await facade.respondToPrompt(session.id, message.response);
+    socket.send(
+      JSON.stringify({
+        type: "agent_status",
+        taskId: message.taskId,
+        status: "working",
+        message: "Continuing with your response…",
+      } satisfies ServerBridgeMessage)
+    );
   }
 
   // Handler for switch_model
@@ -1001,12 +1074,14 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     const { taskId, provider, modelId } = message;
     const session = activeSessions.get(taskId);
     if (!session) {
-      socket.send(JSON.stringify({
-        type: "agent_status",
-        taskId,
-        status: "error",
-        message: "No active session for this task",
-      } satisfies ServerBridgeMessage));
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          taskId,
+          status: "error",
+          message: "No active session for this task",
+        } satisfies ServerBridgeMessage)
+      );
       return;
     }
 
@@ -1029,19 +1104,23 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
             }
           : undefined
       );
-      socket.send(JSON.stringify({
-        type: "agent_status",
-        taskId,
-        status: "working",
-        message: `Switched to ${provider}/${modelId}`,
-      } satisfies ServerBridgeMessage));
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          taskId,
+          status: "working",
+          message: `Switched to ${provider}/${modelId}`,
+        } satisfies ServerBridgeMessage)
+      );
     } catch (error) {
-      socket.send(JSON.stringify({
-        type: "agent_status",
-        taskId,
-        status: "error",
-        message: error instanceof Error ? error.message : "Failed to switch model",
-      } satisfies ServerBridgeMessage));
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          taskId,
+          status: "error",
+          message: error instanceof Error ? error.message : "Failed to switch model",
+        } satisfies ServerBridgeMessage)
+      );
     }
   }
 
@@ -1054,37 +1133,33 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     const controller = new AbortController();
     taskControllers.set(taskId, controller);
 
-    // Greetings and conversational messages still go through the selected
-    // agent/model. The overlay only skips expensive page capture for them;
-    // there are no canned assistant responses in the bridge.
+    // All oneshot prompts go through the selected agent/model. The agent
+    // decides whether the request needs project work or a conversational reply.
 
     try {
       const isLocalAgent = ["claude_code", "opencode", "codex_cli", "cursor"].includes(provider || "");
-      if (isConversationalPrompt(prompt) && !isLocalAgent) {
-        await handleHostedConversation(taskId, prompt, model, provider, message.messages, socket, controller.signal, message.conversationId);
-        return;
-      }
       const backendModelId = modelIdForBackend(model || "", provider || "");
-      
+
       const sessionInput: RuntimeSessionInput = {
         userPrompt: prompt,
         project: {
           projectId,
           framework,
           hasTypeScript: fs.existsSync(path.join(cwd, "tsconfig.json")),
-          hasReact: fs.existsSync(path.join(cwd, "package.json")) && 
-                   fs.readFileSync(path.join(cwd, "package.json"), "utf8").includes("react"),
+          hasReact: fs.existsSync(path.join(cwd, "package.json")) && fs.readFileSync(path.join(cwd, "package.json"), "utf8").includes("react"),
         },
         model: {
           provider: (provider || "anthropic") as any,
           id: model || "claude-3-5-sonnet-20241022",
         },
-        backendConfig: isLocalAgent ? {
-          type: "local_agent",
-          provider: provider as any,
-          modelId: backendModelId,
-          projectPath: cwd,
-        } : undefined,
+        backendConfig: isLocalAgent
+          ? {
+              type: "local_agent",
+              provider: provider as any,
+              modelId: backendModelId,
+              projectPath: cwd,
+            }
+          : undefined,
       };
 
       const facade: RuntimeFacade = isLocalAgent ? getLocalRuntime() : runtimeClient;
@@ -1092,18 +1167,28 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       activeSessions.set(taskId, session);
       taskFacades.set(taskId, facade);
 
-      await facade.runSession(session.id, cwd, (event: RuntimeEvent) => {
-        // Oneshot results are reviewed exactly like edit/ask: the workspace is
-        // rolled back and only approval re-applies the changes.
-        handleRuntimeEvent(event, socket, taskId, session, `Oneshot: ${instruction}`, true);
-      }, controller.signal, { providerApiKey: providerApiKeyFor(provider) });
+      await facade.runSession(
+        session.id,
+        cwd,
+        (event: RuntimeEvent) => {
+          // Oneshot results are reviewed exactly like edit/ask: the workspace is
+          // rolled back and only approval re-applies the changes.
+          handleRuntimeEvent(event, socket, taskId, session, `Oneshot: ${instruction}`, true);
+        },
+        controller.signal,
+        { providerApiKey: providerApiKeyFor(provider) }
+      );
     } catch (error) {
-      socket.send(JSON.stringify({
-        type: "agent_status",
-        taskId,
-        status: "error",
-        message: error instanceof Error ? error.message : "Unknown oneshot error",
-      } satisfies ServerBridgeMessage));
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          taskId,
+          status: "error",
+          message: error instanceof Error ? error.message : "Unknown oneshot error",
+        } satisfies ServerBridgeMessage)
+      );
+    } finally {
+      if (taskControllers.get(taskId) === controller) taskControllers.delete(taskId);
     }
   }
 
@@ -1112,17 +1197,21 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     const { snapshotId } = message;
     try {
       await restoreSnapshot(cwd, snapshotId);
-      socket.send(JSON.stringify({
-        type: "agent_status",
-        status: "working",
-        message: "Snapshot restored",
-      } satisfies ServerBridgeMessage));
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          status: "working",
+          message: "Snapshot restored",
+        } satisfies ServerBridgeMessage)
+      );
     } catch (error) {
-      socket.send(JSON.stringify({
-        type: "agent_status",
-        status: "error",
-        message: error instanceof Error ? error.message : "Failed to restore snapshot",
-      } satisfies ServerBridgeMessage));
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          status: "error",
+          message: error instanceof Error ? error.message : "Failed to restore snapshot",
+        } satisfies ServerBridgeMessage)
+      );
     }
   }
 
@@ -1130,16 +1219,20 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   async function handleGetTimeline(socket: WebSocket, cwd: string) {
     try {
       const timeline = await getTimeline(cwd);
-      socket.send(JSON.stringify({
-        type: "timeline",
-        snapshots: timeline,
-      } satisfies ServerBridgeMessage));
+      socket.send(
+        JSON.stringify({
+          type: "timeline",
+          snapshots: timeline,
+        } satisfies ServerBridgeMessage)
+      );
     } catch (error) {
-      socket.send(JSON.stringify({
-        type: "agent_status",
-        status: "error",
-        message: error instanceof Error ? error.message : "Failed to get timeline",
-      } satisfies ServerBridgeMessage));
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          status: "error",
+          message: error instanceof Error ? error.message : "Failed to get timeline",
+        } satisfies ServerBridgeMessage)
+      );
     }
   }
 
@@ -1148,17 +1241,21 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     const { snapshotId } = message;
     try {
       await deleteSnapshot(cwd, snapshotId);
-      socket.send(JSON.stringify({
-        type: "agent_status",
-        status: "working",
-        message: "Snapshot deleted",
-      } satisfies ServerBridgeMessage));
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          status: "working",
+          message: "Snapshot deleted",
+        } satisfies ServerBridgeMessage)
+      );
     } catch (error) {
-      socket.send(JSON.stringify({
-        type: "agent_status",
-        status: "error",
-        message: error instanceof Error ? error.message : "Failed to delete snapshot",
-      } satisfies ServerBridgeMessage));
+      socket.send(
+        JSON.stringify({
+          type: "agent_status",
+          status: "error",
+          message: error instanceof Error ? error.message : "Failed to delete snapshot",
+        } satisfies ServerBridgeMessage)
+      );
     }
   }
 
@@ -1213,43 +1310,34 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     overlaySocket = socket;
     console.log(chalk.green("✓") + " Overlay connected");
     const creds = loadCredentials();
-    const userInfo = creds?.userName
-      ? { name: creds.userName, email: creds.userEmail }
-      : (process.env.USER ? { name: process.env.USER } : null);
-    socket.send(JSON.stringify({ 
-      type: "config", 
-      apiKeyConfigured: lassoKeyConfigured, 
-      agentConfigured: lassoKeyConfigured, 
-      models, 
-      collab: collabConfig?.registered ? { ...collabConfig, plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null, 
-      user: userInfo 
-    }));
+    const userInfo = creds?.userName ? { name: creds.userName, email: creds.userEmail } : process.env.USER ? { name: process.env.USER } : null;
+    socket.send(
+      JSON.stringify({
+        type: "config",
+        apiKeyConfigured: lassoKeyConfigured,
+        agentConfigured: lassoKeyConfigured,
+        models,
+        collab: collabConfig?.registered ? { ...collabConfig, plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null,
+        user: userInfo,
+      })
+    );
     void getGitState(cwd).then((git) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "git_state", git }));
     });
 
     socket.on("message", async (raw) => {
-      const msg: BridgeMessage = JSON.parse(raw.toString());
-      console.log("[lasso] received from overlay:", msg.type);
-
+      let taskId: string | undefined;
       try {
+        const msg: BridgeMessage = JSON.parse(raw.toString());
+        taskId = (msg as any).taskId;
+        console.log("[lasso] received from overlay:", msg.type);
         switch (msg.type) {
           case "hello":
             break;
 
           case "edit":
           case "ask":
-            await handleEditOrAsk(
-              msg,
-              socket,
-              msg.taskId,
-              msg.type === "edit" ? msg.instruction : msg.question,
-              msg.model,
-              msg.provider || "anthropic",
-              msg.context,
-              msg.element,
-              msg.messages
-            );
+            await handleEditOrAsk(msg, socket, msg.taskId, msg.type === "edit" ? msg.instruction : msg.question, msg.model, msg.provider || "anthropic", msg.context, msg.element, msg.messages);
             break;
 
           case "apply":
@@ -1262,6 +1350,10 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
 
           case "stop":
             await handleStop(msg, socket);
+            break;
+
+          case "agent_prompt_response":
+            await handleAgentPromptResponse(msg, socket);
             break;
 
           case "switch_model":
@@ -1332,11 +1424,13 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
               fs.mkdirSync(target);
               socket.send(JSON.stringify({ type: "page_folder_created", path: path.relative(root2, target) }));
             } catch (error) {
-              socket.send(JSON.stringify({
-                type: "page_folder_created",
-                path: path.relative(root2, target),
-                error: error instanceof Error && error.message.includes("EEXIST") ? "A folder with that name already exists." : "The folder could not be created.",
-              }));
+              socket.send(
+                JSON.stringify({
+                  type: "page_folder_created",
+                  path: path.relative(root2, target),
+                  error: error instanceof Error && error.message.includes("EEXIST") ? "A folder with that name already exists." : "The folder could not be created.",
+                })
+              );
             }
             break;
 
@@ -1357,40 +1451,53 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
               fs.writeFileSync(targetFile, msg.content);
               socket.send(JSON.stringify({ type: "page_created", path: path.relative(root3, targetFile) }));
             } catch (error) {
-              socket.send(JSON.stringify({
-                type: "page_created",
-                path: path.relative(root3, targetFile),
-                error: error instanceof Error ? error.message : "The file could not be created.",
-              }));
+              socket.send(
+                JSON.stringify({
+                  type: "page_created",
+                  path: path.relative(root3, targetFile),
+                  error: error instanceof Error ? error.message : "The file could not be created.",
+                })
+              );
             }
             break;
 
           case "runtime_error":
             // Overlay-side crash (e.g. ReferenceError) — surface it in the
             // daemon log so it's diagnosable.
-            console.error(
-              "[overlay error]",
-              (msg as any).selectionId || "",
-              (msg as any).details || (msg as any).message || msg
-            );
+            console.error("[overlay error]", (msg as any).selectionId || "", (msg as any).details || (msg as any).message || msg);
             break;
+
+          case "page_context_response": {
+            const pending = pendingBrowserContext.get(msg.requestId);
+            if (!pending) break;
+            pendingBrowserContext.delete(msg.requestId);
+            if (msg.error) pending.reject(new Error(msg.error));
+            else pending.resolve(msg.pageContext);
+            break;
+          }
 
           default:
             console.warn("Unknown bridge message type:", (msg as any).type);
         }
       } catch (error) {
         console.error("Error handling bridge message:", error);
-        socket.send(JSON.stringify({
-          type: "agent_status",
-          taskId: (msg as any).taskId,
-          status: "error",
-          message: error instanceof Error ? error.message : "Unknown error",
-        } satisfies ServerBridgeMessage));
+        socket.send(
+          JSON.stringify({
+            type: "agent_status",
+            taskId,
+            status: "error",
+            message: error instanceof Error ? error.message : "Unknown error",
+          } satisfies ServerBridgeMessage)
+        );
       }
     });
 
     socket.on("close", () => {
       if (socket === overlaySocket) overlaySocket = null;
+      for (const [requestId, pending] of pendingBrowserContext) {
+        pending.reject(new Error("The overlay disconnected before browser context was returned."));
+        pendingBrowserContext.delete(requestId);
+      }
     });
   });
 

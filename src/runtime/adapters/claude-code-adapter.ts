@@ -104,9 +104,7 @@ export class ClaudeCodeAdapter extends LocalAgentAdapter {
         try {
           const parsed = JSON.parse(stdout.slice(jsonStart));
           if (parsed && typeof parsed.loggedIn === "boolean") {
-            return parsed.loggedIn
-              ? { authenticated: true }
-              : { authenticated: false, error: "Claude Code is not logged in.", fixInstructions: "Run 'claude' once and log in, or run 'claude auth login'." };
+            return parsed.loggedIn ? { authenticated: true } : { authenticated: false, error: "Claude Code is not logged in.", fixInstructions: "Run 'claude' once and log in, or run 'claude auth login'." };
           }
         } catch {
           // Fall through to exit-code based result.
@@ -128,15 +126,7 @@ export class ClaudeCodeAdapter extends LocalAgentAdapter {
     const resumeId = this.resumeSessionId(context);
     const sessionId = crypto.randomUUID();
 
-    const args = [
-      "-p",
-      this.buildTaskPrompt(context),
-      "--output-format",
-      "stream-json",
-      "--verbose",
-      "--permission-mode",
-      cfg.permissionMode || "acceptEdits",
-    ];
+    const args = ["-p", this.buildTaskPrompt(context), "--output-format", "stream-json", "--verbose", "--permission-mode", cfg.permissionMode || "acceptEdits"];
 
     if (this.modelId) args.push("--model", this.modelId);
     if (resumeId) args.push("--resume", resumeId);
@@ -200,7 +190,10 @@ export class ClaudeCodeAdapter extends LocalAgentAdapter {
     const content = event.message?.content || [];
 
     if (event.error) {
-      const text = content.map((c) => c.text || "").filter(Boolean).join(" ");
+      const text = content
+        .map((c) => c.text || "")
+        .filter(Boolean)
+        .join(" ");
       sink.state.failureMessage = text || `Claude Code error: ${event.error}`;
       if (/billing|auth|unauthorized|credit/i.test(event.error) || /credit balance|not logged in|unauthorized/i.test(sink.state.failureMessage)) {
         sink.state.authFailure = true;

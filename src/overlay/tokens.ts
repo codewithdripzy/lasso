@@ -4,32 +4,32 @@
  */
 export const DESIGN_TOKENS = {
   // Backgrounds & Surfaces
-  bg: "#111214",             // web --background (dark)
-  surface: "#18191d",        // web --surface (dark)
-  surfaceSecondary: "#202124",// web --surface-secondary (dark)
+  bg: "#111214", // web --background (dark)
+  surface: "#18191d", // web --surface (dark)
+  surfaceSecondary: "#202124", // web --surface-secondary (dark)
   surfaceElevated: "#23262d", // elevated card surface
   surfaceHover: "#282a30",
 
   // Borders
-  border: "#303238",         // web --border (dark)
-  borderSubtle: "#282a2f",   // web --border-subtle (dark)
+  border: "#303238", // web --border (dark)
+  borderSubtle: "#282a2f", // web --border-subtle (dark)
   borderActive: "rgba(255, 255, 255, 0.22)",
 
   // Text
-  textPrimary: "#f8f9fc",    // web --text-primary (dark)
-  textSecondary: "#b7bbc2",  // web --text-secondary (dark)
-  textMuted: "#8b919a",      // web --text-muted (dark)
+  textPrimary: "#f8f9fc", // web --text-primary (dark)
+  textSecondary: "#b7bbc2", // web --text-secondary (dark)
+  textMuted: "#8b919a", // web --text-muted (dark)
 
   // Brand & Accents
-  primary: "#6ea0ff",        // web --primary (dark)
-  primaryHover: "#5b8ff5",   // web --primary-hover (dark)
+  primary: "#6ea0ff", // web --primary (dark)
+  primaryHover: "#5b8ff5", // web --primary-hover (dark)
   primarySoft: "rgba(110, 160, 255, 0.14)",
   indigo: "#6366f1",
   purple: "#8b5cf6",
   amber: "#f59e0b",
-  success: "#81c995",        // google green / web success dark
-  warning: "#fdd663",        // google yellow / web warning dark
-  error: "#f28b82",          // google red / web error dark
+  success: "#81c995", // google green / web success dark
+  warning: "#fdd663", // google yellow / web warning dark
+  error: "#f28b82", // google red / web error dark
 
   // Radii
   radiusSm: "6px",

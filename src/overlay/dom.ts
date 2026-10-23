@@ -93,26 +93,12 @@ export class OverlayDOM {
     this.dragLayer = document.createElement("div");
     this.dragLayer.className = "lasso-drag-layer";
 
-    this.shadow.append(
-      this.remoteLayer,
-      this.spotlightBox,
-      this.hoverBox,
-      this.selectedBox,
-      this.label,
-      this.activityStrip,
-      this.commentPins,
-      this.dragLayer
-    );
+    this.shadow.append(this.remoteLayer, this.spotlightBox, this.hoverBox, this.selectedBox, this.label, this.activityStrip, this.commentPins, this.dragLayer);
   }
 
   isLassoElement(el: Element | null): boolean {
     if (!el) return false;
-    return (
-      el === this.root ||
-      this.root.contains(el) ||
-      this.shadow.contains(el) ||
-      el.getRootNode() === this.shadow
-    );
+    return el === this.root || this.root.contains(el) || this.shadow.contains(el) || el.getRootNode() === this.shadow;
   }
 }
 

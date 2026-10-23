@@ -9,12 +9,7 @@ import type { CollabClipboardItem } from "../types";
  * (e.g., non-secure HTTP contexts).
  */
 async function safeClipboardRead(): Promise<string> {
-  if (
-    typeof navigator !== "undefined" &&
-    navigator.clipboard &&
-    typeof navigator.clipboard.readText === "function" &&
-    window.isSecureContext
-  ) {
+  if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.readText === "function" && window.isSecureContext) {
     return navigator.clipboard.readText();
   }
   // Fallback: prompt the user to paste manually
@@ -27,12 +22,7 @@ async function safeClipboardRead(): Promise<string> {
  * Falls back to execCommand('copy') when the Clipboard API is unavailable.
  */
 async function safeClipboardWrite(text: string): Promise<void> {
-  if (
-    typeof navigator !== "undefined" &&
-    navigator.clipboard &&
-    typeof navigator.clipboard.writeText === "function" &&
-    window.isSecureContext
-  ) {
+  if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function" && window.isSecureContext) {
     await navigator.clipboard.writeText(text);
     return;
   }
@@ -57,17 +47,17 @@ const PRIVATE_STORAGE_KEY = "lasso:clipboard:private";
 
 const TYPE_ICONS: Record<string, string> = {
   text: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 6.1H3"/><path d="M21 12.1H3"/><path d="M15.1 18H3"/></svg>`,
-  url:  `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
+  url: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
   code: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`,
   json: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 19a2 2 0 0 1-2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h1"/><path d="M14 3h1"/><path d="M14 21h1"/><path d="M3 9v1"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M21 14v1"/></svg>`,
-  image:`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>`,
+  image: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>`,
 };
 
 const TYPE_COLORS: Record<string, string> = {
-  text:  "var(--lo-text-3)",
-  url:   "#60a5fa",
-  code:  "#a78bfa",
-  json:  "#34d399",
+  text: "var(--lo-text-3)",
+  url: "#60a5fa",
+  code: "#a78bfa",
+  json: "#34d399",
   image: "#fb923c",
 };
 
@@ -130,7 +120,9 @@ export function buildClipboardPanel(): HTMLDivElement {
         input.value = text;
         if (!el.querySelector<HTMLInputElement>(".lasso-clipboard-label")!.value) input.focus();
       }
-    } catch { setStatus("Clipboard permission denied"); }
+    } catch {
+      setStatus("Clipboard permission denied");
+    }
   });
   el.querySelector<HTMLButtonElement>(".lasso-clipboard-add")!.addEventListener("click", () => {
     const content = el.querySelector<HTMLTextAreaElement>(".lasso-clipboard-input")!.value;
@@ -174,7 +166,9 @@ function loadPrivateItems(): CollabClipboardItem[] {
   try {
     const raw = window.localStorage.getItem(PRIVATE_STORAGE_KEY);
     return raw ? (JSON.parse(raw) as CollabClipboardItem[]) : [];
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
 function savePrivateItems(): void {
@@ -191,7 +185,10 @@ function requestItems() {
     render();
     return;
   }
-  if (!state.collabJoined || !state.collabProjectId) { render(); return; }
+  if (!state.collabJoined || !state.collabProjectId) {
+    render();
+    return;
+  }
   collabEmit("clipboard:list", { scope, sessionId: state.collabProjectId }, (response) => {
     if (response.ok) {
       const shared = (response.items || []) as CollabClipboardItem[];
@@ -203,7 +200,8 @@ function requestItems() {
 
 export function upsertClipboardItem(item: CollabClipboardItem) {
   const index = items.findIndex((candidate) => candidate.uid === item.uid);
-  if (index === -1) items.unshift(item); else items[index] = item;
+  if (index === -1) items.unshift(item);
+  else items[index] = item;
   render();
 }
 
@@ -228,12 +226,13 @@ function render() {
     list.innerHTML = `<div class="lasso-clipboard-empty">${scope === "shared" && !state.collabJoined ? "Join a collaboration session to share items." : "No saved items yet."}</div>`;
     return;
   }
-  list.innerHTML = visible.map((item) => {
-    const color = typeColor(item.type);
-    const icon = typeIcon(item.type);
-    const preview = escapeHtml(item.content).slice(0, 220);
-    const isMono = item.type === "code" || item.type === "json";
-    return `
+  list.innerHTML = visible
+    .map((item) => {
+      const color = typeColor(item.type);
+      const icon = typeIcon(item.type);
+      const preview = escapeHtml(item.content).slice(0, 220);
+      const isMono = item.type === "code" || item.type === "json";
+      return `
       <div class="lasso-clipboard-item" data-id="${escapeAttr(item.uid)}">
         <div class="lasso-clipboard-item-header">
           <span class="lasso-clipboard-item-type-chip" style="--chip-color:${color}">${icon}<span>${item.type}</span></span>
@@ -251,7 +250,8 @@ function render() {
           </button>
         </div>
       </div>`;
-  }).join("");
+    })
+    .join("");
   list.querySelectorAll<HTMLDivElement>(".lasso-clipboard-item").forEach((row) => {
     const item = visible.find((candidate) => candidate.uid === row.dataset.id);
     if (!item) return;
@@ -260,8 +260,12 @@ function render() {
       try {
         await safeClipboardWrite(item.content);
         copyBtn.textContent = "Copied!";
-        window.setTimeout(() => { copyBtn.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg> Copy`; }, 1400);
-      } catch { setStatus("Copy failed — check clipboard permissions"); }
+        window.setTimeout(() => {
+          copyBtn.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg> Copy`;
+        }, 1400);
+      } catch {
+        setStatus("Copy failed — check clipboard permissions");
+      }
     });
     row.querySelector<HTMLButtonElement>(".lasso-clipboard-delete-item")!.addEventListener("click", () => {
       row.classList.add("removing");
@@ -273,7 +277,10 @@ function render() {
         }
         collabEmit("clipboard:remove", { scope, itemId: item.uid, sessionId: state.collabProjectId }, (response) => {
           if (response.ok) removeClipboardItem(item.uid);
-          else { row.classList.remove("removing"); setStatus(response.error || "Unable to delete item"); }
+          else {
+            row.classList.remove("removing");
+            setStatus(response.error || "Unable to delete item");
+          }
         });
       }, 180);
     });
@@ -285,7 +292,9 @@ function setStatus(message: string) {
   if (!sub) return;
   const previous = sub.textContent;
   sub.textContent = message;
-  window.setTimeout(() => { if (sub.textContent === message) sub.textContent = previous || "Saved snippets & references"; }, 1800);
+  window.setTimeout(() => {
+    if (sub.textContent === message) sub.textContent = previous || "Saved snippets & references";
+  }, 1800);
 }
 
 export function toggleClipboardPanel(force?: boolean) {
@@ -296,5 +305,9 @@ export function toggleClipboardPanel(force?: boolean) {
   if (next) requestItems();
 }
 
-function escapeHtml(value: string) { return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] || char); }
-function escapeAttr(value: string) { return escapeHtml(value); }
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] || char);
+}
+function escapeAttr(value: string) {
+  return escapeHtml(value);
+}

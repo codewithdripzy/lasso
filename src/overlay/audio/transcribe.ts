@@ -8,29 +8,17 @@ let pendingResolver: ((res: { text: string; provider: string }) => void) | null 
 let pendingRejecter: ((err: Error) => void) | null = null;
 let currentMimeType = "audio/webm";
 
-const SpeechRecognitionClass =
-  typeof window !== "undefined"
-    ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    : null;
+const SpeechRecognitionClass = typeof window !== "undefined" ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition : null;
 let activeSpeechRecognition: any = null;
 let speechTranscript = "";
 
 export function isRecordingVoice(): boolean {
-  return (
-    (activeRecorder !== null && activeRecorder.state === "recording") ||
-    Boolean(activeSpeechRecognition)
-  );
+  return (activeRecorder !== null && activeRecorder.state === "recording") || Boolean(activeSpeechRecognition);
 }
 
 function getSupportedMimeType(): string {
   if (typeof MediaRecorder === "undefined") return "audio/webm";
-  const types = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-    "audio/ogg;codecs=opus",
-    "audio/wav",
-  ];
+  const types = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus", "audio/wav"];
   for (const t of types) {
     if (MediaRecorder.isTypeSupported(t)) return t;
   }
@@ -53,54 +41,49 @@ function blobToBase64(blob: Blob): Promise<string> {
 /**
  * Transcribe an audio Blob via Lasso Server /api/v1/transcribe (or bridge fallback)
  */
-export async function transcribeAudioBlob(
-  blob: Blob,
-  mimeType: string
-): Promise<{ text: string; provider: string }> {
+export async function transcribeAudioBlob(blob: Blob, mimeType: string): Promise<{ text: string; provider: string }> {
   const base64 = await blobToBase64(blob);
 
   // Strategy 1: Try CLI bridge if connected
   if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
     try {
-      const result = await new Promise<{ text: string; provider: string }>(
-        (resolve, reject) => {
-          const requestId = `transcribe_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-          const timeout = window.setTimeout(() => {
-            cleanup();
-            reject(new Error("Transcription timed out via local bridge"));
-          }, 25000);
+      const result = await new Promise<{ text: string; provider: string }>((resolve, reject) => {
+        const requestId = `transcribe_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        const timeout = window.setTimeout(() => {
+          cleanup();
+          reject(new Error("Transcription timed out via local bridge"));
+        }, 25000);
 
-          const handler = (event: MessageEvent) => {
-            try {
-              const msg = JSON.parse(event.data as string);
-              if (msg.type === "transcribe_result" && msg.requestId === requestId) {
-                cleanup();
-                if (msg.success) {
-                  resolve({ text: msg.text || "", provider: msg.provider || "gradium" });
-                } else {
-                  reject(new Error(msg.error || "Transcription failed"));
-                }
+        const handler = (event: MessageEvent) => {
+          try {
+            const msg = JSON.parse(event.data as string);
+            if (msg.type === "transcribe_result" && msg.requestId === requestId) {
+              cleanup();
+              if (msg.success) {
+                resolve({ text: msg.text || "", provider: msg.provider || "gradium" });
+              } else {
+                reject(new Error(msg.error || "Transcription failed"));
               }
-            } catch {}
-          };
+            }
+          } catch {}
+        };
 
-          const cleanup = () => {
-            window.clearTimeout(timeout);
-            state.bridgeSocket?.removeEventListener("message", handler);
-          };
+        const cleanup = () => {
+          window.clearTimeout(timeout);
+          state.bridgeSocket?.removeEventListener("message", handler);
+        };
 
-          state.bridgeSocket?.addEventListener("message", handler);
-          state.bridgeSocket?.send(
-            JSON.stringify({
-              type: "transcribe",
-              requestId,
-              audio: base64,
-              mimeType,
-              language: "en",
-            })
-          );
-        }
-      );
+        state.bridgeSocket?.addEventListener("message", handler);
+        state.bridgeSocket?.send(
+          JSON.stringify({
+            type: "transcribe",
+            requestId,
+            audio: base64,
+            mimeType,
+            language: "en",
+          })
+        );
+      });
       return result;
     } catch (bridgeErr) {
       console.warn("[transcribe] Bridge transcription failed, falling back to direct server fetch:", bridgeErr);
@@ -109,12 +92,7 @@ export async function transcribeAudioBlob(
 
   // Strategy 2: Direct HTTP fetch to server transcribe endpoint
   const isLassoPage = typeof window !== "undefined" && window.location.hostname.endsWith(".lasso");
-  const candidateUrls = isLassoPage
-    ? ["https://api.lasso.byorello.space/api/v1/transcribe"]
-    : [
-        "https://api.lasso.byorello.space/api/v1/transcribe",
-        "/api/v1/transcribe",
-      ];
+  const candidateUrls = isLassoPage ? ["https://api.lasso.byorello.space/api/v1/transcribe"] : ["https://api.lasso.byorello.space/api/v1/transcribe", "/api/v1/transcribe"];
 
   let lastError = new Error("Failed to contact transcription service");
 
@@ -158,11 +136,7 @@ export async function transcribeAudioBlob(
  */
 export async function getAudioMediaStream(): Promise<MediaStream> {
   // 1. Standard modern API
-  if (
-    typeof navigator !== "undefined" &&
-    navigator.mediaDevices &&
-    typeof navigator.mediaDevices.getUserMedia === "function"
-  ) {
+  if (typeof navigator !== "undefined" && navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function") {
     try {
       return await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err: any) {
@@ -178,21 +152,11 @@ export async function getAudioMediaStream(): Promise<MediaStream> {
 
   // 2. Legacy getUserMedia vendor fallbacks
   const nav = typeof navigator !== "undefined" ? (navigator as any) : null;
-  const legacyGetUserMedia =
-    nav &&
-    (nav.getUserMedia ||
-      nav.webkitGetUserMedia ||
-      nav.mozGetUserMedia ||
-      nav.msGetUserMedia);
+  const legacyGetUserMedia = nav && (nav.getUserMedia || nav.webkitGetUserMedia || nav.mozGetUserMedia || nav.msGetUserMedia);
 
   if (legacyGetUserMedia) {
     return new Promise<MediaStream>((resolve, reject) => {
-      legacyGetUserMedia.call(
-        nav,
-        { audio: true },
-        resolve,
-        (err: any) => reject(new Error(err?.message || "Microphone access was denied."))
-      );
+      legacyGetUserMedia.call(nav, { audio: true }, resolve, (err: any) => reject(new Error(err?.message || "Microphone access was denied.")));
     });
   }
 
@@ -249,10 +213,7 @@ export async function startVoiceRecording(onProgress?: (text: string) => void): 
     currentMimeType = getSupportedMimeType() || "audio/webm";
 
     if (typeof MediaRecorder !== "undefined") {
-      const recorder = new MediaRecorder(
-        stream,
-        currentMimeType ? { mimeType: currentMimeType } : undefined
-      );
+      const recorder = new MediaRecorder(stream, currentMimeType ? { mimeType: currentMimeType } : undefined);
       activeRecorder = recorder;
       recordedChunks = [];
 

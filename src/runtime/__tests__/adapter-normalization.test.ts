@@ -4,20 +4,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import {
-  EventSink,
-  newRunState,
-  LocalAgentAdapter,
-} from "../adapters/local-agent-adapter";
+import { EventSink, newRunState, LocalAgentAdapter } from "../adapters/local-agent-adapter";
 import { ClaudeCodeAdapter } from "../adapters/claude-code-adapter";
 import { OpenCodeAdapter } from "../adapters/opencode-adapter";
 import { CodexCLIAdapter } from "../adapters/codex-cli-adapter";
 import { CursorAdapter } from "../adapters/cursor-adapter";
-import {
-  TaskContext,
-  BackendEvent,
-  BackendResult,
-} from "../backend-interface";
+import { TaskContext, BackendEvent, BackendResult } from "../backend-interface";
 
 // ── test harness ───────────────────────────────────────────────────────
 
@@ -119,10 +111,7 @@ describe("local agent event normalization", () => {
       ),
       true
     );
-    assert.equal(
-      adapter.parse(JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "All done." }), ctx, sink),
-      true
-    );
+    assert.equal(adapter.parse(JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "All done." }), ctx, sink), true);
 
     assert.equal(state.sessionId, "sess-1");
     assert.equal(state.receivedTerminalSuccess, true);
@@ -239,15 +228,17 @@ describe("local agent event normalization", () => {
     adapter.parse(JSON.stringify({ type: "thread.started", thread_id: "thr-1" }), ctx, sink);
     adapter.parse(JSON.stringify({ type: "turn.started" }), ctx, sink);
     adapter.parse(JSON.stringify({ type: "item.started", item: { item_type: "command_execution", command: "ls" } }), ctx, sink);
-    adapter.parse(
-      JSON.stringify({ type: "item.completed", item: { item_type: "command_execution", command: "ls", exit_code: 0, status: "completed" } }),
-      ctx,
-      sink
-    );
+    adapter.parse(JSON.stringify({ type: "item.completed", item: { item_type: "command_execution", command: "ls", exit_code: 0, status: "completed" } }), ctx, sink);
     adapter.parse(
       JSON.stringify({
         type: "item.completed",
-        item: { item_type: "file_change", changes: [{ path: "/proj/src/old.ts", kind: "delete" }, { path: "/proj/src/new.ts", kind: "add" }] },
+        item: {
+          item_type: "file_change",
+          changes: [
+            { path: "/proj/src/old.ts", kind: "delete" },
+            { path: "/proj/src/new.ts", kind: "add" },
+          ],
+        },
       }),
       ctx,
       sink
@@ -291,17 +282,9 @@ describe("local agent event normalization", () => {
     const { events, state, sink } = makeSink();
 
     adapter.parse(JSON.stringify({ type: "system", subtype: "init", session_id: "cur-1", model: "composer-2" }), ctx, sink);
-    adapter.parse(
-      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Working on it" }] } }),
-      ctx,
-      sink
-    );
+    adapter.parse(JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Working on it" }] } }), ctx, sink);
     adapter.parse(JSON.stringify({ type: "tool_call", subtype: "started", tool_call: { editToolCall: { args: { path: "/proj/src/a.ts" } } } }), ctx, sink);
-    adapter.parse(
-      JSON.stringify({ type: "tool_call", subtype: "completed", tool_call: { editToolCall: { args: { path: "/proj/src/a.ts" } } } }),
-      ctx,
-      sink
-    );
+    adapter.parse(JSON.stringify({ type: "tool_call", subtype: "completed", tool_call: { editToolCall: { args: { path: "/proj/src/a.ts" } } } }), ctx, sink);
     adapter.parse(JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "Done" }), ctx, sink);
 
     assert.equal(state.sessionId, "cur-1");
@@ -424,10 +407,7 @@ describe("local agent execution (fake binary)", () => {
     }
   }
 
-  async function runFake(
-    scriptSource: string,
-    options: { abortAfterMs?: number } = {}
-  ): Promise<{ result: BackendResult; events: BackendEvent[] }> {
+  async function runFake(scriptSource: string, options: { abortAfterMs?: number } = {}): Promise<{ result: BackendResult; events: BackendEvent[] }> {
     fs.writeFileSync(scriptPath, scriptSource);
     const adapter = new FakeClaude(dir, scriptPath);
     const events: BackendEvent[] = [];

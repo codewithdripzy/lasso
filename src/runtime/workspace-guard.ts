@@ -71,12 +71,7 @@ const DEFAULT_IGNORE_DIRS = new Set([
   ".terraform",
 ]);
 
-const DEFAULT_IGNORE_FILES = new Set([
-  "next-env.d.ts",
-  "tsconfig.tsbuildinfo",
-  ".DS_Store",
-  "Thumbs.db",
-]);
+const DEFAULT_IGNORE_FILES = new Set(["next-env.d.ts", "tsconfig.tsbuildinfo", ".DS_Store", "Thumbs.db"]);
 
 function shouldIgnoreFile(name: string): boolean {
   return DEFAULT_IGNORE_FILES.has(name) || name.endsWith(".tsbuildinfo");

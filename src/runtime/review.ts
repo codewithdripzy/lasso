@@ -31,20 +31,15 @@ export function diffToReview(rawChanges: FileChange[]): WorkspaceReview {
 
   const changes: PendingChange[] = applyable.map((change) => ({
     filePath: change.filePath,
-    oldString: change.operation === "created" ? "" : change.oldContent ?? "",
-    newString: change.operation === "deleted" ? "" : change.newContent ?? "",
+    oldString: change.operation === "created" ? "" : (change.oldContent ?? ""),
+    newString: change.operation === "deleted" ? "" : (change.newContent ?? ""),
     operation: change.operation,
   }));
 
   const actions: AgentAction[] = applyable.map((change) => ({
     id: crypto.randomUUID(),
     type: change.operation === "created" ? "create_file" : change.operation === "deleted" ? "delete_file" : "edit_file",
-    data:
-      change.operation === "created"
-        ? { filePath: change.filePath, content: change.newContent }
-        : change.operation === "deleted"
-          ? { filePath: change.filePath }
-          : { filePath: change.filePath, oldString: change.oldContent ?? "", newString: change.newContent ?? "" },
+    data: change.operation === "created" ? { filePath: change.filePath, content: change.newContent } : change.operation === "deleted" ? { filePath: change.filePath } : { filePath: change.filePath, oldString: change.oldContent ?? "", newString: change.newContent ?? "" },
   })) as AgentAction[];
 
   return { changes, binaryPaths, actions };

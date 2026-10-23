@@ -13,8 +13,13 @@ type TaskReviewListener = (task: AgentTask) => void;
 const reviewListeners = new Set<TaskReviewListener>();
 
 const statusLabel: Record<AgentTaskStatus, string> = {
-  queued: "Queued", thinking: "Thinking", working: "Working", review: "Review",
-  complete: "Complete", error: "Error", stopped: "Stopped",
+  queued: "Queued",
+  thinking: "Thinking",
+  working: "Working",
+  review: "Review",
+  complete: "Complete",
+  error: "Error",
+  stopped: "Stopped",
 };
 
 function taskId(): string {
@@ -22,10 +27,13 @@ function taskId(): string {
 }
 
 function sameChangeList(left: PendingChange[], right: PendingChange[]): boolean {
-  return left.length === right.length && left.every((change, index) => {
-    const other = right[index];
-    return Boolean(other) && change.filePath === other.filePath && change.oldString === other.oldString && change.newString === other.newString;
-  });
+  return (
+    left.length === right.length &&
+    left.every((change, index) => {
+      const other = right[index];
+      return Boolean(other) && change.filePath === other.filePath && change.oldString === other.oldString && change.newString === other.newString;
+    })
+  );
 }
 
 function normalizedInstruction(value: string): string {
@@ -34,9 +42,7 @@ function normalizedInstruction(value: string): string {
 
 export function findReusableAgentTask(instruction: string, element: Element | null): AgentTask | undefined {
   const normalized = normalizedInstruction(instruction);
-  return state.agentTasks.find((task) =>
-    normalizedInstruction(task.instruction) === normalized && task.element === (element || undefined)
-  );
+  return state.agentTasks.find((task) => normalizedInstruction(task.instruction) === normalized && task.element === (element || undefined));
 }
 
 export function getComponentConversation(selectionId: string): {
@@ -72,13 +78,7 @@ function notifyTaskReviewRequested(task: AgentTask): void {
   for (const listener of reviewListeners) listener(task);
 }
 
-export function createAgentTask(
-  instruction: string,
-  messages: ChatMessage[] = state.chatHistory,
-  changesHistory: Array<{ summary: string; changes: PendingChange[]; createdAt: string }> = state.changesHistory,
-  element: Element | null = state.selected,
-  selectionId = state.selectionId,
-): AgentTask {
+export function createAgentTask(instruction: string, messages: ChatMessage[] = state.chatHistory, changesHistory: Array<{ summary: string; changes: PendingChange[]; createdAt: string }> = state.changesHistory, element: Element | null = state.selected, selectionId = state.selectionId): AgentTask {
   const now = new Date().toISOString();
   const task: AgentTask = {
     id: taskId(),
@@ -247,7 +247,7 @@ function renderTasks(): void {
   if (navBadge) navBadge.hidden = activeCount === 0;
   list.replaceChildren();
   const activeTab = panelEl.querySelector<HTMLButtonElement>(".lasso-task-tab.active")?.dataset.taskTab || "active";
-  const visibleTasks = state.agentTasks.filter((task) => activeTab === "complete" ? task.status === "complete" : task.status !== "complete");
+  const visibleTasks = state.agentTasks.filter((task) => (activeTab === "complete" ? task.status === "complete" : task.status !== "complete"));
   if (!visibleTasks.length) {
     list.innerHTML = `<div class="lasso-task-empty">Prompt an element to start a task.</div>`;
   } else {
@@ -276,5 +276,4 @@ function renderTasks(): void {
       list.appendChild(button);
     }
   }
-
 }

@@ -1,6 +1,6 @@
 {
   "name": "@lasso-ai/cli",
-  "version": "2.1.14",
+  "version": "2.1.15",
   "description": "Select any part of your running app, describe a change, and let AI edit the real source code.",
   "type": "commonjs",
   "main": "dist/cli/index.js",
@@ -46,9 +46,10 @@
     "typecheck:overlay": "tsc -p config/tsconfig.overlay.json --noEmit",
     "start": "node dist/cli/index.js",
     "prepublishOnly": "npm run build",
-    "format": "prettier --write .",
+    "format": "prettier --write src config",
     "deploy": "pnpm build && npm publish --access public",
-    "format:check": "prettier --check .",
+    "format:check": "prettier --check src config",
+    "lint": "npm run typecheck && npm run format:check",
     "test": "node --import tsx --test src/runtime/__tests__/*.test.ts"
   },
   "keywords": [

@@ -42,11 +42,7 @@ export interface DetectedBackend {
   fixInstructions?: string;
 }
 
-async function probe(
-  bin: string,
-  args: string[],
-  timeout = 10000
-): Promise<{ ok: boolean; stdout: string; stderr: string; code: number | undefined; failed: boolean }> {
+async function probe(bin: string, args: string[], timeout = 10000): Promise<{ ok: boolean; stdout: string; stderr: string; code: number | undefined; failed: boolean }> {
   try {
     const { stdout, stderr } = await execFileAsync(bin, args, { timeout, windowsHide: true });
     return { ok: true, stdout, stderr, code: 0, failed: false };

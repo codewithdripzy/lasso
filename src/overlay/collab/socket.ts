@@ -20,11 +20,7 @@ export function readAuthToken(): string {
   return "";
 }
 
-export function collabEmit(
-  event: string,
-  payload: Record<string, unknown>,
-  ack?: (res: { ok: boolean; error?: string; [key: string]: unknown }) => void
-) {
+export function collabEmit(event: string, payload: Record<string, unknown>, ack?: (res: { ok: boolean; error?: string; [key: string]: unknown }) => void) {
   if (!state.collabSocket?.connected) return false;
   if (ack) state.collabSocket.emit(event, payload, ack);
   else state.collabSocket.emit(event, payload);
@@ -154,115 +150,81 @@ export function connectCollab(config: CollabConfig) {
     removeClipboardItem(payload.itemId);
   });
 
-  state.collabSocket.on(
-    "collab:action",
-    (payload: {
-      sessionId?: string;
-      user?: { id: string; name: string; photo: string };
-      status?: string;
-      summary?: string;
-    }) => {
-      if (payload.sessionId !== state.collabProjectId) return;
-      const name = payload.user?.name || "A teammate";
-      const status = payload.status || "";
+  state.collabSocket.on("collab:action", (payload: { sessionId?: string; user?: { id: string; name: string; photo: string }; status?: string; summary?: string }) => {
+    if (payload.sessionId !== state.collabProjectId) return;
+    const name = payload.user?.name || "A teammate";
+    const status = payload.status || "";
 
-      if (status === "building" || status === "build") {
-        if (payload.user?.id && payload.user.id !== state.myUser?.id) {
-          state.buildModeUser = { id: payload.user.id, name };
-          showActivity(`⏸️ ${name} is in Build Mode. Editing is paused.`, "#fbbc04");
-          return;
-        }
-      } else if (status === "idle" || status === "done" || status === "complete") {
-        if (state.buildModeUser && (!payload.user?.id || state.buildModeUser.id === payload.user.id)) {
-          state.buildModeUser = null;
-          showActivity(`${name} finished building. Editing resumed.`, "#81c995");
-          return;
-        }
+    if (status === "building" || status === "build") {
+      if (payload.user?.id && payload.user.id !== state.myUser?.id) {
+        state.buildModeUser = { id: payload.user.id, name };
+        showActivity(`⏸️ ${name} is in Build Mode. Editing is paused.`, "#fbbc04");
+        return;
       }
-
-      const text = payload.summary
-        ? `${name} is ${status === "idle" ? "done" : status.replace(/e?$/, "ing")} — ${payload.summary.slice(0, 90)}`
-        : `${name} ${status === "idle" ? "finished working" : `is ${status}`}`;
-      showActivity(text, userNameColor(payload.user?.id || ""));
+    } else if (status === "idle" || status === "done" || status === "complete") {
+      if (state.buildModeUser && (!payload.user?.id || state.buildModeUser.id === payload.user.id)) {
+        state.buildModeUser = null;
+        showActivity(`${name} finished building. Editing resumed.`, "#81c995");
+        return;
+      }
     }
-  );
 
-  state.collabSocket.on(
-    "collab:spotlight",
-    (payload: {
-      sessionId?: string;
-      elementId?: string;
-      label?: string;
-      by?: { id: string; name: string; photo: string };
-    }) => {
-      if (payload.sessionId !== state.collabProjectId || !payload.elementId) return;
-      const el = state.elementRegistry.get(payload.elementId) || null;
-      const by = payload.by || { id: "", name: "Teammate", photo: "" };
-      spotlightFor(by, el, payload.label || "");
-    }
-  );
+    const text = payload.summary ? `${name} is ${status === "idle" ? "done" : status.replace(/e?$/, "ing")} — ${payload.summary.slice(0, 90)}` : `${name} ${status === "idle" ? "finished working" : `is ${status}`}`;
+    showActivity(text, userNameColor(payload.user?.id || ""));
+  });
 
-  state.collabSocket.on("voice:offer", (payload: { from?: string; description?: unknown }) =>
-    handleOffer(payload)
-  );
-  state.collabSocket.on("voice:answer", (payload: { from?: string; description?: unknown }) =>
-    handleAnswer(payload)
-  );
-  state.collabSocket.on("voice:candidate", (payload: { from?: string; candidate?: unknown }) =>
-    handleCandidate(payload)
-  );
-  state.collabSocket.on("voice:peer_left", (payload: { socketId?: string }) =>
-    closePeer(payload.socketId || "")
-  );
+  state.collabSocket.on("collab:spotlight", (payload: { sessionId?: string; elementId?: string; label?: string; by?: { id: string; name: string; photo: string } }) => {
+    if (payload.sessionId !== state.collabProjectId || !payload.elementId) return;
+    const el = state.elementRegistry.get(payload.elementId) || null;
+    const by = payload.by || { id: "", name: "Teammate", photo: "" };
+    spotlightFor(by, el, payload.label || "");
+  });
+
+  state.collabSocket.on("voice:offer", (payload: { from?: string; description?: unknown }) => handleOffer(payload));
+  state.collabSocket.on("voice:answer", (payload: { from?: string; description?: unknown }) => handleAnswer(payload));
+  state.collabSocket.on("voice:candidate", (payload: { from?: string; candidate?: unknown }) => handleCandidate(payload));
+  state.collabSocket.on("voice:peer_left", (payload: { socketId?: string }) => closePeer(payload.socketId || ""));
 }
 
 export function joinCollabSession() {
   if (!state.collabSocket?.connected || !state.collabProjectId) return;
   const selection = currentSelectionPayload();
-  collabEmit(
-    "session:join",
-    { sessionId: state.collabProjectId, selection },
-    (payload) => {
-      const countEl = getDOM().shadow.querySelector<HTMLSpanElement>(".lasso-presence-count");
-      if (!payload.ok) {
-        console.warn("[Lasso Collab] Session join failed for", state.collabProjectId, ":", payload.error);
-        state.collabJoined = false;
-        if (countEl) countEl.textContent = state.collabProjectId ? "· closed" : "";
-        showActivity(
-          payload.error ||
-            "Could not join realtime session. Log in to your Lasso workspace and start Lasso to collaborate.",
-          "#fdd663"
-        );
-        return;
-      }
-      console.log("[Lasso Collab] Joined realtime session:", state.collabProjectId, "as", payload.me);
-      state.collabJoined = true;
-      if (countEl) countEl.textContent = "";
-      state.myUser = (payload.me as { id: string; name: string; photo: string }) || null;
-      if (state.myUser?.name) {
-        try {
-          localStorage.setItem("lasso:user:name", state.myUser.name);
-        } catch {}
-        updateEmptyStateUserName();
-      }
-      const snapshot = (payload.snapshot || {}) as {
-        presence?: unknown[];
-        locks?: unknown[];
-        comments?: unknown[];
-        todos?: unknown[];
-      };
-      applyPresence(snapshot.presence || []);
-      indexLocks(snapshot.locks || []);
-      for (const c of snapshot.comments || []) {
-        upsertComment(c as CollabComment);
-      }
-      updateLockChip();
-      replaceTodos((snapshot.todos || []) as CollabTodo[]);
-      renderComments();
-      updateCommentsBadge();
-      startCollabHeartbeat();
+  collabEmit("session:join", { sessionId: state.collabProjectId, selection }, (payload) => {
+    const countEl = getDOM().shadow.querySelector<HTMLSpanElement>(".lasso-presence-count");
+    if (!payload.ok) {
+      console.warn("[Lasso Collab] Session join failed for", state.collabProjectId, ":", payload.error);
+      state.collabJoined = false;
+      if (countEl) countEl.textContent = state.collabProjectId ? "· closed" : "";
+      showActivity(payload.error || "Could not join realtime session. Log in to your Lasso workspace and start Lasso to collaborate.", "#fdd663");
+      return;
     }
-  );
+    console.log("[Lasso Collab] Joined realtime session:", state.collabProjectId, "as", payload.me);
+    state.collabJoined = true;
+    if (countEl) countEl.textContent = "";
+    state.myUser = (payload.me as { id: string; name: string; photo: string }) || null;
+    if (state.myUser?.name) {
+      try {
+        localStorage.setItem("lasso:user:name", state.myUser.name);
+      } catch {}
+      updateEmptyStateUserName();
+    }
+    const snapshot = (payload.snapshot || {}) as {
+      presence?: unknown[];
+      locks?: unknown[];
+      comments?: unknown[];
+      todos?: unknown[];
+    };
+    applyPresence(snapshot.presence || []);
+    indexLocks(snapshot.locks || []);
+    for (const c of snapshot.comments || []) {
+      upsertComment(c as CollabComment);
+    }
+    updateLockChip();
+    replaceTodos((snapshot.todos || []) as CollabTodo[]);
+    renderComments();
+    updateCommentsBadge();
+    startCollabHeartbeat();
+  });
 }
 
 export function startCollabHeartbeat() {
@@ -295,16 +257,20 @@ export function sendPresenceUpdate(patch: { state?: "online" | "away"; selection
 export function initCursorTracking() {
   let lastEmit = 0;
   const THROTTLE_MS = 50; // ~20fps
-  document.addEventListener("mousemove", (e) => {
-    if (!state.collabSocket?.connected || !state.collabJoined || !state.collabProjectId) return;
-    const now = Date.now();
-    if (now - lastEmit < THROTTLE_MS) return;
-    lastEmit = now;
-    collabEmit("presence:update", {
-      sessionId: state.collabProjectId,
-      cursor: { x: e.clientX, y: e.clientY },
-    });
-  }, { passive: true });
+  document.addEventListener(
+    "mousemove",
+    (e) => {
+      if (!state.collabSocket?.connected || !state.collabJoined || !state.collabProjectId) return;
+      const now = Date.now();
+      if (now - lastEmit < THROTTLE_MS) return;
+      lastEmit = now;
+      collabEmit("presence:update", {
+        sessionId: state.collabProjectId,
+        cursor: { x: e.clientX, y: e.clientY },
+      });
+    },
+    { passive: true }
+  );
 }
 
 export function initCollabPagehide() {

@@ -1,29 +1,7 @@
 import type { Socket } from "socket.io-client";
-import type {
-  ChatMessage,
-  CollabConfig,
-  CollabLock,
-  CollabUser,
-  CommentThread,
-  DragContext,
-  GitState,
-  ModelOption,
-  PendingChange,
-  AgentTask,
-  ScreenshotContext,
-  TimelineSnapshot,
-} from "./types";
+import type { ChatMessage, CollabConfig, CollabLock, CollabUser, CommentThread, DragContext, GitState, ModelOption, PendingChange, AgentTask, ScreenshotContext, TimelineSnapshot } from "./types";
 
-export const COLLAB_COLORS = [
-  "#6ea0ff",
-  "#81c995",
-  "#fdd663",
-  "#f28b82",
-  "#c084fc",
-  "#22d3ee",
-  "#fb923c",
-  "#a78bfa",
-];
+export const COLLAB_COLORS = ["#6ea0ff", "#81c995", "#fdd663", "#f28b82", "#c084fc", "#22d3ee", "#fb923c", "#a78bfa"];
 
 export function userNameColor(userId: string): string {
   if (!userId) return COLLAB_COLORS[0]!;

@@ -88,9 +88,7 @@ export class OpenCodeAdapter extends LocalAgentAdapter {
         timeout: 12000,
         windowsHide: true,
       })) as { stdout: string; stderr: string };
-      const text = `${stdout}\n${stderr}`
-        .replace(/\u001b\[[0-9;]*m/g, "")
-        .replace(/\u001b\][^\u0007]*\u0007/g, "");
+      const text = `${stdout}\n${stderr}`.replace(/\u001b\[[0-9;]*m/g, "").replace(/\u001b\][^\u0007]*\u0007/g, "");
 
       // The credentials section lists a "●" bullet per configured credential.
       const credentialsStart = text.indexOf("Credentials");
@@ -118,9 +116,7 @@ export class OpenCodeAdapter extends LocalAgentAdapter {
 
   protected buildCommand(context: TaskContext): CommandSpec {
     if (this.modelId && isOpenCodeHeadlessRestrictedModel(this.modelId)) {
-      throw new Error(
-        `OpenCode model ${this.modelId} is restricted to OpenCode's own app and cannot run through Lasso. Choose a non-free OpenCode model or configure another provider.`
-      );
+      throw new Error(`OpenCode model ${this.modelId} is restricted to OpenCode's own app and cannot run through Lasso. Choose a non-free OpenCode model or configure another provider.`);
     }
     const resumeId = this.resumeSessionId(context);
     const args = ["run", "--format", "json"];
@@ -128,9 +124,7 @@ export class OpenCodeAdapter extends LocalAgentAdapter {
     if (resumeId) args.push("--session", resumeId);
     args.push(this.buildTaskPrompt(context));
 
-    const env = context.mode === "conversation"
-      ? { OPENCODE_PERMISSION: JSON.stringify({ "*": "deny" }) }
-      : undefined;
+    const env = context.mode === "conversation" ? { OPENCODE_PERMISSION: JSON.stringify({ "*": "deny" }) } : undefined;
     return { bin: "opencode", args, cwd: (this.config as OpenCodeConfig).projectPath, env };
   }
 
@@ -206,12 +200,7 @@ export class OpenCodeAdapter extends LocalAgentAdapter {
     if (typeof error === "string") return error;
     if (typeof error === "object") {
       const e = error as Record<string, unknown>;
-      const nested = [
-        e.message,
-        (e.data as Record<string, unknown> | undefined)?.message,
-        (e.data as Record<string, unknown> | undefined)?.error,
-        (e.cause as Record<string, unknown> | undefined)?.message,
-      ].find((item): item is string => typeof item === "string" && item.trim().length > 0);
+      const nested = [e.message, (e.data as Record<string, unknown> | undefined)?.message, (e.data as Record<string, unknown> | undefined)?.error, (e.cause as Record<string, unknown> | undefined)?.message].find((item): item is string => typeof item === "string" && item.trim().length > 0);
       if (nested) return nested;
       try {
         const serialized = JSON.stringify(error).slice(0, 800);

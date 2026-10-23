@@ -9,25 +9,9 @@
  */
 
 import crypto from "node:crypto";
-import {
-  WorkspaceGuard,
-  ActionExecutor,
-  VerificationEngine,
-  type FileChange,
-  type ToolCallRequest,
-  type ToolCallResultPayload,
-} from "../runtime/index.js";
+import { WorkspaceGuard, ActionExecutor, VerificationEngine, type FileChange, type ToolCallRequest, type ToolCallResultPayload } from "../runtime/index.js";
 
-export type RuntimeProvider =
-  | "anthropic"
-  | "openai"
-  | "google"
-  | "nvidia"
-  | "ollama"
-  | "claude_code"
-  | "opencode"
-  | "codex_cli"
-  | "cursor";
+export type RuntimeProvider = "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor";
 
 export interface RuntimeSessionInput {
   userPrompt: string;
@@ -158,22 +142,12 @@ export interface SessionVerificationResult {
  */
 export interface RuntimeFacade {
   createSession(input: RuntimeSessionInput): Promise<RuntimeSession>;
-  runSession(
-    sessionId: string,
-    projectPath: string,
-    onEvent: RuntimeEventHandler,
-    signal?: AbortSignal,
-    opts?: { providerApiKey?: string; browserContextProvider?: BrowserContextProvider }
-  ): Promise<void>;
+  runSession(sessionId: string, projectPath: string, onEvent: RuntimeEventHandler, signal?: AbortSignal, opts?: { providerApiKey?: string; browserContextProvider?: BrowserContextProvider; devServerUrl?: string }): Promise<void>;
   getSession(sessionId: string): Promise<RuntimeSession>;
   verifySession(sessionId: string, projectPath: string): Promise<SessionVerificationResult>;
-  switchModel(
-    sessionId: string,
-    model: { provider: string; id: string; name?: string },
-    apiKey?: string,
-    backendConfig?: RuntimeSessionInput["backendConfig"]
-  ): Promise<void>;
+  switchModel(sessionId: string, model: { provider: string; id: string; name?: string }, apiKey?: string, backendConfig?: RuntimeSessionInput["backendConfig"]): Promise<void>;
   cancelSession(sessionId: string): Promise<void>;
+  respondToPrompt?(sessionId: string, response: string): Promise<void>;
 }
 
 export type RuntimeEvent =
@@ -206,12 +180,15 @@ export class RuntimeClient {
    * sessionId. Merged into getSession() so the bridge's review flow sees the
    * authoritative pendingChanges without the server ever touching the FS.
    */
-  private localReviewCache = new Map<string, Array<{
-    filePath: string;
-    oldString: string;
-    newString: string;
-    operation: "created" | "modified" | "deleted";
-  }>>();
+  private localReviewCache = new Map<
+    string,
+    Array<{
+      filePath: string;
+      oldString: string;
+      newString: string;
+      operation: "created" | "modified" | "deleted";
+    }>
+  >();
 
   constructor(serverUrl: string, apiKey?: string) {
     this.serverUrl = serverUrl;
@@ -226,7 +203,7 @@ export class RuntimeClient {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(this.apiKey && { "Authorization": `Bearer ${this.apiKey}` }),
+        ...(this.apiKey && { Authorization: `Bearer ${this.apiKey}` }),
       },
       body: JSON.stringify(input),
     });
@@ -246,7 +223,7 @@ export class RuntimeClient {
   async getSession(sessionId: string): Promise<RuntimeSession> {
     const response = await fetch(`${this.serverUrl}/api/v1/agent-runtime/sessions/${sessionId}`, {
       headers: {
-        ...(this.apiKey && { "Authorization": `Bearer ${this.apiKey}` }),
+        ...(this.apiKey && { Authorization: `Bearer ${this.apiKey}` }),
       },
     });
 
@@ -254,7 +231,7 @@ export class RuntimeClient {
       throw new Error(`Failed to get session: ${response.statusText}`);
     }
 
-    const data = await response.json() as RuntimeSession;
+    const data = (await response.json()) as RuntimeSession;
     const local = this.localReviewCache.get(sessionId);
     if (local && local.length > 0) {
       data.metadata = { ...(data.metadata || {}), pendingChanges: local };
@@ -273,37 +250,31 @@ export class RuntimeClient {
    *   3. On agent_completed: diff the workspace, roll it back, and cache the
    *      changes for the review panel. Only user approval re-applies them.
    */
-  async runSession(
-    sessionId: string,
-    projectPath: string,
-    onEvent: RuntimeEventHandler,
-    signal?: AbortSignal,
-    opts?: { providerApiKey?: string; browserContextProvider?: BrowserContextProvider }
-  ): Promise<void> {
+  async runSession(sessionId: string, projectPath: string, onEvent: RuntimeEventHandler, signal?: AbortSignal, opts?: { providerApiKey?: string; browserContextProvider?: BrowserContextProvider; devServerUrl?: string }): Promise<void> {
     // CLI-side snapshot: nothing the agent does is left on disk before review.
-    let guard: WorkspaceGuard | null = null;
-    try {
-      guard = await WorkspaceGuard.capture(projectPath);
-    } catch (error) {
-      console.error("WorkspaceGuard capture failed:", error);
-    }
+    // Review safety is mandatory. Never allow an agent to run if the
+    // pre-run workspace capture could not be established.
+    const guard = await WorkspaceGuard.capture(projectPath);
 
     const executor = new ActionExecutor(projectPath, opts?.browserContextProvider);
-    const verifier = new VerificationEngine(projectPath);
+    const verifier = new VerificationEngine(projectPath, {
+      devServerUrl: opts?.devServerUrl || process.env.LASSO_DEV_SERVER_URL,
+      browserContextProvider: opts?.browserContextProvider,
+    });
 
     // Idempotent: called on agent_completed AND on stream failure, so the
     // diff is always cached before the safety-net restore wipes the edits.
     let finalized = false;
     const finalizeGuard = async () => {
-      if (!guard || finalized) return;
+      if (finalized) return;
       finalized = true;
       try {
         const changes = guard.diff();
         const applyable = changes.filter((c) => !c.binary);
         const pending = applyable.map((change) => ({
           filePath: change.filePath,
-          oldString: change.operation === "created" ? "" : change.oldContent ?? "",
-          newString: change.operation === "deleted" ? "" : change.newContent ?? "",
+          oldString: change.operation === "created" ? "" : (change.oldContent ?? ""),
+          newString: change.operation === "deleted" ? "" : (change.newContent ?? ""),
           operation: change.operation,
         }));
         this.localReviewCache.set(sessionId, pending);
@@ -326,65 +297,50 @@ export class RuntimeClient {
       await this.postToolResult(sessionId, result);
     };
 
-    const response = await fetch(`${this.serverUrl}/api/v1/agent-runtime/sessions/${sessionId}/run`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(this.apiKey && { "Authorization": `Bearer ${this.apiKey}` }),
-      },
-      // providerApiKey is the user's own model-provider key (BYOK): the
-      // server calls the hosted model with it and never stores it.
-      body: JSON.stringify({ projectPath, apiKey: opts?.providerApiKey }),
-      signal,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to run session: ${response.statusText}`);
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error("No response body");
-    }
-
-    const decoder = new TextDecoder();
-
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
+      const response = await fetch(`${this.serverUrl}/api/v1/agent-runtime/sessions/${sessionId}/run`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.apiKey && { Authorization: `Bearer ${this.apiKey}` }),
+        },
+        // providerApiKey is the user's own model-provider key (BYOK): the
+        // server calls the hosted model with it and never stores it.
+        body: JSON.stringify({ projectPath, apiKey: opts?.providerApiKey }),
+        signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to run session: ${response.statusText}`);
+      }
+
+      reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("No response body");
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n");
-
-        for (const line of lines) {
-          if (!line.trim() || !line.startsWith("data: ")) continue;
-
-          const data = line.slice(6);
-          if (data === "[DONE]") continue;
-
-          try {
-            const event = JSON.parse(data) as RuntimeEvent;
-
-            if (event.type === "tool_call") {
-              // Execute locally and answer the server — never forwarded raw.
-              await handleToolCall(event.data);
-              continue;
-            }
-
-            if (event.type === "agent_completed") {
-              // Diff + rollback BEFORE the review flow reads the session.
-              await finalizeGuard();
-            }
-
-            await onEvent(event);
-          } catch (error) {
-            console.error("Failed to parse SSE event:", error);
-          }
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split(/\r?\n\r?\n/);
+        buffer = frames.pop() || "";
+        for (const frame of frames) {
+          await this.processSseFrame(frame, handleToolCall, finalizeGuard, onEvent);
         }
       }
+
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        await this.processSseFrame(buffer, handleToolCall, finalizeGuard, onEvent);
+      }
     } finally {
-      reader.releaseLock();
+      reader?.releaseLock();
       // Stream died before agent_completed (network cut, server crash, model
       // error surfaced as an error event): cache the diff first so the user's
       // changes are recoverable, then restore the workspace. On the normal
@@ -393,12 +349,30 @@ export class RuntimeClient {
     }
   }
 
+  /** Parse and dispatch one complete SSE frame. */
+  private async processSseFrame(frame: string, handleToolCall: (request: ToolCallRequest) => Promise<void>, finalizeGuard: () => Promise<void>, onEvent: RuntimeEventHandler): Promise<void> {
+    const data = frame
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    if (!data || data === "[DONE]") return;
+
+    try {
+      const event = JSON.parse(data) as RuntimeEvent;
+      if (event.type === "tool_call") {
+        await handleToolCall(event.data);
+        return;
+      }
+      if (event.type === "agent_completed") await finalizeGuard();
+      await onEvent(event);
+    } catch (error) {
+      console.error("Failed to process SSE event:", error);
+    }
+  }
+
   /** Execute a tool_call request locally against the real project. */
-  private async executeToolCallLocally(
-    request: ToolCallRequest,
-    executor: ActionExecutor,
-    verifier: VerificationEngine
-  ): Promise<ToolCallResultPayload> {
+  private async executeToolCallLocally(request: ToolCallRequest, executor: ActionExecutor, verifier: VerificationEngine): Promise<ToolCallResultPayload> {
     try {
       if (request.kind === "verify") {
         const results = await verifier.verifyAll((request.verify?.phase as any) || "verify");
@@ -421,15 +395,17 @@ export class RuntimeClient {
         output: result.output,
         error: result.error,
         observations: result.observation
-          ? [{
-              id: crypto.randomUUID(),
-              type: result.observation.type as import("../runtime/index.js").ObservationType,
-              summary: result.observation.summary,
-              data: result.observation.data,
-              timestamp: Date.now(),
-              phase: "execute",
-              actionId: request.action.id,
-            }]
+          ? [
+              {
+                id: crypto.randomUUID(),
+                type: result.observation.type as import("../runtime/index.js").ObservationType,
+                summary: result.observation.summary,
+                data: result.observation.data,
+                timestamp: Date.now(),
+                phase: "execute",
+                actionId: request.action.id,
+              },
+            ]
           : undefined,
       };
     } catch (error) {
@@ -444,17 +420,14 @@ export class RuntimeClient {
   /** Post a tool result back to the server (resolves its pending request). */
   private async postToolResult(sessionId: string, result: ToolCallResultPayload): Promise<void> {
     try {
-      const response = await fetch(
-        `${this.serverUrl}/api/v1/agent-runtime/sessions/${sessionId}/tool-results`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(this.apiKey && { "Authorization": `Bearer ${this.apiKey}` }),
-          },
-          body: JSON.stringify(result),
-        }
-      );
+      const response = await fetch(`${this.serverUrl}/api/v1/agent-runtime/sessions/${sessionId}/tool-results`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.apiKey && { Authorization: `Bearer ${this.apiKey}` }),
+        },
+        body: JSON.stringify(result),
+      });
       if (!response.ok) {
         console.error(`Failed to post tool result: ${response.statusText}`);
       }
@@ -470,7 +443,7 @@ export class RuntimeClient {
     const response = await fetch(`${this.serverUrl}/api/v1/agent-runtime/sessions/${sessionId}/cancel`, {
       method: "POST",
       headers: {
-        ...(this.apiKey && { "Authorization": `Bearer ${this.apiKey}` }),
+        ...(this.apiKey && { Authorization: `Bearer ${this.apiKey}` }),
       },
     });
 
@@ -479,20 +452,32 @@ export class RuntimeClient {
     }
   }
 
+  /** Resume a hosted runtime that is waiting for an answer from the user. */
+  async respondToPrompt(sessionId: string, response: string): Promise<void> {
+    const result = await fetch(`${this.serverUrl}/api/v1/agent-runtime/sessions/${sessionId}/user-response`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(this.apiKey && { Authorization: `Bearer ${this.apiKey}` }),
+      },
+      body: JSON.stringify({ response }),
+    });
+
+    if (!result.ok) {
+      const body = (await result.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error || `Failed to submit agent response: ${result.statusText}`);
+    }
+  }
+
   /**
    * Switch model/backend for a session
    */
-  async switchModel(
-    sessionId: string,
-    model: { provider: string; id: string; name?: string },
-    apiKey?: string,
-    backendConfig?: RuntimeSessionInput["backendConfig"]
-  ): Promise<void> {
+  async switchModel(sessionId: string, model: { provider: string; id: string; name?: string }, apiKey?: string, backendConfig?: RuntimeSessionInput["backendConfig"]): Promise<void> {
     const response = await fetch(`${this.serverUrl}/api/v1/agent-runtime/sessions/${sessionId}/model`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(this.apiKey && { "Authorization": `Bearer ${this.apiKey}` }),
+        ...(this.apiKey && { Authorization: `Bearer ${this.apiKey}` }),
       },
       body: JSON.stringify({ ...model, apiKey, backendConfig }),
     });
@@ -509,10 +494,7 @@ export class RuntimeClient {
    * against a filesystem it does not have). The results are also persisted
    * on the server session so a corrective re-run has them in context.
    */
-  async verifySession(
-    sessionId: string,
-    projectPath: string
-  ): Promise<SessionVerificationResult> {
+  async verifySession(sessionId: string, projectPath: string): Promise<SessionVerificationResult> {
     const engine = new VerificationEngine(projectPath);
     const results = await engine.verifyAll("verify");
     const passed = engine.allPassed(results);
@@ -525,7 +507,7 @@ export class RuntimeClient {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(this.apiKey && { "Authorization": `Bearer ${this.apiKey}` }),
+          ...(this.apiKey && { Authorization: `Bearer ${this.apiKey}` }),
         },
         body: JSON.stringify({ projectPath, localResults: { passed, errors, observations } }),
       });
@@ -560,7 +542,7 @@ export class RuntimeClient {
     const url = `${this.serverUrl}/api/v1/agent-runtime/backends${projectPath ? `?projectPath=${encodeURIComponent(projectPath)}` : ""}`;
     const response = await fetch(url, {
       headers: {
-        ...(this.apiKey && { "Authorization": `Bearer ${this.apiKey}` }),
+        ...(this.apiKey && { Authorization: `Bearer ${this.apiKey}` }),
       },
     });
 
@@ -578,7 +560,7 @@ export class RuntimeClient {
     const response = await fetch(`${this.serverUrl}/api/v1/agent-runtime/sessions/${sessionId}`, {
       method: "DELETE",
       headers: {
-        ...(this.apiKey && { "Authorization": `Bearer ${this.apiKey}` }),
+        ...(this.apiKey && { Authorization: `Bearer ${this.apiKey}` }),
       },
     });
 

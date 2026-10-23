@@ -19,17 +19,7 @@ import { spawn, ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import crypto from "node:crypto";
 import path from "node:path";
-import {
-  IBackend,
-  BackendType,
-  BackendProvider,
-  BackendCapabilities,
-  BackendConfig,
-  TaskContext,
-  BackendEvent,
-  BackendEvent as Event,
-  BackendResult,
-} from "../backend-interface";
+import { IBackend, BackendType, BackendProvider, BackendCapabilities, BackendConfig, TaskContext, BackendEvent, BackendEvent as Event, BackendResult } from "../backend-interface";
 import { AgentAction, AgentError, Observation } from "../agent-runtime";
 
 const execFileAsync = promisify(require("node:child_process").execFile);
@@ -234,11 +224,7 @@ export abstract class LocalAgentAdapter implements IBackend {
 
   // ── execution ────────────────────────────────────────────────────────
 
-  async executeTask(
-    context: TaskContext,
-    onEvent: (event: BackendEvent) => void,
-    signal?: AbortSignal
-  ): Promise<BackendResult> {
+  async executeTask(context: TaskContext, onEvent: (event: BackendEvent) => void, signal?: AbortSignal): Promise<BackendResult> {
     this.currentTaskId = context.taskId;
     const state = newRunState();
     const sink = new EventSink(context.taskId, onEvent, state);
@@ -332,12 +318,7 @@ export abstract class LocalAgentAdapter implements IBackend {
         } else if (state.receivedTerminalSuccess && exitCode === 0 && !state.failureMessage) {
           sink.emit("task_completed", { summary: state.summary });
         } else {
-          const message =
-            state.failureMessage ||
-            inspected?.message ||
-            (exitCode === 0
-              ? `${this.provider} finished without reporting a successful result.`
-              : `${this.provider} exited with code ${exitCode}${stderrBuffer ? `: ${stderrBuffer.trim().slice(-500)}` : ""}`);
+          const message = state.failureMessage || inspected?.message || (exitCode === 0 ? `${this.provider} finished without reporting a successful result.` : `${this.provider} exited with code ${exitCode}${stderrBuffer ? `: ${stderrBuffer.trim().slice(-500)}` : ""}`);
           if (!state.errors.some((e) => e.message === message)) {
             sink.error(message, { recoverable: false, authFailure: state.authFailure });
           }
@@ -378,19 +359,10 @@ export abstract class LocalAgentAdapter implements IBackend {
     this.killTimer.unref?.();
   }
 
-  async switchBackend(
-    newBackend: IBackend,
-    context: TaskContext
-  ): Promise<{ transferableContext: Record<string, unknown>; lostContext: string[] }> {
+  async switchBackend(newBackend: IBackend, context: TaskContext): Promise<{ transferableContext: Record<string, unknown>; lostContext: string[] }> {
     const lostContext = this.supportsResume
-      ? [
-          `${this.provider} maintains its own internal session state that cannot be transferred to ${newBackend.provider}.`,
-          "Tool call history and per-file context held by the previous agent are not portable.",
-        ]
-      : [
-          `${this.provider} does not expose resumable session state for transfer.`,
-          "Tool call history and per-file context held by the previous agent are not portable.",
-        ];
+      ? [`${this.provider} maintains its own internal session state that cannot be transferred to ${newBackend.provider}.`, "Tool call history and per-file context held by the previous agent are not portable."]
+      : [`${this.provider} does not expose resumable session state for transfer.`, "Tool call history and per-file context held by the previous agent are not portable."];
 
     return {
       transferableContext: {
@@ -424,16 +396,15 @@ export abstract class LocalAgentAdapter implements IBackend {
     // Retry/continuation replies ("try again", "continue", …) must resume
     // the previous request instead of being treated as a literal task —
     // otherwise the agent greps for words like "again".
-    const normalizedPrompt = context.userPrompt.trim().replace(/[.!]+$/, "").toLowerCase();
+    const normalizedPrompt = context.userPrompt
+      .trim()
+      .replace(/[.!]+$/, "")
+      .toLowerCase();
     const isContinuation =
-      /^(continue|proceed|go on|go ahead|keep going|yes|yep|yup|sure|ok|okay|alright|do it|carry on|resume|next|try again|again|retry|re-try|do it again|run again|run it again|one more time|same again)$/.test(
-        normalizedPrompt
-      ) ||
+      /^(continue|proceed|go on|go ahead|keep going|yes|yep|yup|sure|ok|okay|alright|do it|carry on|resume|next|try again|again|retry|re-try|do it again|run again|run it again|one more time|same again)$/.test(normalizedPrompt) ||
       /^(try|do|run|go)\s+(it\s+|that\s+)?again$|^one more time$|^retry(\s+it)?$/i.test(normalizedPrompt);
     if (isContinuation) {
-      const priorUserMessages = context.conversation.filter(
-        (m) => m.role === "user" && m.content.trim() && m.content.trim() !== context.userPrompt.trim()
-      );
+      const priorUserMessages = context.conversation.filter((m) => m.role === "user" && m.content.trim() && m.content.trim() !== context.userPrompt.trim());
       const prior = priorUserMessages[priorUserMessages.length - 1];
       if (prior) {
         lines.push(`The user is continuing/retrying. Resume this previous request: ${prior.content}`);

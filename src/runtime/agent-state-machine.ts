@@ -1,16 +1,8 @@
-import {
-  AgentPhase,
-  AgentStatus,
-  LassoAgentSession,
-  AgentAction,
-  AgentError,
-  Observation,
-  AgentPlan,
-} from "./agent-runtime";
+import { AgentPhase, AgentStatus, LassoAgentSession, AgentAction, AgentError, Observation, AgentPlan } from "./agent-runtime";
 
 /**
  * Lasso Agent State Machine
- * 
+ *
  * Controls phase transitions and validates state changes.
  * Lasso owns the transitions; the model can only suggest decisions.
  */
@@ -62,11 +54,7 @@ export class AgentStateMachine {
    * Attempt to transition to a new phase
    * Returns success status and error message if invalid
    */
-  static transition(
-    session: LassoAgentSession,
-    toPhase: AgentPhase,
-    reason?: string
-  ): { success: boolean; error?: string } {
+  static transition(session: LassoAgentSession, toPhase: AgentPhase, reason?: string): { success: boolean; error?: string } {
     if (!this.canTransition(session, toPhase)) {
       return {
         success: false,
@@ -105,7 +93,10 @@ export class AgentStateMachine {
   /**
    * Validate that an action is allowed in the current phase
    */
-  static validateAction(session: LassoAgentSession, action: AgentAction): {
+  static validateAction(
+    session: LassoAgentSession,
+    action: AgentAction
+  ): {
     valid: boolean;
     error?: string;
   } {
@@ -146,10 +137,7 @@ export class AgentStateMachine {
   /**
    * Determine the next phase based on current state and model decision
    */
-  static determineNextPhase(
-    session: LassoAgentSession,
-    modelDecision: { type: string; goal: string }
-  ): AgentPhase {
+  static determineNextPhase(session: LassoAgentSession, modelDecision: { type: string; goal: string }): AgentPhase {
     const currentPhase = session.phase;
     const decisionType = modelDecision.type;
 
@@ -220,11 +208,7 @@ export class AgentStateMachine {
    * Check if the session can accept new actions
    */
   static canAcceptActions(session: LassoAgentSession): boolean {
-    return (
-      session.status === "running" &&
-      session.phase !== "complete" &&
-      session.phase !== "understand"
-    );
+    return session.status === "running" && session.phase !== "complete" && session.phase !== "understand";
   }
 
   /**
@@ -244,10 +228,7 @@ export class AgentStateMachine {
    * Check if the session should trigger recovery
    */
   static shouldRecover(session: LassoAgentSession): boolean {
-    return (
-      session.phase === "verify" &&
-      session.errors.filter((e) => e.phase === "verify").length > 0
-    );
+    return session.phase === "verify" && session.errors.filter((e) => e.phase === "verify").length > 0;
   }
 
   /**

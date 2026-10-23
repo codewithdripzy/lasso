@@ -57,11 +57,7 @@ export async function toggleVoice() {
     }
   }
 
-  if (
-    typeof navigator === "undefined" ||
-    !navigator.mediaDevices ||
-    typeof navigator.mediaDevices.getUserMedia !== "function"
-  ) {
+  if (typeof navigator === "undefined" || !navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
     showActivity("Microphone access is not available in this browser or context.", "#f28b82");
     return;
   }

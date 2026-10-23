@@ -177,7 +177,9 @@ export function buildPinThread(): HTMLDivElement {
     tagMenu.hidden = true;
   });
 
-  gifClose.addEventListener("click", () => { gifPicker.hidden = true; });
+  gifClose.addEventListener("click", () => {
+    gifPicker.hidden = true;
+  });
 
   gifPicker.addEventListener("click", (e) => {
     const target = (e.target as HTMLElement).closest<HTMLButtonElement>(".lasso-pin-gif-item");
@@ -236,9 +238,7 @@ export function buildPinThread(): HTMLDivElement {
     if (!body && !pendingReplyAttachment) return;
 
     if (pendingReplyAttachment) {
-      body = body
-        ? `${body}\n\n![${pendingReplyAttachment.name}](${pendingReplyAttachment.dataUrl})`
-        : `![${pendingReplyAttachment.name}](${pendingReplyAttachment.dataUrl})`;
+      body = body ? `${body}\n\n![${pendingReplyAttachment.name}](${pendingReplyAttachment.dataUrl})` : `![${pendingReplyAttachment.name}](${pendingReplyAttachment.dataUrl})`;
     }
 
     const payload = {

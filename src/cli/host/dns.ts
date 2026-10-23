@@ -220,7 +220,10 @@ export class WindowsResolver implements DomainResolver {
       const content = fs.readFileSync(WINDOWS_HOSTS, "utf8");
       const match = content.match(new RegExp(`${HOSTS_BLOCK_START}\\n([\\s\\S]*?)\\n${HOSTS_BLOCK_END}`));
       if (!match) return [];
-      return match[1].split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("#"));
+      return match[1]
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith("#"));
     } catch {
       return [];
     }

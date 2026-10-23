@@ -74,46 +74,12 @@ let activeStartTime = 0;
 let activeConversationId: string | null = null;
 let conversationList: Array<{ id: string; title: string; scope: string; updatedAt: string }> = [];
 
-
-export function isConversationalPrompt(prompt: string): boolean {
-  const p = prompt.trim().toLowerCase().replace(/[!?.,;:]+$/, "");
-
-  // 1. Direct greetings and conversational niceties
-  const greetings = [
-    "hi", "hello", "hey", "heya", "howdy", "sup", "yo",
-    "good morning", "good afternoon", "good evening",
-    "thanks", "thank you", "thx", "ty", "cool", "awesome", "great", "nice",
-    "who are you", "what are you", "what can you do", "help", "help me",
-    "what is lasso", "how do you work", "how does this work",
-  ];
-  if (greetings.includes(p)) return true;
-
-  // Short greetings (≤ 4 words, no build keywords)
-  if (/^(hi|hello|hey|howdy|yo)\b/i.test(p) && p.split(/\s+/).length <= 4) {
-    const buildKeywords = /\b(build|create|add|make|fix|update|modify|change|refactor|implement|delete|remove|style|install|wire|code)\b/i;
-    if (!buildKeywords.test(p)) return true;
-  }
-
-  // 2. Action verbs indicating deliberate code changes
-  const mutationVerbs = /\b(build|create|add|make|fix|update|modify|change|refactor|implement|delete|remove|style|install|wire|code|replace|set|switch|swap|rewrite|restyle|rebuild|apply)\b/i;
-
-  // 3. Question / informational prefixes
-  const infoPrefixes = /^(what|how|why|when|where|who|which|can you explain|explain|describe|tell me|check out|check|look at|summarize|give me an overview|overview|inspect)\b/i;
-  if (infoPrefixes.test(p) && !mutationVerbs.test(p)) {
-    return true;
-  }
-
-  // 4. Questions about the project / app / page without mutation verbs
-  if (/\b(about|doing|does this|is this|mean|purpose|work|repo|project|codebase|app|application|page|overview|summary)\b/i.test(p) && !mutationVerbs.test(p)) {
-    return true;
-  }
-
-  return false;
-}
-
 /** Detects "try again", "retry", "do it again", "run again", etc. */
 export function isRetryIntent(prompt: string): boolean {
-  const p = prompt.trim().toLowerCase().replace(/[!?.]+$/, "");
+  const p = prompt
+    .trim()
+    .toLowerCase()
+    .replace(/[!?.]+$/, "");
   return /^(try\s+again|retry|re-?try|do\s+it\s+again|run\s+again|attempt\s+again|go\s+again|one\s+more\s+time|again)$/.test(p);
 }
 
@@ -232,7 +198,7 @@ async function createServerConversation(scope: "private" | "team" = "private"): 
 /** Fetch conversation list for the sidebar/history. */
 async function loadConversationList(): Promise<void> {
   const projectId = state.collab?.projectId || state.collabProjectId;
-  
+
   // First load local sessions
   try {
     const projKey = getStorageProjectKey();
@@ -254,10 +220,7 @@ async function loadConversationList(): Promise<void> {
   if (data?.conversations && Array.isArray(data.conversations)) {
     // Merge server sessions with local, avoiding duplicates
     const serverIds = new Set(data.conversations.map((c: any) => c.id));
-    const merged = [
-      ...data.conversations,
-      ...conversationList.filter((local) => !serverIds.has(local.id)),
-    ];
+    const merged = [...data.conversations, ...conversationList.filter((local) => !serverIds.has(local.id))];
     conversationList = merged;
   }
 }
@@ -329,12 +292,14 @@ async function switchConversation(convId: string): Promise<void> {
       role: m.role || "user",
       content: m.content || "",
       timestamp: m.createdAt ? new Date(m.createdAt).getTime() : Date.now(),
-      thinking: m.thinking ? {
-        steps: Array.isArray(m.thinking) ? m.thinking : [],
-        durationSeconds: m.thinkingDurationSeconds || 3,
-        completed: true,
-        expanded: false,
-      } : undefined,
+      thinking: m.thinking
+        ? {
+            steps: Array.isArray(m.thinking) ? m.thinking : [],
+            durationSeconds: m.thinkingDurationSeconds || 3,
+            completed: true,
+            expanded: false,
+          }
+        : undefined,
       changes: m.changes || undefined,
       changesApplied: m.changesApplied,
       error: m.error,
@@ -1078,14 +1043,15 @@ function retryLastFailedPrompt(failedMsgId?: string): void {
   if (activeTaskId) return; // already running
 
   // Find the failed assistant message
-  const failedMsg = failedMsgId
-    ? commandMessages.find((m) => m.id === failedMsgId && m.error)
-    : [...commandMessages].reverse().find((m) => m.role === "assistant" && m.error);
+  const failedMsg = failedMsgId ? commandMessages.find((m) => m.id === failedMsgId && m.error) : [...commandMessages].reverse().find((m) => m.role === "assistant" && m.error);
   if (!failedMsg) return;
 
   // Find the user message that preceded it
   const failedIndex = commandMessages.indexOf(failedMsg);
-  const precedingUserMsg = [...commandMessages].slice(0, failedIndex).reverse().find((m) => m.role === "user");
+  const precedingUserMsg = [...commandMessages]
+    .slice(0, failedIndex)
+    .reverse()
+    .find((m) => m.role === "user");
   if (!precedingUserMsg) return;
 
   const promptToRetry = precedingUserMsg.content;
@@ -1102,23 +1068,20 @@ function retryLastFailedPrompt(failedMsgId?: string): void {
 function continueWithThoughts(msgId?: string): void {
   if (activeTaskId) return;
 
-  const targetMsg = msgId
-    ? commandMessages.find((m) => m.id === msgId)
-    : [...commandMessages].reverse().find((m) => m.role === "assistant");
+  const targetMsg = msgId ? commandMessages.find((m) => m.id === msgId) : [...commandMessages].reverse().find((m) => m.role === "assistant");
   if (!targetMsg) return;
 
   const targetIndex = commandMessages.indexOf(targetMsg);
-  const precedingUserMsg = [...commandMessages].slice(0, targetIndex).reverse().find((m) => m.role === "user");
+  const precedingUserMsg = [...commandMessages]
+    .slice(0, targetIndex)
+    .reverse()
+    .find((m) => m.role === "user");
   const originalPrompt = precedingUserMsg?.content || "";
 
   // Compile the thoughts generated so far
-  const thoughtSummary = (targetMsg.thinking?.steps || [])
-    .map((s) => `- ${s.title}${s.detail ? `: ${s.detail}` : ""}`)
-    .join("\n");
+  const thoughtSummary = (targetMsg.thinking?.steps || []).map((s) => `- ${s.title}${s.detail ? `: ${s.detail}` : ""}`).join("\n");
 
-  const continuationPrompt = thoughtSummary
-    ? `Continue executing the previous task: "${originalPrompt}".\n\nHere is your prior analysis and plan:\n${thoughtSummary}\n\nPlease proceed directly with the implementation and code changes from this point.`
-    : originalPrompt;
+  const continuationPrompt = thoughtSummary ? `Continue executing the previous task: "${originalPrompt}".\n\nHere is your prior analysis and plan:\n${thoughtSummary}\n\nPlease proceed directly with the implementation and code changes from this point.` : originalPrompt;
 
   // Clear the error state on the target message and continue
   targetMsg.error = undefined;
@@ -1200,13 +1163,11 @@ async function runPrompt(prompt: string, skipUserMessage = false): Promise<void>
   activeTaskId = taskId;
   activeStartTime = Date.now();
 
-  const isChat = isConversationalPrompt(prompt);
-
   // Append an assistant thinking widget without echoing the user's prompt.
   // The prompt is already visible in the user bubble above; repeating it here
   // makes the agent look like it is thinking aloud and is especially noisy for
   // short messages such as "Hi".
-  const initialStepTitle = isChat ? "Preparing response…" : "Preparing task…";
+  const initialStepTitle = "Preparing task…";
   commandMessages.push({
     id: taskId,
     role: "assistant",
@@ -1242,14 +1203,12 @@ async function runPrompt(prompt: string, skipUserMessage = false): Promise<void>
     });
   }
 
-  // Emit build mode start ONLY for code changes to pause teammates (don't block for chat)
-  if (!isChat) {
-    collabEmit("collab:action", {
-      sessionId: state.collabProjectId,
-      status: "building",
-      summary: prompt.slice(0, 120),
-    });
-  }
+  // Let the agent determine whether this needs project work.
+  collabEmit("collab:action", {
+    sessionId: state.collabProjectId,
+    status: "building",
+    summary: prompt.slice(0, 120),
+  });
 
   // Send request to bridge
   if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
@@ -1267,10 +1226,7 @@ async function runPrompt(prompt: string, skipUserMessage = false): Promise<void>
         // once as the active request.
         messages: commandMessages
           .map((message, index) => ({ message, index }))
-          .filter(({ message, index }) => Boolean(message.content) && !message.error && index !== commandMessages.reduce(
-            (last, item, itemIndex) => item.role === "user" && item.content === prompt ? itemIndex : last,
-            -1,
-          ))
+          .filter(({ message, index }) => Boolean(message.content) && !message.error && index !== commandMessages.reduce((last, item, itemIndex) => (item.role === "user" && item.content === prompt ? itemIndex : last), -1))
           .map(({ message }) => message)
           .map((m) => ({ role: m.role, content: m.content })),
       })
@@ -1402,7 +1358,9 @@ export function handleCommandBarAgentStatus(message: any): void {
             prompt: userMsg.content,
             model: { id: state.selectedModel.id, provider: state.selectedModel.provider },
           }),
-        }).catch(() => {/* non-critical */});
+        }).catch(() => {
+          /* non-critical */
+        });
       }
     }
 
@@ -1526,24 +1484,32 @@ function renderMessages(): void {
           ${renderThinking(msg)}
           ${msg.content ? `<div class="lasso-command-msg-text">${formatText(msg.content)}</div>` : ""}
           ${renderChanges(msg)}
-          ${msg.error ? `
+          ${
+            msg.error
+              ? `
             <div class="lasso-command-msg-error">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
               ${escapeHtml(msg.error)}
             </div>
             <div class="lasso-command-error-actions" style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap;">
-              ${msg.thinking && msg.thinking.steps.length > 0 ? `
+              ${
+                msg.thinking && msg.thinking.steps.length > 0
+                  ? `
                 <button class="lasso-command-continue-btn" type="button" title="Continue execution using the thoughts and analysis generated so far" style="display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; font-size: 12px; font-weight: 500; border-radius: 6px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); color: #93c5fd; cursor: pointer;">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                   Continue with thoughts so far
                 </button>
-              ` : ""}
+              `
+                  : ""
+              }
               <button class="lasso-command-retry-btn" type="button" title="Retry from start" style="display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; font-size: 12px; font-weight: 500; border-radius: 6px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); color: #e2e8f0; cursor: pointer;">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
                 Retry
               </button>
             </div>
-          ` : ""}
+          `
+              : ""
+          }
         </div>
       `;
     }
@@ -1630,19 +1596,26 @@ function renderChanges(msg: CommandMessage): string {
   const isUndone = msg.changesUndone;
   const showDiff = msg.showDiff !== false; // Default diff view visible on changes
   const rejected = new Set(msg.rejectedFilePaths || []);
-  const activeFile = msg.activeDiffFile || (changes[0]?.filePath);
+  const activeFile = msg.activeDiffFile || changes[0]?.filePath;
 
-  const scopeHtml = msg.todo && msg.todo.length ? `
+  const scopeHtml =
+    msg.todo && msg.todo.length
+      ? `
     <div class="lasso-command-scope-list">
-      ${msg.todo.map((item) => `
+      ${msg.todo
+        .map(
+          (item) => `
         <div class="lasso-command-scope-item">
           <span class="lasso-command-scope-action ${item.action}">${item.action === "create" ? "+" : item.action === "delete" ? "−" : "~"}</span>
           <span class="lasso-command-scope-file">${escapeHtml(item.file)}</span>
           <span class="lasso-command-scope-reason">${escapeHtml(item.reason)}</span>
         </div>
-      `).join("")}
+      `
+        )
+        .join("")}
     </div>
-  ` : "";
+  `
+      : "";
 
   const approvedCount = changes.length - rejected.size;
 
@@ -1696,13 +1669,13 @@ function renderChanges(msg: CommandMessage): string {
           <button class="lasso-command-undo-btn secondary" type="button">Undo</button>
         `
             : isUndone
-            ? `
+              ? `
           <div class="lasso-command-status-undone">
             <span>Changes reverted</span>
           </div>
           <button class="lasso-command-apply-btn primary" type="button">Re-apply</button>
         `
-            : `
+              : `
           <button class="lasso-command-apply-btn primary" type="button">
             <span>Keep Selected (${approvedCount})</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
@@ -1717,7 +1690,7 @@ function renderChanges(msg: CommandMessage): string {
 
 function renderDiffPreview(changes: SourceChange[], activeFilePath?: string, rejected?: Set<string>): string {
   // If activeFilePath is specified, highlight or show that file first, or show all
-  const filtered = activeFilePath ? changes.filter(c => c.filePath === activeFilePath) : changes;
+  const filtered = activeFilePath ? changes.filter((c) => c.filePath === activeFilePath) : changes;
   const listToRender = filtered.length > 0 ? filtered : changes;
 
   return `
@@ -1733,9 +1706,7 @@ function renderDiffPreview(changes: SourceChange[], activeFilePath?: string, rej
           <pre class="lasso-command-diff-content">${
             c.operation === "deleted" || (c.newString === "" && c.oldString !== "")
               ? `<span class="lasso-diff-del">- ${escapeHtml(c.oldString.slice(0, 1000))}</span>\n<span class="lasso-diff-del">(file deleted)</span>`
-              : `${c.oldString ? `<span class="lasso-diff-del">- ${escapeHtml(c.oldString.slice(0, 1000))}</span>\n` : ""}${
-                  c.newString ? `<span class="lasso-diff-add">+ ${escapeHtml(c.newString.slice(0, 1000))}</span>` : ""
-                }`
+              : `${c.oldString ? `<span class="lasso-diff-del">- ${escapeHtml(c.oldString.slice(0, 1000))}</span>\n` : ""}${c.newString ? `<span class="lasso-diff-add">+ ${escapeHtml(c.newString.slice(0, 1000))}</span>` : ""}`
           }</pre>
         </div>
       `
@@ -1764,12 +1735,7 @@ function formatDuration(seconds: number): string {
 }
 
 function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 }
 
 function formatText(text: string): string {

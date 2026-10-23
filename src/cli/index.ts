@@ -5,7 +5,7 @@ import fs from "node:fs";
 import chalk from "chalk";
 import { Command } from "commander";
 import { restartBridge, startBridge } from "./bridge";
-import { startViteServer } from "./server/vite"
+import { startViteServer } from "./server/vite";
 import { startNextServer } from "./server/next";
 import { detectFramework } from "./utils/framework";
 import { initProject, readProjectConfig, resolveCollabSession, readProjectEnv, LASSO_CONFIG_FILE, type CollabConfig } from "./project";
@@ -25,34 +25,35 @@ const program = new Command();
 program.name("lasso").description("Select UI in your running app, describe a change, AI edits the real source.").version(VERSION);
 
 function projectEnv() {
-    return readProjectEnv(process.cwd());
+  return readProjectEnv(process.cwd());
 }
 
 const bridge = program.command("bridge").description("Manage the Lasso overlay bridge");
 
-bridge.command("restart")
-    .description("Reset the active bridge connection and reconnect the overlay")
-    .option("--port <port>", "Bridge port", "3056")
-    .action(async (options: { port: string }) => {
-        const result = await restartBridge(Number(options.port));
-        if (!result.ok) {
-            const project = findByDirectory(loadRegistry(), process.cwd());
-            if (!project) {
-                console.error(chalk.red("✗") + ` ${result.error}`);
-                process.exitCode = 1;
-                return;
-            }
-            const hostResult = await restartHostProject(project.domain, hostProxyPort(projectEnv()));
-            if (!hostResult.ok) {
-                console.error(chalk.red("✗") + ` ${hostResult.error}`);
-                process.exitCode = 1;
-                return;
-            }
-            console.log(chalk.green("✓") + ` Restarted the Host runtime for ${chalk.cyan(project.domain)}. Its bridge will start again on the next page request.`);
-            return;
-        }
-        console.log(chalk.green("✓") + " Lasso bridge restarted. The overlay will reconnect automatically.");
-    });
+bridge
+  .command("restart")
+  .description("Reset the active bridge connection and reconnect the overlay")
+  .option("--port <port>", "Bridge port", "3056")
+  .action(async (options: { port: string }) => {
+    const result = await restartBridge(Number(options.port));
+    if (!result.ok) {
+      const project = findByDirectory(loadRegistry(), process.cwd());
+      if (!project) {
+        console.error(chalk.red("✗") + ` ${result.error}`);
+        process.exitCode = 1;
+        return;
+      }
+      const hostResult = await restartHostProject(project.domain, hostProxyPort(projectEnv()));
+      if (!hostResult.ok) {
+        console.error(chalk.red("✗") + ` ${hostResult.error}`);
+        process.exitCode = 1;
+        return;
+      }
+      console.log(chalk.green("✓") + ` Restarted the Host runtime for ${chalk.cyan(project.domain)}. Its bridge will start again on the next page request.`);
+      return;
+    }
+    console.log(chalk.green("✓") + " Lasso bridge restarted. The overlay will reconnect automatically.");
+  });
 
 // prettier-ignore
 program.command("init")
@@ -236,12 +237,12 @@ program.command("_host", { hidden: true })
     });
 
 function createResolverInstall(dnsPort: number) {
-    // Lazy import to keep the daemon command light.
-    return import("./host/dns.js").then(({ createDomainResolver }) => createDomainResolver().install(dnsPort));
+  // Lazy import to keep the daemon command light.
+  return import("./host/dns.js").then(({ createDomainResolver }) => createDomainResolver().install(dnsPort));
 }
 
 function createResolverUninstall() {
-    return import("./host/dns.js").then(({ createDomainResolver }) => createDomainResolver().uninstall(0));
+  return import("./host/dns.js").then(({ createDomainResolver }) => createDomainResolver().uninstall(0));
 }
 
 // prettier-ignore

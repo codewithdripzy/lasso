@@ -54,7 +54,9 @@ function loadTodos(): TodoItem[] {
 
 function saveTodos(todos: TodoItem[]): void {
   if (state.collabJoined) return;
-  try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(todos)); } catch {}
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+  } catch {}
 }
 
 let todoPanelEl: HTMLDivElement | null = null;
@@ -238,7 +240,11 @@ function renderTodoTable(): void {
 
     // Text input
     const textInput = row.querySelector<HTMLInputElement>(".lasso-todo-row-text")!;
-    textInput.addEventListener("change", () => { item.text = textInput.value; saveTodos(todos); emitTodoUpdate(item); });
+    textInput.addEventListener("change", () => {
+      item.text = textInput.value;
+      saveTodos(todos);
+      emitTodoUpdate(item);
+    });
     textInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
@@ -249,7 +255,11 @@ function renderTodoTable(): void {
 
     // Assignee input
     const assigneeInput = row.querySelector<HTMLInputElement>(".lasso-todo-assignee")!;
-    assigneeInput.addEventListener("change", () => { item.assignee = assigneeInput.value; saveTodos(todos); emitTodoUpdate(item); });
+    assigneeInput.addEventListener("change", () => {
+      item.assignee = assigneeInput.value;
+      saveTodos(todos);
+      emitTodoUpdate(item);
+    });
 
     // Delete
     row.querySelector<HTMLButtonElement>(".lasso-todo-del-btn")!.addEventListener("click", () => {

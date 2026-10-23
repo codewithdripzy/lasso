@@ -79,17 +79,12 @@ export function renderPresence() {
 
   avatarsEl.innerHTML = "";
   const offline = Boolean(state.collabProjectId && !state.collabJoined);
-  const others = [...state.presenceUsers.values()].filter(
-    (user) => user.socketId !== state.collabSocket?.id
-  );
+  const others = [...state.presenceUsers.values()].filter((user) => user.socketId !== state.collabSocket?.id);
 
   for (const user of others.slice(0, 6)) {
     const av = document.createElement("button");
     av.type = "button";
-    av.className =
-      "lasso-avatar" +
-      (user.state === "away" ? " away" : "") +
-      (state.spotlightUserId === user.userId ? " spotlit" : "");
+    av.className = "lasso-avatar" + (user.state === "away" ? " away" : "") + (state.spotlightUserId === user.userId ? " spotlit" : "");
     av.style.background = user.color;
     av.style.setProperty("--ac", user.color);
     av.title = `${user.name} (${user.state})`;
@@ -138,7 +133,7 @@ export function renderPresence() {
 
   const presenceEl = dom.shadow.querySelector<HTMLDivElement>(".lasso-presence");
   if (presenceEl) {
-    presenceEl.style.display = (others.length > 0 || offline) ? "flex" : "none";
+    presenceEl.style.display = others.length > 0 || offline ? "flex" : "none";
   }
 
   if (offline) countEl.textContent = "· offline";

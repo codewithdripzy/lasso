@@ -10,23 +10,8 @@
  */
 
 import crypto from "node:crypto";
-import {
-  WorkspaceGuard,
-  VerificationEngine,
-  LocalSessionRunner,
-  createLocalAgentBackend,
-  isLocalAgentConfig,
-  IBackend,
-  AgentEvent,
-  BackendConfig,
-} from "../runtime/index.js";
-import type {
-  RuntimeSession,
-  RuntimeSessionInput,
-  RuntimeEventHandler,
-  SessionVerificationResult,
-  RuntimeFacade,
-} from "./runtime-client.js";
+import { WorkspaceGuard, VerificationEngine, LocalSessionRunner, createLocalAgentBackend, isLocalAgentConfig, IBackend, AgentEvent, BackendConfig } from "../runtime/index.js";
+import type { RuntimeSession, RuntimeSessionInput, RuntimeEventHandler, SessionVerificationResult, RuntimeFacade } from "./runtime-client.js";
 
 interface LocalSessionRecord {
   id: string;
@@ -58,10 +43,7 @@ interface LocalSessionRecord {
  * user prompt. Skipping the history makes every follow-up a blank-slate run
  * ("try again" becomes a literal search instead of a retry).
  */
-function seedConversation(
-  input: RuntimeSessionInput,
-  timestamp: number
-): LocalSessionRecord["conversation"] {
+function seedConversation(input: RuntimeSessionInput, timestamp: number): LocalSessionRecord["conversation"] {
   const history = (input.conversation || []).map((msg) => ({
     id: crypto.randomUUID(),
     role: msg.role,
@@ -152,9 +134,7 @@ export class LocalRuntime implements RuntimeFacade {
       // Fresh capture per run — corrective re-runs capture the post-apply state.
       const guard = await WorkspaceGuard.capture(projectPath);
 
-      record.backend =
-        record.backend ||
-        (await createLocalAgentBackend({ ...record.backendConfig, type: "local_agent", projectPath }));
+      record.backend = record.backend || (await createLocalAgentBackend({ ...record.backendConfig, type: "local_agent", projectPath }));
 
       const previousErrors = (record.errors || []) as unknown as {
         id: string;
@@ -246,8 +226,7 @@ export class LocalRuntime implements RuntimeFacade {
         binaryChanges: outcome.binaryPaths,
       };
 
-      record.status =
-        outcome.status === "waiting" ? "waiting" : outcome.status === "completed" ? "completed" : "failed";
+      record.status = outcome.status === "waiting" ? "waiting" : outcome.status === "completed" ? "completed" : "failed";
       record.phase = "complete";
       record.updatedAt = new Date();
     } catch (error) {
@@ -307,12 +286,7 @@ export class LocalRuntime implements RuntimeFacade {
     return { passed, errors, observations, command, requiresFix: !passed };
   }
 
-  async switchModel(
-    sessionId: string,
-    model: { provider: string; id: string; name?: string },
-    _apiKey?: string,
-    backendConfig?: RuntimeSessionInput["backendConfig"]
-  ): Promise<void> {
+  async switchModel(sessionId: string, model: { provider: string; id: string; name?: string }, _apiKey?: string, backendConfig?: RuntimeSessionInput["backendConfig"]): Promise<void> {
     const record = this.sessions.get(sessionId);
     if (!record) throw new Error("Session not found");
     if (!isLocalAgentConfig(backendConfig)) {
@@ -339,10 +313,7 @@ export class LocalRuntime implements RuntimeFacade {
         previousErrors: [],
         currentPhase: "execute",
         constraints: {},
-        sessionRef:
-          typeof record.metadata.backendSessionId === "string"
-            ? { id: record.metadata.backendSessionId }
-            : undefined,
+        sessionRef: typeof record.metadata.backendSessionId === "string" ? { id: record.metadata.backendSessionId } : undefined,
       });
     }
 

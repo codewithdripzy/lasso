@@ -1,10 +1,10 @@
 /**
  * Lasso Backend Interface - Unified Abstraction for Agent Backends
- * 
+ *
  * This file defines the common interface for all agent backends:
  * - Hosted model providers (Anthropic, OpenAI, Google, NVIDIA, Ollama)
  * - Local coding agents (Claude Code, OpenCode, Codex CLI, Cursor)
- * 
+ *
  * The Lasso Runtime uses this interface to delegate task execution while maintaining
  * control over the overall workflow: Understand → Inspect → Plan → Execute → Verify → Recover → Complete
  */
@@ -19,8 +19,8 @@ export type { AgentAction, Observation, AgentError, AgentPhase, ProjectContext, 
 // ============================================================================
 
 export type BackendType =
-  | "hosted_model"  // Anthropic, OpenAI, Google, NVIDIA, Ollama APIs
-  | "local_agent";  // Claude Code, OpenCode, Codex CLI, Cursor
+  | "hosted_model" // Anthropic, OpenAI, Google, NVIDIA, Ollama APIs
+  | "local_agent"; // Claude Code, OpenCode, Codex CLI, Cursor
 
 export type BackendProvider =
   // Hosted models
@@ -216,22 +216,7 @@ export interface TaskContext {
 // ============================================================================
 
 export type BackendEventType =
-  | "task_started"
-  | "task_progress"
-  | "tool_started"
-  | "tool_completed"
-  | "file_read"
-  | "file_modified"
-  | "file_created"
-  | "file_deleted"
-  | "diff_available"
-  | "verification_started"
-  | "verification_completed"
-  | "error"
-  | "waiting_for_user"
-  | "task_completed"
-  | "task_cancelled"
-  | "task_failed";
+  "task_started" | "task_progress" | "tool_started" | "tool_completed" | "file_read" | "file_modified" | "file_created" | "file_deleted" | "diff_available" | "verification_started" | "verification_completed" | "error" | "waiting_for_user" | "task_completed" | "task_cancelled" | "task_failed";
 
 export interface BackendEvent {
   type: BackendEventType;
@@ -335,7 +320,7 @@ export interface IBackend {
 
   /**
    * Check if backend is available and properly configured
-   * 
+   *
    * Returns detailed availability info including any authentication issues
    */
   checkAvailability(): Promise<{
@@ -349,41 +334,40 @@ export interface IBackend {
 
   /**
    * Execute a task
-   * 
+   *
    * This is the main entry point for task execution.
    * The backend should:
    * 1. Start the task
    * 2. Stream progress events via the callback
    * 3. Return the final result
-   * 
+   *
    * For backends with internal loops (like Claude Code), this method
    * should delegate to the agent and monitor its execution.
-   * 
+   *
    * For hosted models, this method should integrate with the existing
    * ModelGateway and return structured responses.
    */
-  executeTask(
-    context: TaskContext,
-    onEvent: (event: BackendEvent) => void,
-    signal?: AbortSignal
-  ): Promise<BackendResult>;
+  executeTask(context: TaskContext, onEvent: (event: BackendEvent) => void, signal?: AbortSignal): Promise<BackendResult>;
 
   /**
    * Cancel a running task
-   * 
+   *
    * Only called if supportsCancellation is true
    */
   cancelTask(taskId: string): Promise<void>;
 
   /**
    * Switch to a different backend/model
-   * 
+   *
    * This is called when the user switches providers mid-session.
    * The backend should:
    * 1. Return any context that can be transferred
    * 2. Report what cannot be transferred (e.g., internal state)
    */
-  switchBackend(newBackend: IBackend, context: TaskContext): Promise<{
+  switchBackend(
+    newBackend: IBackend,
+    context: TaskContext
+  ): Promise<{
     transferableContext: Record<string, unknown>;
     lostContext: string[];
   }>;

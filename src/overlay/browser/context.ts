@@ -31,9 +31,7 @@ export async function capturePageContext(): Promise<PageContext> {
 
   // Extract sections & landmarks across the entire page
   const sections: Array<{ name: string; textPreview: string }> = [];
-  const sectionEls = document.querySelectorAll(
-    "header, nav, main, section, article, footer, [role='banner'], [role='main'], [role='navigation'], [id*='hero'], [class*='hero'], [id*='feature'], [class*='feature'], [id*='pricing'], [class*='pricing'], [id*='testimonial'], [class*='testimonial']"
-  );
+  const sectionEls = document.querySelectorAll("header, nav, main, section, article, footer, [role='banner'], [role='main'], [role='navigation'], [id*='hero'], [class*='hero'], [id*='feature'], [class*='feature'], [id*='pricing'], [class*='pricing'], [id*='testimonial'], [class*='testimonial']");
   for (const el of sectionEls) {
     if (el.closest("#lasso-root")) continue;
     const tag = el.tagName.toLowerCase();
@@ -83,14 +81,12 @@ export async function capturePageContext(): Promise<PageContext> {
   }
 
   // Extract visible body text snippet (ignoring overlay)
-  const bodyClone = document.body ? document.body.cloneNode(true) as HTMLElement : null;
+  const bodyClone = document.body ? (document.body.cloneNode(true) as HTMLElement) : null;
   if (bodyClone) {
     const lassoRoot = bodyClone.querySelector("#lasso-root");
     if (lassoRoot) lassoRoot.remove();
   }
-  const bodyText = (bodyClone?.innerText || document.body?.innerText || "")
-    .replace(/\s+/g, " ")
-    .slice(0, 1500);
+  const bodyText = (bodyClone?.innerText || document.body?.innerText || "").replace(/\s+/g, " ").slice(0, 1500);
 
   // Selected element if any
   let selectedElement: PageContext["selectedElement"] = undefined;

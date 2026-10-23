@@ -8,16 +8,20 @@ const exec = promisify(execSync);
 
 /**
  * Verification Engine - Verifies changes after execution
- * 
+ *
  * Mandatory verification step in the agent loop.
  * Timeouts are failures or inconclusive observations, never proof of success.
  */
 
 export interface VerificationConfig {
-  typecheckTimeout: number;  // Default: 60 seconds
-  buildTimeout: number;      // Default: 120 seconds
-  devServerTimeout: number;  // Default: 30 seconds
-  browserTimeout: number;    // Default: 60 seconds
+  typecheckTimeout: number; // Default: 60 seconds
+  buildTimeout: number; // Default: 120 seconds
+  devServerTimeout: number; // Default: 30 seconds
+  browserTimeout: number; // Default: 60 seconds
+  /** URL of the project's already-running dev server, if available. */
+  devServerUrl?: string;
+  /** Optional browser bridge used for DOM/runtime verification. */
+  browserContextProvider?: (action: { id: string; type: "browser_check"; data?: Record<string, unknown> }) => Promise<unknown>;
 }
 
 export interface VerificationResult {
@@ -45,6 +49,8 @@ export class VerificationEngine {
       buildTimeout: config?.buildTimeout || 120000,
       devServerTimeout: config?.devServerTimeout || 30000,
       browserTimeout: config?.browserTimeout || 60000,
+      devServerUrl: config?.devServerUrl,
+      browserContextProvider: config?.browserContextProvider,
     };
   }
 
@@ -76,7 +82,6 @@ export class VerificationEngine {
     const devServerResult = await this.verifyDevServer(phase);
     results.push(devServerResult);
 
-    // Browser check (placeholder)
     const browserResult = await this.verifyBrowser(phase);
     results.push(browserResult);
 
@@ -227,8 +232,7 @@ export class VerificationEngine {
           break;
         } catch (err: any) {
           lastError = err?.stderr || err?.message || `${cmd} failed`;
-          const managerMissing =
-            err?.code === 127 || /command not found|ENOENT/i.test(String(err?.message || ""));
+          const managerMissing = err?.code === 127 || /command not found|ENOENT/i.test(String(err?.message || ""));
           if (!managerMissing) {
             // The build script ran and failed — don't mask it by trying
             // other package managers.
@@ -339,25 +343,48 @@ export class VerificationEngine {
     const observations: Observation[] = [];
     const errors: AgentError[] = [];
 
-    // TODO: Implement actual dev server health check
-    // For now, just check if a dev server is likely running
+    const url = this.config.devServerUrl;
+    if (!url) {
+      observations.push({
+        id: this.generateId(),
+        type: "build",
+        summary: "Dev server health check skipped (no devServerUrl configured)",
+        data: { type: "dev_server", success: true, skipped: true },
+        timestamp: Date.now(),
+        phase,
+      });
+      return { type: "dev_server", success: true, skipped: true, observations, errors, duration: Date.now() - startTime };
+    }
 
-    observations.push({
-      id: this.generateId(),
-      type: "build",
-      summary: "Dev server health check skipped (not implemented)",
-      data: { type: "dev_server", success: true },
-      timestamp: Date.now(),
-      phase,
-    });
-
-    return {
-      type: "dev_server",
-      success: true,
-      observations,
-      errors,
-      duration: Date.now() - startTime,
-    };
+    try {
+      const response = await this.fetchWithTimeout(url, this.config.devServerTimeout);
+      const success = response.status >= 200 && response.status < 400;
+      const summary = success ? `Dev server responded with HTTP ${response.status}` : `Dev server returned HTTP ${response.status}`;
+      observations.push({
+        id: this.generateId(),
+        type: "build",
+        summary,
+        data: { type: "dev_server", success, url, status: response.status },
+        timestamp: Date.now(),
+        phase,
+      });
+      if (!success) {
+        errors.push({
+          id: this.generateId(),
+          type: "verification",
+          message: summary,
+          phase,
+          timestamp: Date.now(),
+          recoverable: true,
+        });
+      }
+      return { type: "dev_server", success, command: `GET ${url}`, error: success ? undefined : summary, observations, errors, duration: Date.now() - startTime };
+    } catch (error: any) {
+      const message = `Dev server health check failed: ${error?.message || String(error)}`;
+      observations.push({ id: this.generateId(), type: "build", summary: message, data: { type: "dev_server", success: false, url }, timestamp: Date.now(), phase });
+      errors.push({ id: this.generateId(), type: "verification", message, phase, timestamp: Date.now(), recoverable: true });
+      return { type: "dev_server", success: false, command: `GET ${url}`, error: message, observations, errors, duration: Date.now() - startTime };
+    }
   }
 
   /**
@@ -368,25 +395,33 @@ export class VerificationEngine {
     const observations: Observation[] = [];
     const errors: AgentError[] = [];
 
-    // TODO: Implement actual browser checking via Puppeteer or similar
-    // For now, this is a placeholder
+    const provider = this.config.browserContextProvider;
+    if (!provider) {
+      observations.push({
+        id: this.generateId(),
+        type: "browser",
+        summary: "Browser verification skipped (no browser bridge configured)",
+        data: { type: "browser", success: true, skipped: true },
+        timestamp: Date.now(),
+        phase,
+      });
+      return { type: "browser", success: true, skipped: true, observations, errors, duration: Date.now() - startTime };
+    }
 
-    observations.push({
-      id: this.generateId(),
-      type: "browser",
-      summary: "Browser check skipped (not implemented)",
-      data: { type: "browser", success: true },
-      timestamp: Date.now(),
-      phase,
-    });
-
-    return {
-      type: "browser",
-      success: true,
-      observations,
-      errors,
-      duration: Date.now() - startTime,
-    };
+    try {
+      const result = await Promise.race([provider({ id: this.generateId(), type: "browser_check", data: { phase } }), new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Browser verification timed out")), this.config.browserTimeout))]);
+      const details = result && typeof result === "object" ? (result as Record<string, unknown>) : {};
+      const success = details.success !== false;
+      const summary = typeof details.summary === "string" ? details.summary : success ? "Browser check passed" : "Browser check failed";
+      observations.push({ id: this.generateId(), type: "browser", summary, data: { type: "browser", success, result }, timestamp: Date.now(), phase });
+      if (!success) errors.push({ id: this.generateId(), type: "verification", message: summary, phase, timestamp: Date.now(), recoverable: true });
+      return { type: "browser", success, error: success ? undefined : summary, observations, errors, duration: Date.now() - startTime };
+    } catch (error: any) {
+      const message = `Browser verification failed: ${error?.message || String(error)}`;
+      observations.push({ id: this.generateId(), type: "browser", summary: message, data: { type: "browser", success: false }, timestamp: Date.now(), phase });
+      errors.push({ id: this.generateId(), type: "verification", message, phase, timestamp: Date.now(), recoverable: true });
+      return { type: "browser", success: false, error: message, observations, errors, duration: Date.now() - startTime };
+    }
   }
 
   /**
@@ -434,6 +469,17 @@ export class VerificationEngine {
       return typeof pkg?.scripts?.build === "string" && pkg.scripts.build.trim().length > 0;
     } catch {
       return false;
+    }
+  }
+
+  /** Fetch a health URL with a portable timeout for supported Node versions. */
+  private async fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { signal: controller.signal, redirect: "manual" });
+    } finally {
+      clearTimeout(timer);
     }
   }
 }

@@ -57,9 +57,7 @@ function resolveDragTarget(target: Element, preferParent = false): HTMLElement |
   }
 
   // If leaf is an inline/icon child inside a container, resolve to container
-  if (
-    ["path", "g", "circle", "rect", "line", "polyline", "polygon", "tspan"].includes(el.tagName.toLowerCase())
-  ) {
+  if (["path", "g", "circle", "rect", "line", "polyline", "polygon", "tspan"].includes(el.tagName.toLowerCase())) {
     el = el.closest("svg") || el.parentElement || el;
   }
 

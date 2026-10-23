@@ -61,11 +61,7 @@ export class LocalSessionRunner {
 
     let outcome: LocalSessionOutcome;
     try {
-      const result = await backend.executeTask(
-        context,
-        (event) => emit(toAgentEvent(sessionId, event)),
-        signal
-      );
+      const result = await backend.executeTask(context, (event) => emit(toAgentEvent(sessionId, event)), signal);
 
       // Authoritative diff against the captured state, then rollback so the
       // review happens against an untouched project.

@@ -6,18 +6,7 @@ import nvidiaIcon from "@iconify-icons/logos/nvidia";
 import terminalIcon from "@iconify-icons/logos/terminal";
 
 import { state, rememberModel, loadChatHistory, saveChatHistory, timeAgo } from "../state";
-import {
-  appendTaskMessage,
-  createAgentTask,
-  getComponentConversation,
-  findReusableAgentTask,
-  getAgentTask,
-  onAgentTaskReviewRequested,
-  onAgentTaskSelected,
-  recordTaskActivity,
-  selectAgentTask,
-  updateAgentTask,
-} from "../tasks/tasks";
+import { appendTaskMessage, createAgentTask, getComponentConversation, findReusableAgentTask, getAgentTask, onAgentTaskReviewRequested, onAgentTaskSelected, recordTaskActivity, selectAgentTask, updateAgentTask } from "../tasks/tasks";
 import { requestAgentNotificationPermission } from "../notifications";
 import { getDOM } from "../dom";
 import { getElementGroup, getElementLabel, getSourceHint, elementKey, setSelectMode, updateSelectedVisual } from "../toolbar/select";
@@ -238,22 +227,18 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
       respondToAgentPrompt("Deny");
     }
   });
-  agentPrompt
-    .querySelector<HTMLButtonElement>(".lasso-agent-prompt-close")!
-    .addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      respondToAgentPrompt("Deny");
-    });
-  agentPrompt
-    .querySelector<HTMLInputElement>(".lasso-agent-prompt-input")!
-    .addEventListener("keydown", (event) => {
-      if (event.key !== "Enter") return;
-      event.preventDefault();
-      event.stopPropagation();
-      const value = agentPrompt.querySelector<HTMLInputElement>(".lasso-agent-prompt-input")?.value.trim();
-      if (value) respondToAgentPrompt(value);
-    });
+  agentPrompt.querySelector<HTMLButtonElement>(".lasso-agent-prompt-close")!.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    respondToAgentPrompt("Deny");
+  });
+  agentPrompt.querySelector<HTMLInputElement>(".lasso-agent-prompt-input")!.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const value = agentPrompt.querySelector<HTMLInputElement>(".lasso-agent-prompt-input")?.value.trim();
+    if (value) respondToAgentPrompt(value);
+  });
 
   promptInput = el.querySelector<HTMLTextAreaElement>(".lasso-prompt-input")!;
   promptElement = el.querySelector<HTMLSpanElement>(".lasso-prompt-element-name")!;
@@ -355,7 +340,9 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
     el.style.top = `${top}px`;
   });
 
-  const stopPromptDrag = () => { dragState = null; };
+  const stopPromptDrag = () => {
+    dragState = null;
+  };
   promptTop.addEventListener("pointerup", stopPromptDrag);
   promptTop.addEventListener("pointercancel", stopPromptDrag);
 
@@ -544,10 +531,7 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
   return { prompt: el, review: rev };
 }
 
-export function showAgentPrompt(
-  taskId: string,
-  prompt: { message: string; kind: "permission" | "input" | "multiselect"; options?: string[] }
-): void {
+export function showAgentPrompt(taskId: string, prompt: { message: string; kind: "permission" | "input" | "multiselect"; options?: string[] }): void {
   if (!agentPromptPanel) return;
   agentPromptTaskId = taskId;
   const isPermission = prompt.kind === "permission";
@@ -563,11 +547,7 @@ export function showAgentPrompt(
     message.textContent = prompt.message.trim() || "The agent is waiting for a response before it can continue.";
   }
   if (subtitle) {
-    subtitle.textContent = isMultiSelect
-      ? "Select one or more options and click Submit."
-      : isPermission
-      ? "Lasso is paused until you choose an option."
-      : "Type your answer and press Enter.";
+    subtitle.textContent = isMultiSelect ? "Select one or more options and click Submit." : isPermission ? "Lasso is paused until you choose an option." : "Type your answer and press Enter.";
   }
   if (input) {
     input.value = "";
@@ -617,19 +597,13 @@ export function showAgentPrompt(
       submitBtn.className = "primary";
       submitBtn.addEventListener("click", (e) => {
         e.preventDefault();
-        const checked = Array.from(
-          optionsContainer?.querySelectorAll<HTMLInputElement>(".lasso-agent-prompt-checkbox:checked") || []
-        ).map((cb) => cb.value);
+        const checked = Array.from(optionsContainer?.querySelectorAll<HTMLInputElement>(".lasso-agent-prompt-checkbox:checked") || []).map((cb) => cb.value);
         respondToAgentPrompt(checked.length ? checked.join(", ") : "None");
       });
 
       actions.append(skipBtn, submitBtn);
     } else {
-      const options = isPermission
-        ? prompt.options?.length
-          ? prompt.options
-          : ["Allow", "Deny"]
-        : ["Send"];
+      const options = isPermission ? (prompt.options?.length ? prompt.options : ["Allow", "Deny"]) : ["Send"];
       actions.replaceChildren(
         ...options.map((option) => {
           const button = document.createElement("button");
@@ -693,17 +667,11 @@ export function buildModelMenuContent(menuEl: HTMLElement, onRefresh: () => void
 
   const children: Node[] = [filters];
   // Map the "cli" filter chip back to all local-agent providers.
-  const visibleProviders = state.modelFilter === "all"
-    ? providers.slice(1)
-    : state.modelFilter === "cli"
-      ? ["cli"]
-      : [state.modelFilter];
+  const visibleProviders = state.modelFilter === "all" ? providers.slice(1) : state.modelFilter === "cli" ? ["cli"] : [state.modelFilter];
 
   for (const provider of visibleProviders) {
     const isCliGroup = provider === "cli";
-    const models = isCliGroup
-      ? state.MODELS.filter((m) => LOCAL_AGENT_PROVIDERS.has(m.provider))
-      : state.MODELS.filter((m) => m.provider === provider);
+    const models = isCliGroup ? state.MODELS.filter((m) => LOCAL_AGENT_PROVIDERS.has(m.provider)) : state.MODELS.filter((m) => m.provider === provider);
     if (!models.length) continue;
     const group = document.createElement("div");
     group.className = "lasso-model-group";
@@ -776,7 +744,7 @@ function modelItem(model: ModelOption): HTMLButtonElement {
   item.type = "button";
   item.className = "lasso-prompt-model-item";
   item.dataset.model = model.id;
-  
+
   if (model.locked) {
     item.classList.add("locked");
     item.disabled = true;
@@ -786,7 +754,7 @@ function modelItem(model: ModelOption): HTMLButtonElement {
   } else {
     item.innerHTML = `${providerIcon(model.provider)}<span>${model.label}</span><svg class="lasso-prompt-model-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`;
   }
-  
+
   return item;
 }
 
@@ -807,10 +775,7 @@ export async function captureScreenshots(el: Element): Promise<ScreenshotContext
     ignoreElements: (node: Element) => node.id === "lasso-root" || Boolean(node.closest?.("#lasso-root")),
   };
   try {
-    const [fullCanvas, elementCanvas] = await Promise.all([
-      html2canvas(document.body, options),
-      html2canvas(el as HTMLElement, options),
-    ]);
+    const [fullCanvas, elementCanvas] = await Promise.all([html2canvas(document.body, options), html2canvas(el as HTMLElement, options)]);
     return {
       full: fullCanvas.toDataURL("image/jpeg", 0.72),
       element: elementCanvas.toDataURL("image/jpeg", 0.82),
@@ -978,22 +943,12 @@ function renderChatText(container: HTMLElement, text: string): void {
   }
 }
 
-export function setAgentStatus(
-  status: AgentTaskStatus,
-  message: string,
-  detail?: string,
-  taskId = state.promptTaskId,
-  appendMessage = true,
-) {
+export function setAgentStatus(status: AgentTaskStatus, message: string, detail?: string, taskId = state.promptTaskId, appendMessage = true) {
   if (!agentStatusElement || !agentStatusMessage || !sendButton) return;
 
   const logMessage = detail?.trim() || message.trim();
   const lastLog = agentLogLines[agentLogLines.length - 1];
-  if (
-    agentStatusElement.dataset.status === status &&
-    agentStatusMessage.textContent === message &&
-    (!logMessage || lastLog === logMessage)
-  ) return;
+  if (agentStatusElement.dataset.status === status && agentStatusMessage.textContent === message && (!logMessage || lastLog === logMessage)) return;
 
   appendAgentLog(logMessage);
   if (taskId) recordTaskActivity(taskId, logMessage);
@@ -1027,8 +982,7 @@ export function setAgentStatus(
 
 function syncSendButtonState(): void {
   if (!promptInput || !sendButton) return;
-  const hasInstruction = Boolean(promptInput.value.trim()) ||
-    (sendButton.dataset.state === "retry" && Boolean(state.lastInstruction?.trim()));
+  const hasInstruction = Boolean(promptInput.value.trim()) || (sendButton.dataset.state === "retry" && Boolean(state.lastInstruction?.trim()));
   const isReviewAction = sendButton.dataset.state === "review";
   sendButton.disabled = !hasInstruction && !isReviewAction;
 }
@@ -1276,9 +1230,7 @@ export async function handleSend(event: MouseEvent) {
   const selectedElement = state.selected;
   if (!selectedElement || !promptInput || !sendButton) return;
 
-  const instruction =
-    promptInput.value.trim() ||
-    (sendButton.dataset.state === "retry" ? state.lastInstruction : "");
+  const instruction = promptInput.value.trim() || (sendButton.dataset.state === "retry" ? state.lastInstruction : "");
 
   if (!instruction) {
     promptInput.focus();
@@ -1294,10 +1246,7 @@ export async function handleSend(event: MouseEvent) {
 
   const bridgeSocket = state.bridgeSocket;
   if (!bridgeSocket || bridgeSocket.readyState !== WebSocket.OPEN) {
-    setAgentStatus(
-      "error",
-      "The Lasso agent bridge is not connected. Start Lasso with your dev server and try again."
-    );
+    setAgentStatus("error", "The Lasso agent bridge is not connected. Start Lasso with your dev server and try again.");
     return;
   }
 
@@ -1318,7 +1267,7 @@ export async function handleSend(event: MouseEvent) {
   const screenshotPromise = state.screenshotPromise;
   const reusableTask = findReusableAgentTask(instruction, selectedElement);
   let task: ReturnType<typeof createAgentTask> | undefined;
-  
+
   if (reusableTask) {
     selectAgentTask(reusableTask.id);
     // If the task is completed, error, or stopped, restart it
@@ -1351,13 +1300,9 @@ export async function handleSend(event: MouseEvent) {
 
   const rect = selectedElement.getBoundingClientRect();
   const computed = getComputedStyle(selectedElement);
-  const attributes = Object.fromEntries(
-    Array.from(selectedElement.attributes).map((attr) => [attr.name, attr.value])
-  );
+  const attributes = Object.fromEntries(Array.from(selectedElement.attributes).map((attr) => [attr.name, attr.value]));
   const needsVisualContext = /\b(look|visual|appearance|color|colour|background|image|icon|spacing|layout|position|align|responsive|style|restyle|font|size)\b/i.test(instruction);
-  const screenshots = needsVisualContext
-    ? await captureElementScreenshot(selectedElement)
-    : await screenshotPromise;
+  const screenshots = needsVisualContext ? await captureElementScreenshot(selectedElement) : await screenshotPromise;
 
   if (bridgeSocket.readyState !== WebSocket.OPEN) {
     const message = "The Lasso agent bridge disconnected before the task could start.";
@@ -1412,10 +1357,7 @@ export async function handleSend(event: MouseEvent) {
         group: getElementGroup(selectedElement),
         label: getElementLabel(selectedElement),
         html: selectedElement.outerHTML.slice(0, 6000),
-        sourceHint:
-          selectedElement.getAttribute("data-source") ||
-          selectedElement.getAttribute("data-lasso-source") ||
-          getSourceHint(selectedElement),
+        sourceHint: selectedElement.getAttribute("data-source") || selectedElement.getAttribute("data-lasso-source") || getSourceHint(selectedElement),
       },
     })
   );

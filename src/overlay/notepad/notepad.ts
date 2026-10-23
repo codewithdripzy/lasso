@@ -2,35 +2,38 @@ import { getDOM } from "../dom";
 import { collabEmit } from "../collab/socket";
 import { startVoiceRecording, stopVoiceRecording, cancelVoiceRecording, isRecordingVoice } from "../audio/transcribe";
 
-
 const STORAGE_KEY = "lasso:notepad";
 
 function loadNote(): string {
-  try { return window.localStorage.getItem(STORAGE_KEY) || ""; } catch { return ""; }
+  try {
+    return window.localStorage.getItem(STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
 }
 
 function saveNote(text: string): void {
-  if (collabEmit("note:save", { body: text }, (response) => {
-    if (!response.ok) saveNoteLocally(text);
-  })) return;
+  if (
+    collabEmit("note:save", { body: text }, (response) => {
+      if (!response.ok) saveNoteLocally(text);
+    })
+  )
+    return;
   saveNoteLocally(text);
 }
 
 function saveNoteLocally(text: string): void {
-  try { window.localStorage.setItem(STORAGE_KEY, text); } catch {}
+  try {
+    window.localStorage.setItem(STORAGE_KEY, text);
+  } catch {}
 }
 
 function renderMarkdown(raw: string): string {
   // Escape HTML first
-  let t = raw
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  let t = raw.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   // Fenced code blocks
-  t = t.replace(/```([\s\S]*?)```/g, (_, code) =>
-    `<pre class="lasso-np-pre"><code>${code.trim()}</code></pre>`
-  );
+  t = t.replace(/```([\s\S]*?)```/g, (_, code) => `<pre class="lasso-np-pre"><code>${code.trim()}</code></pre>`);
   // Headers
   t = t.replace(/^### (.+)$/gm, '<h3 class="lasso-np-h">$1</h3>');
   t = t.replace(/^## (.+)$/gm, '<h2 class="lasso-np-h">$1</h2>');
@@ -40,11 +43,9 @@ function renderMarkdown(raw: string): string {
   // Blockquote
   t = t.replace(/^&gt; (.+)$/gm, '<blockquote class="lasso-np-blockquote">$1</blockquote>');
   // Checked box
-  t = t.replace(/^- \[x\] (.+)$/gm,
-    '<div class="lasso-np-check done"><span class="lasso-np-check-box">✓</span><del>$1</del></div>');
+  t = t.replace(/^- \[x\] (.+)$/gm, '<div class="lasso-np-check done"><span class="lasso-np-check-box">✓</span><del>$1</del></div>');
   // Unchecked box
-  t = t.replace(/^- \[ \] (.+)$/gm,
-    '<div class="lasso-np-check"><span class="lasso-np-check-box">○</span>$1</div>');
+  t = t.replace(/^- \[ \] (.+)$/gm, '<div class="lasso-np-check"><span class="lasso-np-check-box">○</span>$1</div>');
   // Bullet list items
   t = t.replace(/^[-*] (.+)$/gm, '<li class="lasso-np-li">$1</li>');
   // Inline: bold+italic
@@ -58,10 +59,9 @@ function renderMarkdown(raw: string): string {
   // Inline: code
   t = t.replace(/`(.+?)`/g, '<code class="lasso-np-code">$1</code>');
   // Links
-  t = t.replace(/\[(.+?)\]\((.+?)\)/g,
-    '<a href="$2" target="_blank" rel="noopener" class="lasso-np-link">$1</a>');
+  t = t.replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" rel="noopener" class="lasso-np-link">$1</a>');
   // Double newlines → paragraph
-  t = t.replace(/\n\n/g, "</p><p class=\"lasso-np-p\">");
+  t = t.replace(/\n\n/g, '</p><p class="lasso-np-p">');
   // Single newlines
   t = t.replace(/\n/g, "<br>");
 
@@ -191,14 +191,20 @@ export function buildNotepadPanel(): HTMLDivElement {
           textarea.dispatchEvent(new Event("input"));
           textarea.focus();
           statusEl.textContent = "Transcribed";
-          window.setTimeout(() => { statusEl.textContent = "Autosaved"; }, 2000);
+          window.setTimeout(() => {
+            statusEl.textContent = "Autosaved";
+          }, 2000);
         } else {
           statusEl.textContent = "No speech detected";
-          window.setTimeout(() => { statusEl.textContent = "Autosaved"; }, 1500);
+          window.setTimeout(() => {
+            statusEl.textContent = "Autosaved";
+          }, 1500);
         }
       } catch (err: any) {
         statusEl.textContent = err?.message || "Transcription failed";
-        window.setTimeout(() => { statusEl.textContent = "Autosaved"; }, 2500);
+        window.setTimeout(() => {
+          statusEl.textContent = "Autosaved";
+        }, 2500);
       } finally {
         voiceBtn.classList.remove("transcribing");
         voiceBtn.title = "Click to dictate (speech-to-text)";
@@ -212,7 +218,9 @@ export function buildNotepadPanel(): HTMLDivElement {
         statusEl.textContent = "Listening…";
       } catch (err: any) {
         statusEl.textContent = err?.message || "Microphone access denied";
-        window.setTimeout(() => { statusEl.textContent = "Autosaved"; }, 3000);
+        window.setTimeout(() => {
+          statusEl.textContent = "Autosaved";
+        }, 3000);
       }
     }
   });
@@ -248,12 +256,7 @@ export function buildNotepadPanel(): HTMLDivElement {
   copyBtn.addEventListener("click", async () => {
     try {
       const text = textarea.value;
-      if (
-        typeof navigator !== "undefined" &&
-        navigator.clipboard &&
-        typeof navigator.clipboard.writeText === "function" &&
-        window.isSecureContext
-      ) {
+      if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function" && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
       } else {
         // Fallback for non-secure contexts
@@ -262,10 +265,16 @@ export function buildNotepadPanel(): HTMLDivElement {
         ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
         document.body.appendChild(ta);
         ta.select();
-        try { document.execCommand("copy"); } finally { ta.remove(); }
+        try {
+          document.execCommand("copy");
+        } finally {
+          ta.remove();
+        }
       }
       statusEl.textContent = "Copied!";
-      setTimeout(() => { statusEl.textContent = "Autosaved"; }, 1500);
+      setTimeout(() => {
+        statusEl.textContent = "Autosaved";
+      }, 1500);
     } catch {
       statusEl.textContent = "Copy failed";
     }

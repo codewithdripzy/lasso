@@ -83,10 +83,7 @@ describe("VerificationEngine", () => {
   });
 
   it("reports a real build failure as an error (corrective-run input)", async () => {
-    fs.writeFileSync(
-      path.join(dir, "package.json"),
-      JSON.stringify({ name: "x", scripts: { build: "node -e \"console.error('boom'); process.exit(2)\"" } })
-    );
+    fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "x", scripts: { build: "node -e \"console.error('boom'); process.exit(2)\"" } }));
     const engine = new VerificationEngine(dir);
 
     const result = await engine.verifyBuild("verify");

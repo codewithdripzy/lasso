@@ -201,7 +201,9 @@ export function buildPinCompose(): HTMLDivElement {
     tagMenu.hidden = true;
   });
 
-  gifClose.addEventListener("click", () => { gifPicker.hidden = true; });
+  gifClose.addEventListener("click", () => {
+    gifPicker.hidden = true;
+  });
 
   gifPicker.addEventListener("click", (e) => {
     const target = (e.target as HTMLElement).closest<HTMLButtonElement>(".lasso-pin-gif-item");
@@ -261,9 +263,7 @@ export function buildPinCompose(): HTMLDivElement {
     if (!state.pendingPinPosition) return;
 
     if (pendingAttachment) {
-      body = body
-        ? `${body}\n\n![${pendingAttachment.name}](${pendingAttachment.dataUrl})`
-        : `![${pendingAttachment.name}](${pendingAttachment.dataUrl})`;
+      body = body ? `${body}\n\n![${pendingAttachment.name}](${pendingAttachment.dataUrl})` : `![${pendingAttachment.name}](${pendingAttachment.dataUrl})`;
     }
 
     const payload: Record<string, unknown> = {
@@ -318,7 +318,6 @@ export function buildPinCompose(): HTMLDivElement {
   return el;
 }
 
-
 export function showAttachmentPreview(att: { name: string; dataUrl: string }, container: HTMLDivElement) {
   container.hidden = false;
   const nameEl = container.querySelector<HTMLSpanElement>(".lasso-pin-attachment-name")!;
@@ -349,9 +348,7 @@ export function handleMentionInput(textarea: HTMLTextAreaElement, tagMenu: HTMLD
     }
   }
 
-  const filteredStatic = (!query ? STATIC_TAGS : STATIC_TAGS.filter((t) => t.startsWith(query))).map(
-    (t) => ({ label: t, type: "tag" as const, color: "#94a3b8" })
-  );
+  const filteredStatic = (!query ? STATIC_TAGS : STATIC_TAGS.filter((t) => t.startsWith(query))).map((t) => ({ label: t, type: "tag" as const, color: "#94a3b8" }));
 
   const suggestions = [...presenceUsers, ...filteredStatic].slice(0, 6);
 
@@ -428,7 +425,9 @@ export function closePinCompose() {
   const tagMenu = pinComposeEl.querySelector<HTMLDivElement>(".lasso-pin-tag-menu");
   if (tagMenu) tagMenu.hidden = true;
   pinComposeEl.classList.remove("visible");
-  setTimeout(() => { if (pinComposeEl) pinComposeEl.hidden = true; }, 170);
+  setTimeout(() => {
+    if (pinComposeEl) pinComposeEl.hidden = true;
+  }, 170);
   state.pendingPinPosition = null;
   pendingAttachment = null;
   const ta = pinComposeEl.querySelector<HTMLTextAreaElement>("textarea");

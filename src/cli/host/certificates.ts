@@ -79,24 +79,26 @@ async function downloadMkcert(): Promise<{ ok: boolean; path?: string; error?: s
     console.log(`[Lasso] Downloading mkcert from ${downloadUrl}...`);
     const file = fs.createWriteStream(tempPath);
 
-    protocol.get(downloadUrl, (response) => {
-      if (response.statusCode !== 200) {
+    protocol
+      .get(downloadUrl, (response) => {
+        if (response.statusCode !== 200) {
+          fs.unlinkSync(tempPath);
+          return resolve({ ok: false, error: `Failed to download mkcert: ${response.statusCode}` });
+        }
+
+        response.pipe(file);
+
+        file.on("finish", () => {
+          file.close();
+          fs.chmodSync(tempPath, 0o755);
+          console.log(`[Lasso] ✓ mkcert downloaded to ${tempPath}`);
+          resolve({ ok: true, path: tempPath });
+        });
+      })
+      .on("error", (error) => {
         fs.unlinkSync(tempPath);
-        return resolve({ ok: false, error: `Failed to download mkcert: ${response.statusCode}` });
-      }
-
-      response.pipe(file);
-
-      file.on("finish", () => {
-        file.close();
-        fs.chmodSync(tempPath, 0o755);
-        console.log(`[Lasso] ✓ mkcert downloaded to ${tempPath}`);
-        resolve({ ok: true, path: tempPath });
+        resolve({ ok: false, error: error instanceof Error ? error.message : String(error) });
       });
-    }).on("error", (error) => {
-      fs.unlinkSync(tempPath);
-      resolve({ ok: false, error: error instanceof Error ? error.message : String(error) });
-    });
   });
 }
 
@@ -201,7 +203,7 @@ async function installMkcert(): Promise<{ ok: boolean; error?: string }> {
 
 export async function ensureHostCertificate(onProgress?: (message: string) => void): Promise<{ ok: boolean; trusted: boolean; error?: string }> {
   fs.mkdirSync(HOST_DIR, { recursive: true, mode: 0o700 });
-  
+
   // Check if certificate exists and is trusted
   if (hasCertificate()) {
     const certStatus = hostCertificateStatus();
@@ -251,11 +253,7 @@ export async function ensureHostCertificate(onProgress?: (message: string) => vo
   const configFile = path.join(os.tmpdir(), `lasso-host-${process.pid}.cnf`);
   try {
     onProgress?.("Creating self-signed certificate with OpenSSL...");
-    fs.writeFileSync(configFile, [
-      "[req]", "distinguished_name = req_distinguished_name", "x509_extensions = v3_req", "prompt = no",
-      "[req_distinguished_name]", "CN = *.lasso", "[v3_req]",
-      "subjectAltName = DNS:*.lasso,DNS:localhost,IP:127.0.0.1,IP:::1", "",
-    ].join("\n"), { mode: 0o600 });
+    fs.writeFileSync(configFile, ["[req]", "distinguished_name = req_distinguished_name", "x509_extensions = v3_req", "prompt = no", "[req_distinguished_name]", "CN = *.lasso", "[v3_req]", "subjectAltName = DNS:*.lasso,DNS:localhost,IP:127.0.0.1,IP:::1", ""].join("\n"), { mode: 0o600 });
     execFileSync("openssl", ["req", "-x509", "-nodes", "-newkey", "rsa:2048", "-keyout", TLS_KEY_FILE, "-out", TLS_CERT_FILE, "-days", "825", "-config", configFile], { stdio: "ignore" });
     fs.chmodSync(TLS_KEY_FILE, 0o600);
     onProgress?.("✓ SSL certificate ready (self-signed)");

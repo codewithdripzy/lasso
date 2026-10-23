@@ -1,6 +1,6 @@
 /**
  * Lasso Agentic Runtime - Core Type Definitions
- * 
+ *
  * This file defines all the core contracts for the Lasso-owned agentic runtime.
  * The model is an interchangeable intelligence provider; Lasso owns the loop.
  */
@@ -9,21 +9,9 @@
 // Phase 1: Agent Phases
 // ============================================================================
 
-export type AgentPhase =
-  | "understand"
-  | "inspect"
-  | "plan"
-  | "execute"
-  | "verify"
-  | "recover"
-  | "complete";
+export type AgentPhase = "understand" | "inspect" | "plan" | "execute" | "verify" | "recover" | "complete";
 
-export type AgentStatus =
-  | "running"
-  | "waiting"
-  | "completed"
-  | "failed"
-  | "cancelled";
+export type AgentStatus = "running" | "waiting" | "completed" | "failed" | "cancelled";
 
 // ============================================================================
 // Phase 1: Session State (in-memory, DB stores simplified version)
@@ -31,39 +19,39 @@ export type AgentStatus =
 
 export interface LassoAgentSession {
   id: string;
-  
+
   phase: AgentPhase;
-  
+
   status: AgentStatus;
-  
+
   iteration: number;
-  
+
   userPrompt: string;
-  
+
   conversation: AgentMessage[];
-  
+
   observations: Observation[];
-  
+
   actions: AgentAction[];
-  
+
   completedActions: AgentAction[];
-  
+
   errors: AgentError[];
-  
+
   plan?: AgentPlan;
-  
+
   selection?: SelectionContext;
-  
+
   project: ProjectContext;
-  
+
   model: ModelMetadata;
-  
+
   createdAt: Date;
-  
+
   updatedAt: Date;
-  
+
   conversationUid?: string; // Link to AgentConversation for persistence
-  
+
   metadata?: Record<string, unknown>; // Provider-specific metadata
 }
 
@@ -73,13 +61,13 @@ export interface LassoAgentSession {
 
 export interface AgentMessage {
   id: string;
-  
+
   role: "user" | "assistant" | "system" | "tool";
-  
+
   content: string;
-  
+
   timestamp: number;
-  
+
   metadata?: Record<string, unknown>;
 }
 
@@ -94,44 +82,44 @@ export interface SelectionContext {
     source?: string;
     attributes?: Record<string, string>;
   };
-  
+
   viewport?: {
     width: number;
     height: number;
     scrollY?: number;
     scrollHeight?: number;
   };
-  
+
   route?: string;
-  
+
   screenshot?: string;
 }
 
 export interface ProjectContext {
   projectId: string;
-  
+
   framework?: string;
-  
+
   hasTypeScript: boolean;
-  
+
   hasTailwind: boolean;
-  
+
   hasReact: boolean;
-  
+
   hasNext: boolean;
-  
+
   hasVite: boolean;
-  
+
   files: string[];
-  
+
   dependencies?: string[];
-  
+
   devDependencies?: string[];
-  
+
   currentRoute?: string;
-  
+
   sourceHints?: Record<string, string>;
-  
+
   pageContext?: {
     route?: string;
     title?: string;
@@ -155,23 +143,23 @@ export interface ProjectContext {
 
 export interface AgentPlan {
   id: string;
-  
+
   goal: string;
-  
+
   steps: PlanStep[];
-  
+
   estimatedActions?: number;
-  
+
   createdAt: Date;
 }
 
 export interface PlanStep {
   id: string;
-  
+
   description: string;
-  
+
   status: "pending" | "in_progress" | "completed" | "failed";
-  
+
   actionCount?: number;
 }
 
@@ -179,30 +167,21 @@ export interface PlanStep {
 // Phase 1: Observations
 // ============================================================================
 
-export type ObservationType =
-  | "file"
-  | "search"
-  | "command"
-  | "browser"
-  | "build"
-  | "runtime"
-  | "error"
-  | "verification"
-  | "tool";
+export type ObservationType = "file" | "search" | "command" | "browser" | "build" | "runtime" | "error" | "verification" | "tool";
 
 export interface Observation {
   id: string;
-  
+
   type: ObservationType;
-  
+
   summary: string;
-  
+
   data?: unknown;
-  
+
   timestamp: number;
-  
+
   phase?: AgentPhase;
-  
+
   actionId?: string;
 }
 
@@ -210,15 +189,7 @@ export interface Observation {
 // Phase 1: Actions
 // ============================================================================
 
-export type AgentAction =
-  | ReadFileAction
-  | SearchCodeAction
-  | InspectProjectAction
-  | EditFileAction
-  | CreateFileAction
-  | DeleteFileAction
-  | RunCommandAction
-  | BrowserCheckAction;
+export type AgentAction = ReadFileAction | SearchCodeAction | InspectProjectAction | EditFileAction | CreateFileAction | DeleteFileAction | RunCommandAction | BrowserCheckAction;
 
 export interface BaseAction {
   id: string;
@@ -263,19 +234,19 @@ export interface BrowserCheckAction extends BaseAction {
 
 export interface AgentError {
   id: string;
-  
+
   type: "validation" | "execution" | "verification" | "timeout" | "permission" | "unknown";
-  
+
   message: string;
-  
+
   phase: AgentPhase;
-  
+
   actionId?: string;
-  
+
   timestamp: number;
-  
+
   details?: Record<string, unknown>;
-  
+
   recoverable: boolean;
 }
 
@@ -295,9 +266,9 @@ export interface ModelMetadata {
     | "opencode"
     | "codex_cli"
     | "cursor";
-  
+
   id: string;
-  
+
   name?: string;
 }
 
@@ -311,49 +282,49 @@ export interface LassoAgentContext {
     phase: AgentPhase;
     iteration: number;
   };
-  
+
   userPrompt: string;
-  
+
   conversation: AgentMessage[];
-  
+
   selection?: SelectionContext;
-  
+
   project: ProjectContext;
-  
+
   observations: Observation[];
-  
+
   previousActions: AgentAction[];
-  
+
   errors: AgentError[];
-  
+
   currentPlan?: AgentPlan;
-  
+
   availableTools: ToolDefinition[];
-  
+
   constraints: AgentConstraints;
 }
 
 export interface ToolDefinition {
   name: string;
-  
+
   description: string;
-  
+
   allowedPhases: AgentPhase[];
-  
+
   parameters?: Record<string, unknown>;
 }
 
 export interface AgentConstraints {
   maxActionsPerTurn: number;
-  
+
   allowedPhases: AgentPhase[];
-  
+
   maxFileSize?: number;
-  
+
   allowedCommands?: string[];
-  
+
   forbiddenPaths?: string[];
-  
+
   safetyLevel?: "strict" | "standard" | "permissive";
 }
 
@@ -363,20 +334,23 @@ export interface AgentConstraints {
 
 export interface LassoModelResponse {
   status: "continue" | "waiting" | "complete" | "failed";
-  
+
   reasoning: {
     summary: string;
     /** Raw model thoughts / extended reasoning, when the provider exposes it. */
     raw?: string;
   };
-  
+
   decision: {
-    type: "inspect" | "plan" | "execute" | "verify" | "recover" | "ask_user";
+    type: "respond" | "inspect" | "plan" | "execute" | "verify" | "recover" | "ask_user";
     goal: string;
   };
-  
+
   actions: AgentAction[];
-  
+
+  /** Direct conversational answer when no project work is requested. */
+  reply?: string;
+
   expectedOutcome?: string;
 }
 
@@ -405,17 +379,17 @@ export type AgentEventType =
 
 export interface AgentEvent {
   type: AgentEventType;
-  
+
   sessionId: string;
-  
+
   timestamp: number;
-  
+
   data?: Record<string, unknown>;
 }
 
 export interface AgentReasoningEvent extends AgentEvent {
   type: "agent_reasoning";
-  
+
   data: {
     summary: string;
     decision?: string;
@@ -426,7 +400,7 @@ export interface AgentReasoningEvent extends AgentEvent {
 
 export interface PhaseChangedEvent extends AgentEvent {
   type: "phase_changed";
-  
+
   data: {
     from: AgentPhase;
     to: AgentPhase;
@@ -436,7 +410,7 @@ export interface PhaseChangedEvent extends AgentEvent {
 
 export interface ToolStartedEvent extends AgentEvent {
   type: "tool_started";
-  
+
   data: {
     actionType: string;
     target?: string;
@@ -472,7 +446,7 @@ export interface ToolCallEvent extends AgentEvent {
 
 export interface ObservationEvent extends AgentEvent {
   type: "observation";
-  
+
   data: {
     observationType: ObservationType;
     summary: string;
@@ -482,7 +456,7 @@ export interface ObservationEvent extends AgentEvent {
 
 export interface VerificationStartedEvent extends AgentEvent {
   type: "verification_started";
-  
+
   data: {
     verificationType: "typecheck" | "build" | "runtime" | "browser";
   };
@@ -490,7 +464,7 @@ export interface VerificationStartedEvent extends AgentEvent {
 
 export interface VerificationCompletedEvent extends AgentEvent {
   type: "verification_completed";
-  
+
   data: {
     verificationType: "typecheck" | "build" | "runtime" | "browser";
     success: boolean;
@@ -501,7 +475,7 @@ export interface VerificationCompletedEvent extends AgentEvent {
 
 export interface ErrorEvent extends AgentEvent {
   type: "error";
-  
+
   data: {
     errorType: string;
     message: string;
@@ -512,7 +486,7 @@ export interface ErrorEvent extends AgentEvent {
 
 export interface ModelChangedEvent extends AgentEvent {
   type: "model_changed";
-  
+
   data: {
     from: ModelMetadata;
     to: ModelMetadata;
@@ -521,7 +495,7 @@ export interface ModelChangedEvent extends AgentEvent {
 
 export interface WaitingForUserEvent extends AgentEvent {
   type: "waiting_for_user";
-  
+
   data: {
     question?: string;
     options?: string[];

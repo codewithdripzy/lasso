@@ -237,13 +237,13 @@ export class CodexCLIAdapter extends LocalAgentAdapter {
     if (typeof error === "string") return error;
     if (typeof error === "object") {
       const value = error as Record<string, unknown>;
-      const nested = [
-        value.message,
-        (value.data as Record<string, unknown> | undefined)?.message,
-        (value.cause as Record<string, unknown> | undefined)?.message,
-      ].find((item): item is string => typeof item === "string" && item.trim().length > 0);
+      const nested = [value.message, (value.data as Record<string, unknown> | undefined)?.message, (value.cause as Record<string, unknown> | undefined)?.message].find((item): item is string => typeof item === "string" && item.trim().length > 0);
       if (nested) return nested;
-      try { return JSON.stringify(error).slice(0, 800); } catch { return undefined; }
+      try {
+        return JSON.stringify(error).slice(0, 800);
+      } catch {
+        return undefined;
+      }
     }
     return String(error);
   }

@@ -263,12 +263,7 @@ export class ActionExecutor {
     }
 
     // Safety check: prevent dangerous commands
-    const dangerousPatterns = [
-      /\brm\s+-rf\b/,
-      /\bdd\s+if=/,
-      />\s*\/dev\/null/,
-      />\s*\/dev\/sd/,
-    ];
+    const dangerousPatterns = [/\brm\s+-rf\b/, /\bdd\s+if=/, />\s*\/dev\/null/, />\s*\/dev\/sd/];
 
     for (const pattern of dangerousPatterns) {
       if (pattern.test(command)) {
@@ -431,9 +426,7 @@ export class ActionExecutor {
    * boundary: every resolved path must stay inside projectPath.
    */
   private resolvePath(filePath: string): string {
-    const resolved = path.isAbsolute(filePath)
-      ? path.resolve(filePath)
-      : path.resolve(this.projectPath, filePath);
+    const resolved = path.isAbsolute(filePath) ? path.resolve(filePath) : path.resolve(this.projectPath, filePath);
     const root = path.resolve(this.projectPath);
     if (resolved !== root && !resolved.startsWith(root + path.sep)) {
       throw new Error(`Path escapes workspace: ${filePath}`);
@@ -457,14 +450,7 @@ export class ActionExecutor {
         const fullPath = path.join(currentDir, entry.name);
 
         // Skip common ignored directories
-        if (
-          entry.name === "node_modules" ||
-          entry.name === ".git" ||
-          entry.name === "dist" ||
-          entry.name === "build" ||
-          entry.name === ".next" ||
-          entry.name === ".lasso"
-        ) {
+        if (entry.name === "node_modules" || entry.name === ".git" || entry.name === "dist" || entry.name === "build" || entry.name === ".next" || entry.name === ".lasso") {
           continue;
         }
 

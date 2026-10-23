@@ -23,7 +23,7 @@ function lassoInjectPlugin(bridgePort = 3056, cwd: string) {
         res.setHeader("Content-Type", "application/javascript");
         res.end(readFileSync(bundlePath, "utf-8"));
       });
-    }
+    },
   };
 }
 

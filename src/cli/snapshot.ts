@@ -33,6 +33,16 @@ const SNAPSHOTS_DIR = ".lasso/snapshots";
 const TIMELINE_FILE = ".lasso/timeline.json";
 const MAX_SNAPSHOTS = 50;
 
+function resolveSnapshotPath(cwd: string, filePath: string): string {
+  if (!filePath || path.isAbsolute(filePath)) throw new Error(`Invalid snapshot path: ${filePath}`);
+  const root = path.resolve(cwd);
+  const fullPath = path.resolve(root, filePath);
+  if (fullPath !== root && !fullPath.startsWith(`${root}${path.sep}`)) {
+    throw new Error(`Snapshot path escapes workspace: ${filePath}`);
+  }
+  return fullPath;
+}
+
 // Ensure snapshots directory exists
 function ensureSnapshotsDir(cwd: string): void {
   const dir = path.join(cwd, SNAPSHOTS_DIR);
@@ -76,14 +86,7 @@ function saveTimeline(cwd: string, timeline: TimelineSnapshot[]): void {
 }
 
 // Create a snapshot of current file states
-export function createSnapshot(
-  cwd: string,
-  taskId: string,
-  summary: string,
-  filePaths: string[],
-  parentSnapshotId?: string,
-  sessionId?: string
-): TimelineSnapshot {
+export function createSnapshot(cwd: string, taskId: string, summary: string, filePaths: string[], parentSnapshotId?: string, sessionId?: string): TimelineSnapshot {
   ensureSnapshotsDir(cwd);
 
   const snapshotId = generateSnapshotId();
@@ -91,7 +94,7 @@ export function createSnapshot(
   const timestamp = new Date().toISOString();
 
   for (const filePath of filePaths) {
-    const fullPath = path.resolve(cwd, filePath);
+    const fullPath = resolveSnapshotPath(cwd, filePath);
     let content: string | null = null;
     let hash = "";
 
@@ -152,7 +155,7 @@ export function restoreSnapshot(cwd: string, snapshotId: string): boolean {
 
   try {
     for (const file of snapshot.files) {
-      const fullPath = path.resolve(cwd, file.filePath);
+      const fullPath = resolveSnapshotPath(cwd, file.filePath);
 
       if (file.content === null) {
         // File didn't exist, delete if it exists now
@@ -175,14 +178,11 @@ export function restoreSnapshot(cwd: string, snapshotId: string): boolean {
 }
 
 // Check for conflicts between expected and current file states
-export function detectConflicts(
-  cwd: string,
-  expectedFiles: Array<{ filePath: string; content: string | null; hash?: string }>
-): ConflictInfo[] {
+export function detectConflicts(cwd: string, expectedFiles: Array<{ filePath: string; content: string | null; hash?: string }>): ConflictInfo[] {
   const conflicts: ConflictInfo[] = [];
 
   for (const expected of expectedFiles) {
-    const fullPath = path.resolve(cwd, expected.filePath);
+    const fullPath = resolveSnapshotPath(cwd, expected.filePath);
     const expectedHash = expected.hash || (expected.content ? hashContent(expected.content) : "");
 
     try {
