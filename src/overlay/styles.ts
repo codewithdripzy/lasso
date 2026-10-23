@@ -3463,7 +3463,6 @@ export function buildStyles(): string {
       align-items: center;
       justify-content: space-between;
       padding: 6px 8px 8px;
-      border-bottom: 1px solid var(--lo-border-subtle);
       font-size: 11px;
       font-weight: 600;
       color: var(--lo-text-3);
@@ -3492,6 +3491,48 @@ export function buildStyles(): string {
       text-align: left;
       transition: background 120ms ease;
       width: 100%;
+    }
+
+    .lasso-command-history-load {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+      flex: 1;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .lasso-command-history-delete {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--lo-text-3);
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+    }
+
+    .lasso-command-history-item:hover .lasso-command-history-delete,
+    .lasso-command-history-delete:focus-visible {
+      opacity: 1;
+    }
+
+    .lasso-command-history-delete:hover {
+      color: #fca5a5;
+      background: rgba(239, 68, 68, 0.14);
     }
 
     .lasso-command-history-item:hover {

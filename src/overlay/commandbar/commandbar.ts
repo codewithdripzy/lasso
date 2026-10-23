@@ -45,6 +45,9 @@ export interface CommandMessage {
   showDiff?: boolean;
   error?: string;
   isStreaming?: boolean;
+  queued?: boolean;
+  steering?: boolean;
+  steered?: boolean;
   activeDiffFile?: string;
   rejectedFilePaths?: string[];
 }
@@ -256,17 +259,49 @@ function renderHistoryPopover(): void {
     ${conversationList
       .map(
         (conv) => `
-      <button class="lasso-command-history-item ${conv.id === activeConversationId ? "active" : ""}" type="button" data-conv-id="${conv.id}">
-        <span class="lasso-command-history-title" title="${escapeHtml(conv.title || "Untitled Session")}">${escapeHtml(conv.title || "Untitled Session")}</span>
-        <div class="lasso-command-history-meta">
-          <span class="lasso-command-history-scope ${conv.scope || "private"}">${conv.scope || "private"}</span>
-          <span>${formatDateAgo(conv.updatedAt)}</span>
-        </div>
-      </button>
+      <div class="lasso-command-history-item ${conv.id === activeConversationId ? "active" : ""}" data-conv-id="${escapeHtml(conv.id)}">
+        <button class="lasso-command-history-load" type="button" title="Open session">
+          <span class="lasso-command-history-title" title="${escapeHtml(conv.title || "Untitled Session")}">${escapeHtml(conv.title || "Untitled Session")}</span>
+          <div class="lasso-command-history-meta">
+            <span class="lasso-command-history-scope ${conv.scope || "private"}">${conv.scope || "private"}</span>
+            <span>${formatDateAgo(conv.updatedAt)}</span>
+          </div>
+        </button>
+        <button class="lasso-command-history-delete" type="button" title="Delete session" aria-label="Delete session">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg>
+        </button>
+      </div>
     `
       )
       .join("")}
   `;
+}
+
+async function deleteConversation(convId: string): Promise<void> {
+  const conversation = conversationList.find((item) => item.id === convId);
+  if (!conversation) return;
+
+  // Server-backed sessions are deleted remotely. Local copies are removed
+  // below as well, so the history cannot resurrect a deleted session.
+  if (!convId.startsWith("local-session-")) {
+    const deleted = await apiFetch(`/agent/conversations/${encodeURIComponent(convId)}`, { method: "DELETE" });
+    if (!deleted?.success) return;
+  }
+
+  try {
+    localStorage.removeItem(`lasso:session:${convId}`);
+    const key = getStorageProjectKey();
+    const list = JSON.parse(localStorage.getItem(key) || "[]") as Array<{ id: string }>;
+    localStorage.setItem(key, JSON.stringify(list.filter((item) => item.id !== convId)));
+  } catch {}
+
+  conversationList = conversationList.filter((item) => item.id !== convId);
+  if (activeConversationId === convId) {
+    activeConversationId = null;
+    commandMessages = [];
+    renderMessages();
+  }
+  renderHistoryPopover();
 }
 
 async function switchConversation(convId: string): Promise<void> {
@@ -632,9 +667,18 @@ export function buildCommandBar(): void {
   // History popover item click
   commandHistoryPopover.addEventListener("click", async (event) => {
     event.stopPropagation();
-    const item = (event.target as HTMLElement).closest<HTMLButtonElement>(".lasso-command-history-item");
+    const target = event.target as HTMLElement;
+    const item = target.closest<HTMLElement>(".lasso-command-history-item");
     if (!item?.dataset.convId) return;
-    await switchConversation(item.dataset.convId);
+
+    if (target.closest(".lasso-command-history-delete")) {
+      await deleteConversation(item.dataset.convId);
+      return;
+    }
+
+    if (target.closest(".lasso-command-history-load")) {
+      await switchConversation(item.dataset.convId);
+    }
   });
 
   // Model selector button
@@ -817,6 +861,21 @@ export function buildCommandBar(): void {
       const msg = commandMessages.find((m) => m.id === msgId);
       if (msg && msg.thinking) {
         msg.thinking.expanded = !msg.thinking.expanded;
+        renderMessages();
+      }
+      return;
+    }
+
+    // Inject a queued prompt into the active runtime's next conversation turn.
+    const steerBtn = target.closest<HTMLButtonElement>(".lasso-command-steer-btn");
+    if (steerBtn) {
+      const msgId = steerBtn.closest<HTMLElement>(".lasso-command-msg")?.dataset.msgId;
+      const msg = commandMessages.find((m) => m.id === msgId);
+      if (msg?.queued && !msg.steering && activeTaskId && state.bridgeSocket?.readyState === WebSocket.OPEN) {
+        steerBtn.disabled = true;
+        steerBtn.textContent = "Steering…";
+        msg.steering = true;
+        state.bridgeSocket.send(JSON.stringify({ type: "steer", taskId: activeTaskId, queueId: msg.id, prompt: msg.content }));
         renderMessages();
       }
       return;
@@ -1095,6 +1154,22 @@ async function handleSubmit(): Promise<void> {
 
   // If agent is actively running and user clicks "Stop", abort the task
   if (activeTaskId) {
+    const queuedPrompt = commandInput.value.trim();
+    if (queuedPrompt) {
+      commandMessages.push({
+        id: `queued-${Date.now()}`,
+        role: "user",
+        content: queuedPrompt,
+        timestamp: Date.now(),
+        queued: true,
+      });
+      commandInput.value = "";
+      autoResizeTextarea(commandInput);
+      renderMessages();
+      scrollToBottom();
+      return;
+    }
+
     if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
       state.bridgeSocket.send(
         JSON.stringify({
@@ -1412,6 +1487,20 @@ export function handleCommandBarAction(message: any): void {
   }
 }
 
+export function handleCommandBarSteerResult(message: { taskId: string; queueId: string; success: boolean; error?: string }): void {
+  const queued = commandMessages.find((msg) => msg.id === message.queueId);
+  if (!queued) return;
+
+  queued.steering = false;
+  if (message.success) {
+    queued.queued = false;
+    queued.steered = true;
+  } else {
+    queued.error = message.error || "The agent could not accept this steering prompt.";
+  }
+  renderMessages();
+}
+
 export function handleCommandBarPrompt(message: any): void {
   const taskId = message.taskId;
   let targetMsg = commandMessages.find((m) => m.id === taskId);
@@ -1476,6 +1565,7 @@ function renderMessages(): void {
       html += `
         <div class="lasso-command-msg user" data-msg-id="${msg.id}">
           <div class="lasso-command-msg-bubble">${escapeHtml(msg.content)}</div>
+          ${msg.queued ? `<button class="lasso-command-steer-btn" type="button"${msg.steering ? " disabled" : ""} style="margin-top: 6px; padding: 4px 9px; border: 1px solid rgba(96, 165, 250, 0.45); border-radius: 6px; background: rgba(59, 130, 246, 0.14); color: #bfdbfe; cursor: pointer;">${msg.steering ? "Steering…" : "Steer"}</button>` : msg.steered ? `<span class="lasso-command-steered-label" style="display: inline-block; margin-top: 6px; color: #93c5fd; font-size: 12px;">Steered into next turn</span>` : ""}
         </div>
       `;
     } else {

@@ -48,6 +48,7 @@ export type BridgeMessage =
   | { type: "undo"; taskId?: string }
   | { type: "stop"; taskId?: string }
   | { type: "agent_prompt_response"; taskId: string; response: string }
+  | { type: "steer"; taskId: string; queueId: string; prompt: string }
   | { type: "list_page_folders"; path?: string }
   | { type: "create_page"; folder: string; fileName: string; content: string }
   | { type: "create_page_folder"; parent: string; name: string }
@@ -108,6 +109,7 @@ export type ServerBridgeMessage =
   | { type: "git_commit_message"; message?: string; error?: string }
   | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string; detail?: string; changes?: any[]; thinking?: Array<{ title: string; detail?: string; durationMs?: number }>; totalThinkingTimeMs?: number }
   | { type: "agent_prompt"; taskId: string; prompt: { message: string; kind: "permission" | "input" | "multiselect"; options?: string[] } }
+  | { type: "steer_result"; taskId: string; queueId: string; success: boolean; error?: string }
   | { type: "page_folders"; path: string; entries: PageEntry[]; project?: string; error?: string }
   | { type: "page_created"; path: string; error?: string }
   | { type: "page_folder_created"; path: string; error?: string }
@@ -1069,6 +1071,23 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     );
   }
 
+  /** Queue a prompt for the active runtime's next model turn. */
+  async function handleSteer(message: Extract<BridgeMessage, { type: "steer" }>, socket: WebSocket): Promise<void> {
+    const session = activeSessions.get(message.taskId);
+    const facade = taskFacades.get(message.taskId);
+    if (!session || !facade?.steerSession) {
+      socket.send(JSON.stringify({ type: "steer_result", taskId: message.taskId, queueId: message.queueId, success: false, error: "This agent backend does not support live steering." } satisfies ServerBridgeMessage));
+      return;
+    }
+
+    try {
+      await facade.steerSession(session.id, message.prompt);
+      socket.send(JSON.stringify({ type: "steer_result", taskId: message.taskId, queueId: message.queueId, success: true } satisfies ServerBridgeMessage));
+    } catch (error) {
+      socket.send(JSON.stringify({ type: "steer_result", taskId: message.taskId, queueId: message.queueId, success: false, error: error instanceof Error ? error.message : "Failed to steer the agent." } satisfies ServerBridgeMessage));
+    }
+  }
+
   // Handler for switch_model
   async function handleSwitchModel(message: any, socket: WebSocket) {
     const { taskId, provider, modelId } = message;
@@ -1354,6 +1373,10 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
 
           case "agent_prompt_response":
             await handleAgentPromptResponse(msg, socket);
+            break;
+
+          case "steer":
+            await handleSteer(msg, socket);
             break;
 
           case "switch_model":

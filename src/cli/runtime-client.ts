@@ -148,6 +148,7 @@ export interface RuntimeFacade {
   switchModel(sessionId: string, model: { provider: string; id: string; name?: string }, apiKey?: string, backendConfig?: RuntimeSessionInput["backendConfig"]): Promise<void>;
   cancelSession(sessionId: string): Promise<void>;
   respondToPrompt?(sessionId: string, response: string): Promise<void>;
+  steerSession?(sessionId: string, prompt: string): Promise<void>;
 }
 
 export type RuntimeEvent =
@@ -466,6 +467,23 @@ export class RuntimeClient {
     if (!result.ok) {
       const body = (await result.json().catch(() => ({}))) as { error?: string };
       throw new Error(body.error || `Failed to submit agent response: ${result.statusText}`);
+    }
+  }
+
+  /** Queue a prompt for the next turn of an active hosted runtime. */
+  async steerSession(sessionId: string, prompt: string): Promise<void> {
+    const result = await fetch(`${this.serverUrl}/api/v1/agent-runtime/sessions/${sessionId}/steer`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(this.apiKey && { Authorization: `Bearer ${this.apiKey}` }),
+      },
+      body: JSON.stringify({ prompt }),
+    });
+
+    if (!result.ok) {
+      const body = (await result.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error || `Failed to queue steering prompt: ${result.statusText}`);
     }
   }
 

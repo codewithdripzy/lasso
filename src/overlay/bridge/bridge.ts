@@ -8,7 +8,7 @@ import { elementKey } from "../toolbar/select";
 import { notifyAgent } from "../notifications";
 import { capturePageContext } from "../browser/context";
 import { getAgentTask, recordTaskActivity, recordTaskChangeHistory, updateAgentTask } from "../tasks/tasks";
-import { handleCommandBarAgentStatus, handleCommandBarAction, handleCommandBarPrompt, isCommandBarTaskId, updateEmptyStateUserName, populateModelMenu } from "../commandbar/commandbar";
+import { handleCommandBarAgentStatus, handleCommandBarAction, handleCommandBarPrompt, handleCommandBarSteerResult, isCommandBarTaskId, updateEmptyStateUserName, populateModelMenu } from "../commandbar/commandbar";
 import type { GitState, ModelOption, PendingChange, TimelineSnapshot } from "../types";
 
 export function reportRuntimeError(details: string, notifyBridge = true) {
@@ -93,6 +93,8 @@ export function connectBridge() {
           detail?: string;
           changes?: PendingChange[];
           taskId?: string;
+          queueId?: string;
+          success?: boolean;
           prompt?: { message: string; kind: "permission" | "input"; options?: string[] };
           path?: string;
           entries?: Array<{ name: string; path: string; type: "directory" | "file" }>;
@@ -195,6 +197,16 @@ export function connectBridge() {
         }
         if (message.type === "page_folder_created") {
           window.dispatchEvent(new CustomEvent("lasso-page-folder-created", { detail: { path: message.path || "", error: message.error } }));
+          return;
+        }
+
+        if (message.type === "steer_result" && message.taskId && message.queueId) {
+          handleCommandBarSteerResult({
+            taskId: message.taskId,
+            queueId: message.queueId,
+            success: Boolean(message.success),
+            error: message.error,
+          });
           return;
         }
 
