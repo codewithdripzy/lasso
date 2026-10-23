@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import chalk from "chalk";
 import { detectFramework } from "./utils/framework";
-import { loadCredentials, fetchWithTimeout, serverUrlFrom } from "./auth";
+import { loadCredentials, fetchWithTimeout, serverUrlFrom, agentRuntimeUrlFrom } from "./auth";
 import { loadRegistry, findByDirectory, generateUniqueDomain } from "./host/registry";
 import { registerWithHost } from "./host/client";
 import { hostProxyPort } from "./host/paths";
@@ -474,7 +474,7 @@ export async function resolveWorkspaceConfig(fileEnv: Record<string, string>): P
  */
 export async function fetchModels(fileEnv: Record<string, string>): Promise<ModelsResponse> {
   const serverUrl = serverUrlFrom(fileEnv).replace(/\/$/, "");
-  const apiUrl = `${serverUrl}/api/v1`;
+  const apiUrl = `${agentRuntimeUrlFrom(fileEnv).replace(/\/$/, "")}/api/v1`;
 
   // Pass the user's own provider keys (BYOK) so the server can list live
   // models per provider instead of falling back to empty/static lists.
