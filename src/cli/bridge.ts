@@ -29,6 +29,7 @@ export type BridgeMessage =
       model: string;
       provider?: "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor";
       messages?: Array<{ role: string; content: string; createdAt?: string }>;
+      conversation?: Array<{ role: "user" | "assistant" | "system"; content: string; createdAt?: string }>;
       changesHistory?: Array<{ summary: string; changes: any[]; createdAt?: string }>;
       context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } };
       element: { tag: string; group: string; label: string; html?: string; sourceHint?: string };
@@ -40,6 +41,7 @@ export type BridgeMessage =
       model: string;
       provider?: "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor";
       messages?: Array<{ role: string; content: string; createdAt?: string }>;
+      conversation?: Array<{ role: "user" | "assistant" | "system"; content: string; createdAt?: string }>;
       context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } };
       element: { tag: string; group: string; label: string; html?: string; sourceHint?: string };
     }
@@ -59,7 +61,17 @@ export type BridgeMessage =
   | { type: "git_push" }
   | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string }
   | { type: "transcribe"; requestId: string; audio: string; mimeType?: string; language?: string }
-  | { type: "oneshot"; prompt: string; scope?: "project" | "component"; model?: string; provider?: "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor"; messages?: Array<{ role: "user" | "assistant"; content: string }>; taskId?: string }
+  | {
+      type: "oneshot";
+      prompt: string;
+      scope?: "project" | "component";
+      model?: string;
+      provider?: "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor";
+      messages?: Array<{ role: "user" | "assistant"; content: string }>;
+      conversation?: Array<{ role: "user" | "assistant" | "system"; content: string; timestamp?: number }>;
+      conversationId?: string;
+      taskId?: string;
+    }
   | { type: "page_context_response"; requestId: string; pageContext?: any; error?: string }
   | { type: "restore_snapshot"; snapshotId: string }
   | { type: "get_timeline" }
@@ -69,14 +81,14 @@ export type BridgeMessage =
 type ModelOption = { id: string; label: string; provider: Provider; locked?: boolean; lockedReason?: string };
 
 /** Map overlay chat history to the runtime conversation shape. */
-function toRuntimeConversation(messages: Array<{ role: string; content: string; createdAt?: string }> | undefined): RuntimeSessionInput["conversation"] | undefined {
+function toRuntimeConversation(messages: Array<{ role: string; content: string; createdAt?: string; timestamp?: number }> | undefined): RuntimeSessionInput["conversation"] | undefined {
   if (!Array.isArray(messages) || messages.length === 0) return undefined;
   const turns = messages
     .filter((m) => typeof m?.content === "string" && m.content.trim())
     .map((m) => ({
       role: (m.role === "user" ? "user" : m.role === "assistant" ? "assistant" : "system") as "user" | "assistant" | "system",
       content: m.content,
-      timestamp: m.createdAt ? Date.parse(m.createdAt) || Date.now() : Date.now(),
+      timestamp: typeof m.timestamp === "number" ? m.timestamp : m.createdAt ? Date.parse(m.createdAt) || Date.now() : Date.now(),
     }));
   return turns.length > 0 ? turns : undefined;
 }
@@ -469,10 +481,22 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         break;
       }
 
-      case "agent_completed":
-        if (!review) break;
-        void handleReviewReady(session, socket, taskId, instruction);
+      case "agent_completed": {
+        const data = (event.data as Record<string, unknown>) || {};
+        const reply = typeof data.reply === "string" ? data.reply.trim() : "";
+        if (reply && data.conversational === true) {
+          socket.send(
+            JSON.stringify({
+              type: "assistant_message",
+              taskId,
+              message: reply,
+            } satisfies ServerBridgeMessage)
+          );
+          break;
+        }
+        if (review) void handleReviewReady(session, socket, taskId, instruction);
         break;
+      }
 
       case "error":
         socket.send(
@@ -1145,7 +1169,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
 
   // Handler for oneshot
   async function handleOneshot(message: any, socket: WebSocket, cwd: string) {
-    const { taskId, prompt, model, provider } = message;
+    const { taskId, prompt, model, provider, messages, conversation, conversationId } = message;
     const instruction = prompt;
 
     taskControllers.get(taskId)?.abort();
@@ -1161,6 +1185,10 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
 
       const sessionInput: RuntimeSessionInput = {
         userPrompt: prompt,
+        // The sidebar is the source of truth for history. `conversation` is
+        // preferred; `messages` remains a compatibility alias for older overlays.
+        conversation: toRuntimeConversation(conversation || messages),
+        conversationUid: conversationId || undefined,
         project: {
           projectId,
           framework,

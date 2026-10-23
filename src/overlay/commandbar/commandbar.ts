@@ -29,7 +29,7 @@ export interface CommandTodoItem {
 
 export interface CommandMessage {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   content: string;
   timestamp: number;
   thinking?: {
@@ -1271,11 +1271,11 @@ async function runPrompt(prompt: string, skipUserMessage = false): Promise<void>
     }
   }, 1000);
 
-  // Ensure we have a server-side conversation (create lazily on first message)
+  // Ensure the conversation exists before sending the runtime request. The
+  // ID links this run to the persisted conversation; the full history itself
+  // is sent below from the sidebar's in-memory conversation state.
   if (!activeConversationId) {
-    createServerConversation().then((id) => {
-      if (id) activeConversationId = id;
-    });
+    activeConversationId = await createServerConversation();
   }
 
   // Let the agent determine whether this needs project work.
@@ -1299,11 +1299,10 @@ async function runPrompt(prompt: string, skipUserMessage = false): Promise<void>
         // The current prompt is sent in its dedicated `prompt` field. Keep it
         // out of history so the model sees it once, not once as history and
         // once as the active request.
-        messages: commandMessages
+        conversation: commandMessages
           .map((message, index) => ({ message, index }))
           .filter(({ message, index }) => Boolean(message.content) && !message.error && index !== commandMessages.reduce((last, item, itemIndex) => (item.role === "user" && item.content === prompt ? itemIndex : last), -1))
-          .map(({ message }) => message)
-          .map((m) => ({ role: m.role, content: m.content })),
+          .map(({ message }) => ({ role: message.role, content: message.content, timestamp: message.timestamp })),
       })
     );
   } else {
