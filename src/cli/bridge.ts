@@ -498,14 +498,18 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       }
 
       case "error":
+        {
+          const data = (event.data as Record<string, unknown>) || {};
+          const detail = data.error || data.message || data.details;
         socket.send(
           JSON.stringify({
             type: "agent_status",
             taskId,
             status: "error",
-            message: (event.data as any).error || "Unknown error",
+            message: typeof detail === "string" && detail.trim() ? detail : "The agent runtime failed without an error message.",
           } satisfies ServerBridgeMessage)
         );
+        }
         break;
 
       case "waiting_for_user":

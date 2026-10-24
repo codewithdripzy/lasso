@@ -196,6 +196,22 @@ export class RuntimeClient {
     this.apiKey = apiKey;
   }
 
+  /** Preserve the server's actionable error instead of exposing only `Forbidden`. */
+  private static async responseError(response: Response, fallback: string): Promise<Error> {
+    const body = await response.text().catch(() => "");
+    if (body) {
+      try {
+        const payload = JSON.parse(body) as { error?: string; message?: string };
+        const message = payload.error || payload.message;
+        if (message) return new Error(message);
+      } catch {
+        // Fall through to the HTTP status when the response is not JSON.
+      }
+    }
+
+    return new Error(`${fallback} (${response.status})`);
+  }
+
   /**
    * Create a new runtime session
    */
@@ -210,7 +226,7 @@ export class RuntimeClient {
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to create session: ${response.statusText}`);
+      throw await RuntimeClient.responseError(response, "Failed to create session");
     }
 
     const data = await response.json();
@@ -229,7 +245,7 @@ export class RuntimeClient {
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to get session: ${response.statusText}`);
+      throw await RuntimeClient.responseError(response, "Failed to get session");
     }
 
     const data = (await response.json()) as RuntimeSession;
@@ -313,7 +329,7 @@ export class RuntimeClient {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to run session: ${response.statusText}`);
+        throw await RuntimeClient.responseError(response, "Failed to run session");
       }
 
       reader = response.body?.getReader();
