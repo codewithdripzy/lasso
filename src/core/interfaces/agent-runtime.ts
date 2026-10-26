@@ -32,6 +32,9 @@ export interface LassoAgentSession {
 
   observations: Observation[];
 
+  /** Compact task memory derived from the session's tool results. */
+  workingContext?: TaskWorkingContext;
+
   actions: AgentAction[];
 
   completedActions: AgentAction[];
@@ -302,6 +305,16 @@ export interface LassoAgentContext {
   availableTools: ToolDefinition[];
 
   constraints: AgentConstraints;
+}
+
+export interface TaskWorkingContext {
+  goal: string;
+  phase: AgentPhase;
+  discoveredFiles: string[];
+  searches: string[];
+  findings: string[];
+  completedActions: string[];
+  nextStep: string;
 }
 
 export interface ToolDefinition {
