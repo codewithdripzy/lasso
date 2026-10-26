@@ -305,28 +305,57 @@ export class ActionExecutor {
     const filePattern = data.filePattern as string;
     const maxResults = (data.maxResults as number) || 50;
 
-    // Use grep to search
-    const grepPattern = filePattern ? `--include=${filePattern}` : "";
-    const command = `grep -r -n "${pattern}" ${grepPattern} . 2>/dev/null | head -n ${maxResults}`;
+    if (!pattern || typeof pattern !== "string") {
+      return { success: false, actionId: id, error: "search_code requires a pattern" };
+    }
 
+    let matcher: RegExp;
     try {
-      const { stdout } = await exec(command, {
-        cwd: this.projectPath,
-        timeout: 30000, // 30 second timeout
-      });
+      matcher = new RegExp(pattern, "i");
+    } catch (error) {
+      return {
+        success: false,
+        actionId: id,
+        error: `Invalid search pattern: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
 
-      const results = stdout
-        .trim()
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => {
-          const [filePath, lineNum, ...content] = line.split(":");
-          return {
-            file: filePath,
-            line: parseInt(lineNum, 10),
-            content: content.join(":").trim(),
-          };
+    const fileMatcher = filePattern ? this.globMatcher(filePattern) : undefined;
+    const results: Array<{ file: string; line: number; content: string; context?: string[] }> = [];
+    for (const relativePath of this.listProjectFiles(this.projectPath)) {
+      if (fileMatcher && !fileMatcher.test(relativePath)) continue;
+      if (results.length >= maxResults) break;
+
+      const fullPath = path.join(this.projectPath, relativePath);
+      let lines: string[];
+      try {
+        const content = fs.readFileSync(fullPath, "utf8");
+        if (content.includes("\u0000") || content.length > 1_000_000) continue;
+        lines = content.split(/\r?\n/);
+      } catch {
+        continue;
+      }
+
+      for (let index = 0; index < lines.length && results.length < maxResults; index++) {
+        if (!matcher.test(lines[index])) continue;
+        matcher.lastIndex = 0;
+        results.push({
+          file: relativePath,
+          line: index + 1,
+          content: lines[index].trim().slice(0, 300),
+          context: lines
+            .slice(Math.max(0, index - 1), Math.min(lines.length, index + 2))
+            .map((line) => line.trim().slice(0, 300)),
         });
+      }
+    }
+
+    // Rank direct filename matches first, then preserve source order.
+    const terms = pattern.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    results.sort((a, b) => {
+      const score = (result: typeof a) => terms.reduce((total, term) => total + (result.file.toLowerCase().includes(term) ? 2 : 0), 0);
+      return score(b) - score(a);
+    });
 
       return {
         success: true,
@@ -338,27 +367,11 @@ export class ActionExecutor {
           data: { pattern, count: results.length },
         },
       };
-    } catch (error: any) {
-      // grep returns non-zero if no matches found
-      if (error.code === 1 && !error.stdout) {
-        return {
-          success: true,
-          actionId: id,
-          output: { results: [] },
-          observation: {
-            type: "search",
-            summary: `No matches found for: ${pattern}`,
-            data: { pattern, count: 0 },
-          },
-        };
-      }
+  }
 
-      return {
-        success: false,
-        actionId: id,
-        error: error.message,
-      };
-    }
+  private globMatcher(pattern: string): RegExp {
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`^${escaped.replace(/\*/g, ".*").replace(/\?/g, ".")}$`, "i");
   }
 
   /**
@@ -367,13 +380,23 @@ export class ActionExecutor {
   private async executeInspectProject(action: any): Promise<ActionExecutionResult> {
     const { id } = action;
 
-    const files = this.listProjectFiles(this.projectPath);
+    const files = this.listProjectFiles(this.projectPath).slice(0, 500);
     const packageJson = this.readPackageJson();
 
     return {
       success: true,
       actionId: id,
-      output: { files, packageJson },
+      output: {
+        files,
+        packageJson: packageJson
+          ? {
+              name: packageJson.name,
+              framework: packageJson.dependencies?.next ? "next" : packageJson.dependencies?.vite ? "vite" : undefined,
+              scripts: Object.keys(packageJson.scripts || {}),
+              dependencies: Object.keys(packageJson.dependencies || {}).slice(0, 80),
+            }
+          : null,
+      },
       observation: {
         type: "file",
         summary: `Inspected project: ${files.length} files`,
