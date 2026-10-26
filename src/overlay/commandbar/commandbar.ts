@@ -1789,10 +1789,10 @@ function scrollToBottom(): void {
 }
 
 function formatDuration(seconds: number): string {
-  if (seconds < 60) return `0:${seconds < 10 ? "0" : ""}${seconds}`;
+  if (seconds < 60) return `${seconds}s`;
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
-  return `${m}:${s < 10 ? "0" : ""}${s}`;
+  return s ? `${m}m ${s}s` : `${m}m`;
 }
 
 function escapeHtml(text: string): string {

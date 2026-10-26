@@ -10,6 +10,7 @@
 
 import crypto from "node:crypto";
 import { WorkspaceGuard, ActionExecutor, VerificationEngine, type FileChange, type ToolCallRequest, type ToolCallResultPayload } from "../runtime/index.js";
+import { writeLassoLog } from "./logging.js";
 
 export type RuntimeProvider = "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor";
 
@@ -229,14 +230,7 @@ export class RuntimeClient {
    * Create a new runtime session
    */
   async createSession(input: RuntimeSessionInput): Promise<RuntimeSession> {
-    const response = await fetch(`${this.serverUrl}/api/v1/agent-runtime/sessions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(this.apiKey && { Authorization: `Bearer ${this.apiKey}` }),
-      },
-      body: JSON.stringify(input),
-    });
+    const response = await this.request("POST", "/api/v1/agent-runtime/sessions", input);
 
     if (!response.ok) {
       throw await RuntimeClient.responseError(response, "Failed to create session");
@@ -247,16 +241,29 @@ export class RuntimeClient {
   }
 
   async routeRequest(input: RequestRouteInput): Promise<RequestRouteResult> {
-    const response = await fetch(`${this.serverUrl}/api/v1/agent/route`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(this.apiKey && { Authorization: `Bearer ${this.apiKey}` }),
-      },
-      body: JSON.stringify(input),
-    });
+    const response = await this.request("POST", "/api/v1/agent/route", input);
     if (!response.ok) throw await RuntimeClient.responseError(response, "Failed to route request");
     return (await response.json()) as RequestRouteResult;
+  }
+
+  private async request(method: string, endpoint: string, body?: unknown): Promise<Response> {
+    const startedAt = Date.now();
+    writeLassoLog("info", "agent_request_started", { method, baseUrl: this.serverUrl, endpoint });
+    try {
+      const response = await fetch(`${this.serverUrl}${endpoint}`, {
+        method,
+        headers: {
+          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+          ...(this.apiKey && { Authorization: `Bearer ${this.apiKey}` }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      writeLassoLog("info", "agent_request_completed", { method, baseUrl: this.serverUrl, endpoint, status: response.status, durationMs: Date.now() - startedAt });
+      return response;
+    } catch (error) {
+      writeLassoLog("error", "agent_request_failed", { method, baseUrl: this.serverUrl, endpoint, durationMs: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
   }
 
   /**
@@ -342,6 +349,8 @@ export class RuntimeClient {
 
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
+      const requestStartedAt = Date.now();
+      writeLassoLog("info", "agent_request_started", { method: "POST", endpoint: "/api/v1/agent-runtime/sessions/:sessionId/run", sessionId });
       const response = await fetch(`${this.serverUrl}/api/v1/agent-runtime/sessions/${sessionId}/run`, {
         method: "POST",
         headers: {
@@ -353,6 +362,7 @@ export class RuntimeClient {
         body: JSON.stringify({ projectPath, apiKey: opts?.providerApiKey }),
         signal,
       });
+      writeLassoLog("info", "agent_request_stream_opened", { endpoint: "/api/v1/agent-runtime/sessions/:sessionId/run", sessionId, status: response.status, durationMs: Date.now() - requestStartedAt });
 
       if (!response.ok) {
         throw await RuntimeClient.responseError(response, "Failed to run session");
@@ -383,6 +393,7 @@ export class RuntimeClient {
         await this.processSseFrame(buffer, handleToolCall, finalizeGuard, onEvent);
       }
     } finally {
+      writeLassoLog("info", "agent_request_stream_closed", { endpoint: "/api/v1/agent-runtime/sessions/:sessionId/run", sessionId });
       reader?.releaseLock();
       // Stream died before agent_completed (network cut, server crash, model
       // error surfaced as an error event): cache the diff first so the user's

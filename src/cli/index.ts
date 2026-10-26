@@ -4,7 +4,7 @@ import path from "node:path";
 import fs from "node:fs";
 import chalk from "chalk";
 import { Command } from "commander";
-import { restartBridge, startBridge } from "./bridge";
+import { getBridgeStatus, restartBridge, startBridge } from "./bridge";
 import { startViteServer } from "./server/vite";
 import { startNextServer } from "./server/next";
 import { detectFramework } from "./utils/framework";
@@ -18,6 +18,7 @@ import { loadRegistry, findByDirectory, generateUniqueDomain, validateDomain } f
 import { ensureNextAllowedDevOrigin } from "./next-config";
 import { createProject } from "./create";
 import packageJson from "../../package.json";
+import { clearLassoLogs, followLassoLogs, lassoLogPath, readLassoLogs } from "./logging";
 
 const VERSION = packageJson.version;
 const program = new Command();
@@ -457,6 +458,46 @@ program.command("doctor")
         console.log("");
         console.log(chalk.dim("Run ") + chalk.cyan("lasso dev") + chalk.dim(" to start development with Lasso."));
     });
+
+program
+  .command("logs")
+  .description("Show Lasso bridge status and local runtime request logs")
+  .option("-f, --follow", "Continue watching for new log entries")
+  .option("-n, --lines <number>", "Number of recent entries to show", "100")
+  .option("--clear", "Clear the local Lasso log file before showing status")
+  .option("--port <port>", "Bridge port", "3056")
+  .action(async (options: { follow?: boolean; lines: string; clear?: boolean; port: string }) => {
+    if (options.clear) clearLassoLogs();
+    const status = await getBridgeStatus(Number(options.port));
+    console.log(chalk.bold("Lasso diagnostics"));
+    console.log(chalk.dim(`  Bridge: ${status.ok ? chalk.green("running") : chalk.yellow("not running")} · port ${options.port}`));
+    if (status.ok) {
+      console.log(chalk.dim(`  PID: ${status.pid ?? "unknown"} · overlays: ${status.clients ?? 0} · uptime: ${Math.round((status.uptimeMs || 0) / 1000)}s`));
+    }
+    console.log(chalk.dim(`  Log file: ${lassoLogPath()}`));
+    console.log("");
+
+    const print = (line: string) => {
+      try {
+        const record = JSON.parse(line) as { timestamp?: string; level?: string; event?: string; data?: Record<string, unknown> };
+        const details = record.data ? ` ${JSON.stringify(record.data)}` : "";
+        const level = record.level === "error" ? chalk.red(record.level) : record.level === "warn" ? chalk.yellow(record.level) : chalk.dim(record.level || "info");
+        console.log(`${chalk.dim(record.timestamp || "")} ${level} ${record.event || "log"}${details}`);
+      } catch {
+        console.log(line);
+      }
+    };
+
+    const lines = readLassoLogs(Number(options.lines) || 100);
+    if (lines.length === 0) console.log(chalk.dim("No Lasso logs yet. Start the project with lasso dev and send a prompt."));
+    else lines.forEach(print);
+
+    if (options.follow) {
+      console.log(chalk.dim("\nWatching for new entries. Press Ctrl+C to stop."));
+      followLassoLogs(print);
+      await new Promise<void>(() => undefined);
+    }
+  });
 
 // prettier-ignore
 program.command("dev", { isDefault: true }).description("Start your dev server with the Lasso overlay attached").action(async () => {

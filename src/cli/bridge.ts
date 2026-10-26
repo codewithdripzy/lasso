@@ -14,6 +14,7 @@ import { RuntimeClient, type RuntimeSessionInput, type RuntimeEvent, type Runtim
 import { detectBackends, modelIdForBackend, type DetectedBackend, type LocalAgentProvider } from "./backends";
 import { getLocalRuntime } from "./local-runtime";
 import type { BridgeMessage, GitState, ModelOption, PageEntry, Provider, ServerBridgeMessage } from "../core/interfaces/data";
+import { lassoLogPath, writeLassoLog } from "./logging";
 
 export const DEFAULT_BRIDGE_PORT = 3056;
 const execFileAsync = promisify(execFile);
@@ -59,6 +60,24 @@ export async function restartBridge(port = DEFAULT_BRIDGE_PORT): Promise<{ ok: b
     return { ok: true };
   } catch {
     return { ok: false, error: `No Lasso bridge is listening on 127.0.0.1:${port}. Start your project with ${chalk.cyan("lasso dev")} first.` };
+  }
+}
+
+export interface BridgeStatus {
+  ok: boolean;
+  pid?: number;
+  uptimeMs?: number;
+  clients?: number;
+  logFile?: string;
+}
+
+export async function getBridgeStatus(port = DEFAULT_BRIDGE_PORT): Promise<BridgeStatus> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/__lasso/bridge/status`);
+    if (!response.ok) return { ok: false };
+    return (await response.json()) as BridgeStatus;
+  } catch {
+    return { ok: false };
   }
 }
 
@@ -160,8 +179,11 @@ function extractChangesFromSession(session: RuntimeSession | null): any[] {
 }
 
 export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | null = null, bridgePort = DEFAULT_BRIDGE_PORT) {
+  const startedAt = Date.now();
+  writeLassoLog("info", "bridge_started", { cwd, port: bridgePort, pid: process.pid });
   const bridgeServer = http.createServer();
   const wss = new WebSocketServer({ server: bridgeServer });
+  let connectedClients = 0;
   let overlaySocket: WebSocket | null = null;
   const taskSnapshots = new Map<string, Array<{ filePath: string; content: string | null }>>();
   const activeSessions = new Map<string, RuntimeSession>();
@@ -236,7 +258,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     models = [
       { id: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet", provider: "anthropic", locked: false },
       { id: "gpt-4o", label: "GPT-4o", provider: "openai", locked: false },
-      { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "google", locked: false },
+      { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "google", locked: false },
     ];
   }
 
@@ -293,6 +315,11 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   };
 
   bridgeServer.on("request", (req, res) => {
+    if (req.method === "GET" && req.url?.split("?", 1)[0] === "/__lasso/bridge/status") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true, pid: process.pid, uptimeMs: Date.now() - startedAt, clients: connectedClients, logFile: lassoLogPath() }));
+      return;
+    }
     if (req.method !== "POST" || req.url?.split("?", 1)[0] !== "/__lasso/bridge/restart") return;
     for (const controller of taskControllers.values()) controller.abort();
     taskControllers.clear();
@@ -422,14 +449,14 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         {
           const data = (event.data as Record<string, unknown>) || {};
           const detail = data.error || data.message || data.details;
-        socket.send(
-          JSON.stringify({
-            type: "agent_status",
-            taskId,
-            status: "error",
-            message: typeof detail === "string" && detail.trim() ? detail : "The agent runtime failed without an error message.",
-          } satisfies ServerBridgeMessage)
-        );
+          socket.send(
+            JSON.stringify({
+              type: "agent_status",
+              taskId,
+              status: "error",
+              message: typeof detail === "string" && detail.trim() ? detail : "The agent runtime failed without an error message.",
+            } satisfies ServerBridgeMessage)
+          );
         }
         break;
 
@@ -542,9 +569,11 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   // Handler for edit/ask - uses runtime
   async function handleHostedConversation(taskId: string, prompt: string, model: string, provider: string, messages: any[] | undefined, socket: WebSocket, signal: AbortSignal, conversationId?: string): Promise<void> {
     const requestController = new AbortController();
+    let terminalEvent: string | undefined;
     const abortRequest = () => requestController.abort();
     signal.addEventListener("abort", abortRequest, { once: true });
     const timeout = setTimeout(() => {
+      writeLassoLog("error", "conversation_timeout", { taskId, endpoint: "/api/v1/agent/session" });
       if (!signal.aborted)
         socket.send(
           JSON.stringify({
@@ -557,7 +586,10 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       requestController.abort();
     }, 30_000);
     try {
-      const response = await fetch(`${agentRuntimeUrlFrom(fileEnv)}/api/v1/agent/session`, {
+      const requestStartedAt = Date.now();
+      const runtimeUrl = agentRuntimeUrlFrom(fileEnv);
+      writeLassoLog("info", "agent_request_started", { method: "POST", baseUrl: runtimeUrl, endpoint: "/api/v1/agent/session", taskId, provider, model });
+      const response = await fetch(`${runtimeUrl}/api/v1/agent/session`, {
         method: "POST",
         headers: {
           Accept: "text/event-stream",
@@ -573,6 +605,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         }),
         signal: requestController.signal,
       });
+      writeLassoLog("info", "agent_request_stream_opened", { baseUrl: runtimeUrl, endpoint: "/api/v1/agent/session", taskId, status: response.status, durationMs: Date.now() - requestStartedAt });
 
       if (!response.ok || !response.body) {
         throw new Error(`Conversation request failed (${response.status})`);
@@ -592,8 +625,20 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
           const payload = line.slice(6).trim();
           if (!payload || payload === "[DONE]") continue;
           const event = JSON.parse(payload);
-          if (event.type === "error") throw new Error(event.error || "Conversation failed");
+          writeLassoLog(event.type === "error" ? "error" : "debug", "conversation_event", {
+            taskId,
+            type: event.type,
+            ...(event.error !== undefined ? { error: String(event.error) } : {}),
+            ...(event.summary !== undefined ? { summary: String(event.summary) } : {}),
+            ...(event.details !== undefined ? { details: String(event.details) } : {}),
+            ...(event.status ? { status: String(event.status) } : {}),
+          });
+          if (event.type === "error") {
+            terminalEvent = "error";
+            throw new Error(event.error || event.summary || event.details || "Conversation failed");
+          }
           if (event.type === "done") {
+            terminalEvent = "done";
             socket.send(
               JSON.stringify({
                 type: "assistant_message",
@@ -606,6 +651,10 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       }
     } catch (error) {
       if (signal.aborted) return;
+      writeLassoLog("error", "conversation_failed", {
+        taskId,
+        error: error instanceof Error ? error.message : String(error),
+      });
       socket.send(
         JSON.stringify({
           type: "agent_status",
@@ -615,6 +664,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         } satisfies ServerBridgeMessage)
       );
     } finally {
+      writeLassoLog("info", "agent_request_stream_closed", { baseUrl: agentRuntimeUrlFrom(fileEnv), endpoint: "/api/v1/agent/session", taskId, terminalEvent: terminalEvent || "none" });
       clearTimeout(timeout);
       signal.removeEventListener("abort", abortRequest);
       taskControllers.delete(taskId);
@@ -1304,8 +1354,11 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   }
 
   wss.on("connection", (socket) => {
+    connectedClients += 1;
+    writeLassoLog("info", "overlay_connected", { clients: connectedClients });
     overlaySocket = socket;
     console.log(chalk.green("✓") + " Overlay connected");
+    writeLassoLog("info", "overlay_ready");
     const creds = loadCredentials();
     const userInfo = creds?.userName ? { name: creds.userName, email: creds.userEmail } : process.env.USER ? { name: process.env.USER } : null;
     socket.send(
@@ -1328,6 +1381,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         const msg: BridgeMessage = JSON.parse(raw.toString());
         taskId = (msg as any).taskId;
         console.log("[lasso] received from overlay:", msg.type);
+        writeLassoLog("info", "overlay_message", { type: msg.type, taskId: (msg as any).taskId });
         switch (msg.type) {
           case "hello":
             break;
@@ -1494,6 +1548,8 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     });
 
     socket.on("close", () => {
+      connectedClients = Math.max(0, connectedClients - 1);
+      writeLassoLog("info", "overlay_disconnected", { clients: connectedClients });
       if (socket === overlaySocket) overlaySocket = null;
       for (const [requestId, pending] of pendingBrowserContext) {
         pending.reject(new Error("The overlay disconnected before browser context was returned."));
@@ -1504,6 +1560,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
 
   bridgeServer.listen(bridgePort, "127.0.0.1", () => {
     console.log(chalk.green("✓") + ` Bridge listening on ${chalk.cyan(`http://127.0.0.1:${bridgePort}`)}`);
+    writeLassoLog("info", "bridge_ready", { port: bridgePort, logFile: lassoLogPath() });
   });
 
   return { ok: true };

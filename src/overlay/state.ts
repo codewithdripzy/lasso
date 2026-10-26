@@ -136,7 +136,8 @@ export class OverlayState {
   // Models
   MODELS: ModelOption[] = [
     { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", provider: "google" },
-    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "google" },
+    { id: "gemini-3.6-flash", label: "Gemini 3.6 Flash", provider: "google" },
+    { id: "gemini-3.1-flash-lite", label: "Gemini 3.1 Flash-Lite", provider: "google" },
     { id: "gpt-4.1-mini", label: "GPT-4.1 mini", provider: "openai" },
     { id: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5", provider: "anthropic" },
   ];
