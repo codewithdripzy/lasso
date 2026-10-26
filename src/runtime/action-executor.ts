@@ -3,6 +3,8 @@ import path from "node:path";
 import { exec as execSync } from "node:child_process";
 import { promisify } from "node:util";
 import type { AgentAction } from "./agent-runtime";
+import type { ActionExecutionResult } from "../core/interfaces/data";
+export type { ActionExecutionResult } from "../core/interfaces/data";
 
 const exec = promisify(execSync);
 
@@ -13,18 +15,6 @@ const exec = promisify(execSync);
  * orchestrator. Every path is validated to stay inside the project directory
  * (workspace boundary enforcement happens client-side, never on the server).
  */
-
-export interface ActionExecutionResult {
-  success: boolean;
-  actionId: string;
-  output?: any;
-  error?: string;
-  observation?: {
-    type: string;
-    summary: string;
-    data?: any;
-  };
-}
 
 export class ActionExecutor {
   private projectPath: string;

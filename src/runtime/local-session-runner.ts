@@ -19,36 +19,8 @@ import { AgentEvent, AgentAction, AgentError, AgentPhase, Observation } from "./
 import { WorkspaceGuard } from "./workspace-guard";
 import { PendingChange, diffToReview } from "./review";
 import { toAgentEvent } from "./event-mapper";
-
-export interface LocalSessionOutcome {
-  /** Backend-reported success (terminal success signal + clean exit). */
-  success: boolean;
-  /** Session status to persist: waiting (review) | completed | failed. */
-  status: "waiting" | "completed" | "failed";
-  summary?: string;
-  /** Reviewable text changes (workspace already rolled back). */
-  changes: PendingChange[];
-  binaryPaths: string[];
-  /** Normalized actions replacing any backend-reported ones. */
-  actions: AgentAction[];
-  observations: Observation[];
-  errors: AgentError[];
-  conversation: Array<{ role: "user" | "assistant" | "system"; content: string; timestamp: number }>;
-  externalSessionId?: string;
-  /** Suggested session metadata updates (backend provider/model/session id). */
-  metadata: Record<string, unknown>;
-}
-
-export interface LocalSessionRunnerOptions {
-  sessionId: string;
-  backend: IBackend;
-  /** Workspace captured BEFORE the agent ran. Consumed (diffed + restored). */
-  guard: WorkspaceGuard;
-  /** Sink for wire-format AgentEvents (forward to SSE / UI / in-memory). */
-  emit: (event: AgentEvent) => void;
-  /** Current phase, recorded on observations/errors. */
-  phase?: AgentPhase;
-}
+import type { LocalSessionOutcome, LocalSessionRunnerOptions } from "../core/interfaces/session-runner";
+export type { LocalSessionOutcome, LocalSessionRunnerOptions } from "../core/interfaces/session-runner";
 
 export class LocalSessionRunner {
   private restored = false;

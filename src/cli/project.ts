@@ -10,58 +10,14 @@ import { loadRegistry, findByDirectory, generateUniqueDomain } from "./host/regi
 import { registerWithHost } from "./host/client";
 import { hostProxyPort } from "./host/paths";
 import { ensureNextAllowedDevOrigin } from "./next-config";
+import type { CollabConfig, InitResult, ModelInfo, ModelsResponse, ProjectMetadata, WorkspaceConfig } from "../core/interfaces/data";
+export type { CollabConfig, InitResult, ModelInfo, ModelsResponse, ProjectMetadata, WorkspaceConfig } from "../core/interfaces/data";
 
 const execFileAsync = promisify(execFile);
 
 export const LASSO_CONFIG_FILE = "lasso.config.json";
 const PROJECT_STATE_FILE = ".lasso-project.json";
 
-export interface CollabConfig {
-  projectId: string;
-  name: string;
-  version?: string;
-  realtimeUrl: string;
-  apiUrl: string;
-  serverUrl: string;
-  registered: boolean;
-  registeredAt?: string;
-  claimed: boolean;
-  workspaceId?: string;
-  token?: string;
-  apiKey?: string;
-  plan?: string;
-  configuredProviders?: string[];
-}
-
-export interface WorkspaceConfig {
-  workspaceId?: string;
-  workspaceName?: string;
-  plan?: string;
-  configuredProviders?: string[];
-}
-
-export interface ModelInfo {
-  id: string;
-  name: string;
-  provider: string;
-  capabilities?: string[];
-}
-
-export interface ModelsResponse {
-  anthropic: ModelInfo[];
-  openai: ModelInfo[];
-  google: ModelInfo[];
-  nvidia: ModelInfo[];
-}
-
-export interface InitResult {
-  ok: boolean;
-  error?: string;
-  projectId?: string;
-  workspaceId?: string;
-  name?: string;
-  domain?: string;
-}
 
 export function readEnvFile(filename: string, cwd: string): Record<string, string> {
   try {
@@ -189,13 +145,6 @@ export function readProjectConfig(cwd: string): { id: string; source: string; do
   if (legacyId) return { id: legacyId, source: PROJECT_STATE_FILE };
 
   return null;
-}
-
-interface ProjectMetadata {
-  name: string;
-  version: string;
-  gitRemote: string;
-  payload: Record<string, unknown>;
 }
 
 async function buildProjectMetadata(cwd: string, framework: string): Promise<ProjectMetadata> {

@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { Observation, AgentError, AgentPhase } from "./agent-runtime";
+import type { VerificationConfig, VerificationResult } from "../core/interfaces/verification";
+export type { VerificationConfig, VerificationResult } from "../core/interfaces/verification";
 
 const exec = promisify(execSync);
 
@@ -12,31 +14,6 @@ const exec = promisify(execSync);
  * Mandatory verification step in the agent loop.
  * Timeouts are failures or inconclusive observations, never proof of success.
  */
-
-export interface VerificationConfig {
-  typecheckTimeout: number; // Default: 60 seconds
-  buildTimeout: number; // Default: 120 seconds
-  devServerTimeout: number; // Default: 30 seconds
-  browserTimeout: number; // Default: 60 seconds
-  /** URL of the project's already-running dev server, if available. */
-  devServerUrl?: string;
-  /** Optional browser bridge used for DOM/runtime verification. */
-  browserContextProvider?: (action: { id: string; type: "browser_check"; data?: Record<string, unknown> }) => Promise<unknown>;
-}
-
-export interface VerificationResult {
-  type: "typecheck" | "build" | "dev_server" | "browser";
-  success: boolean;
-  /** Set when the check could not meaningfully run (no tsconfig, no build script). */
-  skipped?: boolean;
-  /** Command that produced this result, when applicable. */
-  command?: string;
-  output?: string;
-  error?: string;
-  observations: Observation[];
-  errors: AgentError[];
-  duration: number;
-}
 
 export class VerificationEngine {
   private projectPath: string;

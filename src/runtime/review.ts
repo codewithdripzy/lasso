@@ -8,22 +8,8 @@
 
 import { FileChange } from "./workspace-guard";
 import { AgentAction } from "./agent-runtime";
-
-export interface PendingChange {
-  filePath: string;
-  oldString: string;
-  newString: string;
-  operation: "created" | "modified" | "deleted";
-}
-
-export interface WorkspaceReview {
-  /** Reviewable (text) changes in the wire format used by the review UI. */
-  changes: PendingChange[];
-  /** Paths of binary changes — preserved for rollback, not shown as text. */
-  binaryPaths: string[];
-  /** Normalized session actions matching the reviewable changes. */
-  actions: AgentAction[];
-}
+export type { PendingChange, WorkspaceReview } from "../core/interfaces/review";
+import type { PendingChange, WorkspaceReview } from "../core/interfaces/review";
 
 export function diffToReview(rawChanges: FileChange[]): WorkspaceReview {
   const binaryPaths = rawChanges.filter((c) => c.binary).map((c) => c.filePath);

@@ -1225,7 +1225,8 @@ async function runPrompt(prompt: string, skipUserMessage = false): Promise<void>
   // The prompt is already visible in the user bubble above; repeating it here
   // makes the agent look like it is thinking aloud and is especially noisy for
   // short messages such as "Hi".
-  const initialStepTitle = "Preparing task…";
+  const initialStepTitle = "Thinking…";
+
   commandMessages.push({
     id: taskId,
     role: "assistant",
@@ -1270,6 +1271,7 @@ async function runPrompt(prompt: string, skipUserMessage = false): Promise<void>
         scope: "project",
         model: state.selectedModel.id,
         provider: state.selectedModel.provider,
+        conversationId: activeConversationId || undefined,
         // The conversation already includes the current user message. It is
         // the only prompt context sent to the runtime.
         conversation: commandMessages.filter((message) => Boolean(message.content) && !message.error).map((message) => ({ role: message.role, content: message.content, timestamp: message.timestamp })),

@@ -7,25 +7,11 @@ import prompts from "prompts";
 import { initProject, readProjectEnv, LASSO_CONFIG_FILE } from "./project";
 import { startViteServer } from "./server/vite";
 import { startNextServer } from "./server/next";
+import type { CreateOptions, CreateResult, Framework, PackageManager } from "../core/interfaces/data";
+export type { Framework, PackageManager } from "../core/interfaces/data";
 
 const execAsync = promisify(exec);
 
-export type Framework = "next" | "react" | "vue" | "svelte" | "solid";
-export type PackageManager = "pnpm" | "npm" | "yarn";
-
-interface CreateOptions {
-  name?: string;
-  framework?: Framework;
-  typescript?: boolean;
-  packageManager?: PackageManager;
-  prompt?: string;
-}
-
-interface CreateResult {
-  ok: boolean;
-  error?: string;
-  projectPath?: string;
-}
 
 async function detectPackageManager(): Promise<PackageManager> {
   const hasCommand = (cmd: string) => {

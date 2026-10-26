@@ -17,5 +17,5 @@
     "skipLibCheck": true,
     "resolveJsonModule": true
   },
-  "include": ["../src/cli/**/*", "../src/runtime/**/*"] //
+  "include": ["../src/cli/**/*", "../src/runtime/**/*", "../src/core/interfaces/**/*"] //
 }

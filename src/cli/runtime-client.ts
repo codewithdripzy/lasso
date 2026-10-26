@@ -63,6 +63,19 @@ export interface RuntimeSessionInput {
   };
 }
 
+export interface RequestRouteInput {
+  prompt: string;
+  requestKind?: "conversation" | "ask" | "edit" | "code";
+  provider?: string;
+  hasSelection?: boolean;
+  conversation?: Array<{ role: string; content: string }>;
+}
+
+export interface RequestRouteResult {
+  path: "conversation" | "coding";
+  reason: "explicit" | "selection" | "backend" | "history" | "intent";
+}
+
 export type BrowserContextProvider = (action: { id: string; type: "browser_check"; data?: Record<string, unknown> }) => Promise<unknown>;
 
 export interface RuntimeSession {
@@ -231,6 +244,19 @@ export class RuntimeClient {
 
     const data = await response.json();
     return data as RuntimeSession;
+  }
+
+  async routeRequest(input: RequestRouteInput): Promise<RequestRouteResult> {
+    const response = await fetch(`${this.serverUrl}/api/v1/agent/route`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(this.apiKey && { Authorization: `Bearer ${this.apiKey}` }),
+      },
+      body: JSON.stringify(input),
+    });
+    if (!response.ok) throw await RuntimeClient.responseError(response, "Failed to route request");
+    return (await response.json()) as RequestRouteResult;
   }
 
   /**

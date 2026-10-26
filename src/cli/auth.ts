@@ -3,16 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import chalk from "chalk";
 import open from "open";
-
-export interface CliCredentials {
-  apiKey: string;
-  keyId: string;
-  workspaceId: string;
-  workspaceName: string;
-  userName: string;
-  userEmail: string;
-  createdAt: string;
-}
+import type { AuthStatusResponse, CliCredentials } from "../core/interfaces/data";
+export type { CliCredentials } from "../core/interfaces/data";
 
 const CREDENTIALS_DIR = path.join(os.homedir(), ".lasso");
 const CREDENTIALS_FILE = path.join(CREDENTIALS_DIR, "credentials.json");
@@ -86,15 +78,7 @@ function mask(key: string) {
   return `${key.slice(0, 9)}••••${key.slice(-4)}`;
 }
 
-interface StatusResponse {
-  status?: string;
-  message?: string;
-  apiKey?: string;
-  keyId?: string;
-  workspaceId?: string;
-  workspaceName?: string;
-  user?: { name?: string; email?: string };
-}
+type StatusResponse = AuthStatusResponse;
 
 /**
  * `lasso auth login` — device-style OAuth. The CLI asks the server for a

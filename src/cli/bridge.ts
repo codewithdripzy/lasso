@@ -13,71 +13,11 @@ import { createSnapshot, restoreSnapshot, getTimeline, deleteSnapshot, type Time
 import { RuntimeClient, type RuntimeSessionInput, type RuntimeEvent, type RuntimeSession, type RuntimeFacade, type BrowserContextProvider } from "./runtime-client";
 import { detectBackends, modelIdForBackend, type DetectedBackend, type LocalAgentProvider } from "./backends";
 import { getLocalRuntime } from "./local-runtime";
+import type { BridgeMessage, GitState, ModelOption, PageEntry, Provider, ServerBridgeMessage } from "../core/interfaces/data";
 
 export const DEFAULT_BRIDGE_PORT = 3056;
 const execFileAsync = promisify(execFile);
-type GitState = { isRepo: boolean; branch?: string; status?: string[]; hasChanges?: boolean; hasRemote?: boolean; remote?: string };
-
-type Provider = "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor";
-
-export type BridgeMessage =
-  | { type: "hello"; from: "overlay" | "cli" }
-  | {
-      type: "edit";
-      taskId: string;
-      instruction: string;
-      model: string;
-      provider?: "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor";
-      messages?: Array<{ role: string; content: string; createdAt?: string }>;
-      conversation?: Array<{ role: "user" | "assistant" | "system"; content: string; createdAt?: string }>;
-      changesHistory?: Array<{ summary: string; changes: any[]; createdAt?: string }>;
-      context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } };
-      element: { tag: string; group: string; label: string; html?: string; sourceHint?: string };
-    }
-  | {
-      type: "ask";
-      taskId: string;
-      question: string;
-      model: string;
-      provider?: "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor";
-      messages?: Array<{ role: string; content: string; createdAt?: string }>;
-      conversation?: Array<{ role: "user" | "assistant" | "system"; content: string; createdAt?: string }>;
-      context?: { selectionId?: string; position?: Record<string, number>; viewport?: Record<string, unknown>; styles?: Record<string, string>; attributes?: Record<string, string>; runtimeErrors?: string[]; screenshots?: { full?: string; element?: string } };
-      element: { tag: string; group: string; label: string; html?: string; sourceHint?: string };
-    }
-  | { type: "runtime_error"; selectionId?: string; details: string }
-  | { type: "apply"; taskId: string; changes: any[] }
-  | { type: "undo"; taskId?: string }
-  | { type: "stop"; taskId?: string }
-  | { type: "agent_prompt_response"; taskId: string; response: string }
-  | { type: "steer"; taskId: string; queueId: string; prompt: string }
-  | { type: "list_page_folders"; path?: string }
-  | { type: "create_page"; folder: string; fileName: string; content: string }
-  | { type: "create_page_folder"; parent: string; name: string }
-  | { type: "git_status" }
-  | { type: "git_generate_message"; model: string; provider?: "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor"; taskId?: string; pageContext?: any }
-  | { type: "git_init" }
-  | { type: "git_commit"; message: string }
-  | { type: "git_push" }
-  | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string }
-  | { type: "transcribe"; requestId: string; audio: string; mimeType?: string; language?: string }
-  | {
-      type: "oneshot";
-      prompt?: string;
-      scope?: "project" | "component";
-      model?: string;
-      provider?: "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor";
-      messages?: Array<{ role: "user" | "assistant"; content: string }>;
-      conversation?: Array<{ role: "user" | "assistant" | "system"; content: string; timestamp?: number }>;
-      taskId?: string;
-    }
-  | { type: "page_context_response"; requestId: string; pageContext?: any; error?: string }
-  | { type: "restore_snapshot"; snapshotId: string }
-  | { type: "get_timeline" }
-  | { type: "delete_snapshot"; snapshotId: string }
-  | { type: "switch_model"; taskId: string; provider: string; modelId: string };
-
-type ModelOption = { id: string; label: string; provider: Provider; locked?: boolean; lockedReason?: string };
+export type { BridgeMessage, ServerBridgeMessage } from "../core/interfaces/data";
 
 /** Map overlay chat history to the runtime conversation shape. */
 function toRuntimeConversation(messages: Array<{ role: string; content: string; createdAt?: string; timestamp?: number }> | undefined): RuntimeSessionInput["conversation"] | undefined {
@@ -110,25 +50,6 @@ function cleanConversationReply(value: unknown): string {
   }
   return text;
 }
-type PageEntry = { name: string; path: string; type: "directory" | "file" };
-
-export type ServerBridgeMessage =
-  | { type: "config"; apiKeyConfigured: boolean; agentConfigured: boolean; models: ModelOption[]; collab?: CollabConfig | null; user?: { name?: string; email?: string } | null }
-  | { type: "git_state"; git: GitState }
-  | { type: "git_result"; message?: string; error?: string }
-  | { type: "git_progress"; message: string }
-  | { type: "git_commit_message"; message?: string; error?: string }
-  | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "error" | "stopped"; message: string; detail?: string; changes?: any[]; thinking?: Array<{ title: string; detail?: string; durationMs?: number }>; totalThinkingTimeMs?: number }
-  | { type: "agent_prompt"; taskId: string; prompt: { message: string; kind: "permission" | "input" | "multiselect"; options?: string[] } }
-  | { type: "steer_result"; taskId: string; queueId: string; success: boolean; error?: string }
-  | { type: "page_folders"; path: string; entries: PageEntry[]; project?: string; error?: string }
-  | { type: "page_created"; path: string; error?: string }
-  | { type: "page_folder_created"; path: string; error?: string }
-  | { type: "assistant_message"; taskId?: string; message: string }
-  | { type: "applied"; taskId?: string; message: string; validation?: { passed: boolean; errors: string[]; command: string } }
-  | { type: "undone"; taskId?: string; message: string }
-  | { type: "transcribe_result"; requestId: string; success: boolean; text?: string; provider?: string; error?: string }
-  | { type: "timeline"; snapshots: TimelineSnapshot[] };
 
 export async function restartBridge(port = DEFAULT_BRIDGE_PORT): Promise<{ ok: boolean; error?: string }> {
   try {
@@ -1194,6 +1115,23 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
 
     try {
       const isLocalAgent = ["claude_code", "opencode", "codex_cli", "cursor"].includes(provider || "");
+      if (!isLocalAgent) {
+        try {
+          const route = await runtimeClient.routeRequest({
+            prompt: instruction,
+            provider,
+            conversation: runtimeConversation?.map(({ role, content }) => ({ role, content })),
+          });
+          if (route.path === "conversation") {
+            await handleHostedConversation(taskId, instruction, model, provider || "anthropic", runtimeConversation, socket, controller.signal, message.conversationId);
+            return;
+          }
+        } catch (error) {
+          // Preserve the previous coding path if an older AI server has not
+          // deployed the routing endpoint yet.
+          console.warn("[lasso] request routing unavailable; using coding runtime", error instanceof Error ? error.message : error);
+        }
+      }
       const backendModelId = modelIdForBackend(model || "", provider || "");
 
       const sessionInput: RuntimeSessionInput = {

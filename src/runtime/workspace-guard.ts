@@ -16,31 +16,8 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
-
-export interface FileChange {
-  /** Project-relative path using the platform separator */
-  filePath: string;
-  operation: "created" | "modified" | "deleted";
-  /** Full original text content (text files only) */
-  oldContent?: string;
-  /** Full new text content (text files only) */
-  newContent?: string;
-  /** True when the file is binary — contents are preserved for rollback but not reviewable as text */
-  binary?: boolean;
-}
-
-export interface WorkspaceGuardOptions {
-  /** Directory names that are never captured (defaults cover Node/tooling outputs) */
-  ignoreDirs?: string[];
-  /** Extra ignore predicates (relative path, isDirectory) */
-  ignore?: (relPath: string, isDir: boolean) => boolean;
-  /** Max bytes held in memory per file; larger files are copied to a temp dir (default 4MB) */
-  maxMemoryFileSize?: number;
-  /** Max total bytes held in memory before oversized handling kicks in per file (default 64MB) */
-  maxTotalBytes?: number;
-  /** Max directory recursion depth (default 32) */
-  maxDepth?: number;
-}
+import type { CapturedEntry, FileChange, WorkspaceGuardOptions } from "../core/interfaces/workspace";
+export type { FileChange, WorkspaceGuardOptions } from "../core/interfaces/workspace";
 
 const DEFAULT_IGNORE_DIRS = new Set([
   "node_modules",
@@ -76,20 +53,6 @@ const DEFAULT_IGNORE_FILES = new Set(["next-env.d.ts", "tsconfig.tsbuildinfo", "
 function shouldIgnoreFile(name: string): boolean {
   return DEFAULT_IGNORE_FILES.has(name) || name.endsWith(".tsbuildinfo");
 }
-
-type CapturedEntry = {
-  /** Absolute original path */
-  absPath: string;
-  /** Captured bytes; null when the file was stored on disk instead */
-  content: Buffer | null;
-  /** Temp copy path for oversized files */
-  tempPath?: string;
-  hash: string;
-  size: number;
-  mode: number;
-  /** True when the file is binary (contains NUL bytes in the sampled header) */
-  binary: boolean;
-};
 
 function hashBuffer(buf: Buffer): string {
   return crypto.createHash("sha256").update(buf).digest("hex");
