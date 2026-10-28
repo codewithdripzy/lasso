@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { exec, execSync, spawn } from "node:child_process";
-import { promisify } from "node:util";
+import { execSync, spawn } from "node:child_process";
 import chalk from "chalk";
 import prompts from "prompts";
 import { initProject, readProjectEnv, LASSO_CONFIG_FILE } from "./project";
@@ -9,9 +8,6 @@ import { startViteServer } from "./server/vite";
 import { startNextServer } from "./server/next";
 import type { CreateOptions, CreateResult, Framework, PackageManager } from "../core/interfaces/data";
 export type { Framework, PackageManager } from "../core/interfaces/data";
-
-const execAsync = promisify(exec);
-
 
 async function detectPackageManager(): Promise<PackageManager> {
   const hasCommand = (cmd: string) => {
@@ -26,31 +22,6 @@ async function detectPackageManager(): Promise<PackageManager> {
   if (hasCommand("pnpm --version")) return "pnpm";
   if (hasCommand("yarn --version")) return "yarn";
   return "npm";
-}
-
-function getFrameworkCommand(framework: Framework, typescript: boolean, packageManager: PackageManager): string {
-  const tsFlag = typescript ? "--typescript" : "--js";
-  const baseCommands: Record<Framework, string> = {
-    next: `npx create-next-app@latest`,
-    react: `npx create-react-app@latest`,
-    vue: `npx create-vite@latest`,
-    svelte: `npx create-svelte@latest`,
-    solid: `npx degit solidjs/templates/js`,
-  };
-
-  let command = baseCommands[framework];
-
-  if (framework === "next") {
-    command += ` ${tsFlag} --tailwind --eslint --app --src-dir --import-alias "@/*" --no-git`;
-  } else if (framework === "react") {
-    command += ` ${typescript ? "--template typescript" : ""}`;
-  } else if (framework === "vue") {
-    command += ` ${typescript ? "--template vue-ts" : "--template vanilla"}`;
-  } else if (framework === "svelte") {
-    command += ` ${typescript ? "--template skeleton" : "--template skeleton"}`;
-  }
-
-  return command;
 }
 
 async function runCreateCommand(projectName: string, framework: Framework, typescript: boolean, packageManager: PackageManager, cwd: string): Promise<{ ok: boolean; error?: string; projectPath?: string }> {
@@ -71,6 +42,9 @@ async function runCreateCommand(projectName: string, framework: Framework, types
       const pmFlag = packageManager === "pnpm" ? "--use-pnpm" : packageManager === "yarn" ? "--use-yarn" : "--use-npm";
       command = "npx";
       args = ["create-next-app@latest", projectName, tsFlag, "--tailwind", "--eslint", "--app", "--src-dir", "--import-alias", "@/*", "--no-git", pmFlag];
+    } else if (framework === "nuxt") {
+      command = "npm";
+      args = ["create", "nuxt@latest", projectName, "--packageManager", packageManager, "--no-install", "--no-modules"];
     } else if (framework === "react") {
       command = "npx";
       args = ["create-react-app@latest", projectName, ...(typescript ? ["--template", "typescript"] : [])];
@@ -95,7 +69,7 @@ async function runCreateCommand(projectName: string, framework: Framework, types
       });
     });
 
-    if (framework === "vue" || framework === "svelte") {
+    if (framework === "vue" || framework === "svelte" || framework === "nuxt") {
       console.log(chalk.dim(`Installing dependencies with ${chalk.cyan(packageManager)}...`));
       const installCommand = packageManager === "pnpm" ? "pnpm" : packageManager === "yarn" ? "yarn" : "npm";
       const installArgs = packageManager === "pnpm" ? ["install"] : packageManager === "yarn" ? [] : ["install"];
@@ -147,6 +121,7 @@ export async function createProject(options: CreateOptions): Promise<CreateResul
       message: "Choose a framework:",
       choices: [
         { title: "Next.js", value: "next" },
+        { title: "Nuxt", value: "nuxt" },
         { title: "React", value: "react" },
         { title: "Vue", value: "vue" },
         { title: "Svelte", value: "svelte" },

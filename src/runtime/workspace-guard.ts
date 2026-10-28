@@ -1,11 +1,11 @@
 /**
- * Workspace Guard - Capture, diff, and roll back project state.
+ * Workspace Guard - Capture, diff, and resolve proposed project edits.
  *
  * Lasso's non-negotiable review workflow requires:
  *   1. Capture the original project state before an agent runs.
  *   2. Collect resulting file changes after the agent runs.
- *   3. Roll back to the original state so nothing is applied before review.
- *   4. On approval, re-apply the changes; on rejection, leave the project untouched.
+ *   3. Keep agent edits in place while the user reviews them.
+ *   4. On approval, keep selected edits; on rejection, restore originals.
  *
  * The guard backs up every non-ignored file (in memory, or on disk for
  * oversized files), computes a normalized diff against the captured state,
@@ -70,6 +70,7 @@ export class WorkspaceGuard {
   private readonly tempDir: string;
   private readonly ignoreDirs: Set<string>;
   private readonly ignoreFn?: (relPath: string, isDir: boolean) => boolean;
+  private reviewHashes: Map<string, string | null> | null = null;
   private tempDirCreated = false;
   private disposed = false;
 
@@ -170,10 +171,7 @@ export class WorkspaceGuard {
     return [...this.skipped];
   }
 
-  /**
-   * Compare the current on-disk state against the captured state.
-   * Must be called BEFORE restore() when collecting an agent's changes.
-   */
+  /** Compare the current workspace state against the captured state. */
   diff(): FileChange[] {
     const changes: FileChange[] = [];
     const seen = new Set<string>();
@@ -221,6 +219,55 @@ export class WorkspaceGuard {
     return changes;
   }
 
+  /** Diff and remember the exact post-agent state so concurrent edits are detected at review resolution. */
+  diffForReview(): FileChange[] {
+    const changes = this.diff();
+    this.reviewHashes = new Map();
+    for (const change of changes) {
+      const absPath = path.resolve(this.root, change.filePath);
+      try {
+        const stat = fs.statSync(absPath);
+        this.reviewHashes.set(change.filePath, stat.isFile() ? hashBuffer(fs.readFileSync(absPath)) : null);
+      } catch {
+        this.reviewHashes.set(change.filePath, null);
+      }
+    }
+    return changes;
+  }
+
+  /** Keep accepted changes and restore all other captured agent edits. */
+  async resolveReview(acceptedFilePaths: string[]): Promise<void> {
+    if (this.disposed) throw new Error("This workspace review has already been resolved.");
+    if (!this.reviewHashes) throw new Error("Workspace changes were not prepared for review.");
+
+    const accepted = new Set(acceptedFilePaths.map((filePath) => path.normalize(filePath)));
+    for (const filePath of accepted) {
+      if (!this.reviewHashes.has(filePath)) throw new Error(`Cannot accept ${filePath}: it is not part of this review.`);
+    }
+
+    for (const [relPath, expectedHash] of this.reviewHashes) {
+      const absPath = path.resolve(this.root, relPath);
+      let currentHash: string | null = null;
+      try {
+        const stat = fs.statSync(absPath);
+        if (stat.isFile()) currentHash = hashBuffer(fs.readFileSync(absPath));
+      } catch {
+        currentHash = null;
+      }
+      if (currentHash !== expectedHash) {
+        throw new Error(`Cannot resolve review: ${relPath} changed after the review opened. Reopen or regenerate the review before deciding.`);
+      }
+    }
+
+    for (const relPath of this.reviewHashes.keys()) {
+      if (accepted.has(path.normalize(relPath))) continue;
+      this.restorePath(relPath, true);
+    }
+
+    this.disposed = true;
+    this.cleanupTemp();
+  }
+
   /**
    * Restore the workspace to the captured state:
    * modified files are reverted, created files are deleted, deleted files are recreated.
@@ -229,44 +276,41 @@ export class WorkspaceGuard {
     if (this.disposed) return;
     this.disposed = true;
 
-    for (const [relPath, entry] of this.files) {
-      let currentExists = false;
-      try {
-        currentExists = fs.statSync(entry.absPath).isFile();
-      } catch {
-        currentExists = false;
-      }
-
-      const desired = entry.content ?? (entry.tempPath ? fs.readFileSync(entry.tempPath) : null);
-      if (!desired) continue;
-
-      try {
-        if (currentExists) {
-          const current = fs.readFileSync(entry.absPath);
-          if (hashBuffer(current) === hashBuffer(desired)) {
-            // Unchanged — still normalize permissions below.
-            fs.chmodSync(entry.absPath, entry.mode);
-            continue;
-          }
-        }
-        fs.mkdirSync(path.dirname(entry.absPath), { recursive: true });
-        fs.writeFileSync(entry.absPath, desired);
-        fs.chmodSync(entry.absPath, entry.mode);
-      } catch {
-        // Best effort: continue restoring remaining files.
-      }
-    }
-
-    // Delete files created during execution.
-    for (const change of this.listNewFiles(new Set(this.files.keys()))) {
-      try {
-        fs.unlinkSync(path.join(this.root, change.filePath));
-      } catch {
-        // Ignore — file may already be gone.
-      }
-    }
+    for (const relPath of this.files.keys()) this.restorePath(relPath);
+    for (const change of this.listNewFiles(new Set(this.files.keys()))) this.restorePath(change.filePath);
 
     this.cleanupTemp();
+  }
+
+  private restorePath(relPath: string, strict = false): void {
+    const entry = this.files.get(relPath);
+    const absPath = entry?.absPath || path.resolve(this.root, relPath);
+    if (!entry) {
+      try {
+        fs.unlinkSync(absPath);
+      } catch (error) {
+        if (fs.existsSync(absPath) && strict) throw new Error(`Could not remove rejected file ${relPath}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      return;
+    }
+
+    const desired = entry.content ?? (entry.tempPath ? fs.readFileSync(entry.tempPath) : null);
+    if (!desired) {
+      if (strict) throw new Error(`Could not restore rejected file ${relPath}: its original backup is unavailable.`);
+      return;
+    }
+    try {
+      if (fs.existsSync(absPath) && hashBuffer(fs.readFileSync(absPath)) === hashBuffer(desired)) {
+        fs.chmodSync(absPath, entry.mode);
+        return;
+      }
+      fs.mkdirSync(path.dirname(absPath), { recursive: true });
+      fs.writeFileSync(absPath, desired);
+      fs.chmodSync(absPath, entry.mode);
+    } catch (error) {
+      // Best effort: continue restoring remaining files.
+      if (strict) throw new Error(`Could not restore rejected file ${relPath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /** Restore without comparing (used by dispose paths). */

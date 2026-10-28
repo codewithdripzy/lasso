@@ -105,7 +105,7 @@ export type DragContext = {
 export type ModelOption = {
   id: string;
   label: string;
-  provider: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli" | "claude_code" | "opencode" | "codex_cli" | "cursor";
+  provider: "anthropic" | "openai" | "google" | "ollama" | "nvidia" | "cli" | "claude_code" | "opencode" | "codex_cli" | "cursor" | "antigravity";
   locked?: boolean;
   lockedReason?: string;
 };

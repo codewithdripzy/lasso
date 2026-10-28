@@ -8,7 +8,7 @@
 
 import { BackendConfig, IBackend, DEFAULT_LOCAL_CAPABILITIES, BackendCapabilities } from "../backend-interface";
 
-export const LOCAL_AGENT_PROVIDERS = ["claude_code", "opencode", "codex_cli", "cursor"] as const;
+export const LOCAL_AGENT_PROVIDERS = ["claude_code", "opencode", "codex_cli", "cursor", "antigravity"] as const;
 
 export type LocalAgentProvider = (typeof LOCAL_AGENT_PROVIDERS)[number];
 
@@ -37,6 +37,10 @@ export async function createLocalAgentBackend(config: BackendConfig & { type: "l
     case "cursor": {
       const { CursorAdapter } = await import("./cursor-adapter.js");
       return new CursorAdapter(config as never);
+    }
+    case "antigravity": {
+      const { AntigravityAdapter } = await import("./antigravity-adapter.js");
+      return new AntigravityAdapter(config as never);
     }
     default:
       throw new Error(`Unsupported local agent: ${(config as BackendConfig).provider}`);

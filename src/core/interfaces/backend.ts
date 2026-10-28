@@ -20,7 +20,7 @@ export type { AgentAction, Observation, AgentError, AgentPhase, ProjectContext, 
 
 export type BackendType =
   | "hosted_model" // Anthropic, OpenAI, Google, NVIDIA, Ollama APIs
-  | "local_agent"; // Claude Code, OpenCode, Codex CLI, Cursor
+  | "local_agent"; // Claude Code, OpenCode, Codex CLI, Cursor, Antigravity
 
 export type BackendProvider =
   // Hosted models
@@ -33,7 +33,8 @@ export type BackendProvider =
   | "claude_code"
   | "opencode"
   | "codex_cli"
-  | "cursor";
+  | "cursor"
+  | "antigravity";
 
 // ============================================================================
 // Backend Capabilities

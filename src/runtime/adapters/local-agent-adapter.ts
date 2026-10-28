@@ -19,6 +19,7 @@ import { spawn, ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import crypto from "node:crypto";
 import path from "node:path";
+import { writeLassoLog } from "../../cli/logging";
 import { IBackend, BackendType, BackendProvider, BackendCapabilities, BackendConfig, TaskContext, BackendEvent, BackendEvent as Event, BackendResult } from "../backend-interface";
 import { AgentAction, AgentError, Observation } from "../agent-runtime";
 
@@ -252,7 +253,10 @@ export abstract class LocalAgentAdapter implements IBackend {
     return new Promise<BackendResult>((resolve) => {
       let stdoutBuffer = "";
       let stderrBuffer = "";
+      let stdoutBytes = 0;
+      let stderrBytes = 0;
       let settled = false;
+      const startedAt = Date.now();
 
       const child = spawn(command.bin, command.args, {
         cwd: command.cwd,
@@ -261,6 +265,26 @@ export abstract class LocalAgentAdapter implements IBackend {
         // Agents inherit PATH-resolved binaries; do not open a shell.
       });
       this.process = child;
+      writeLassoLog("info", "local_agent_started", {
+        taskId: context.taskId,
+        provider: this.provider,
+        model: this.modelId || undefined,
+        binary: command.bin,
+        args: command.args.map((arg, index) => index === command.args.length - 1 ? "<prompt>" : arg),
+        cwd: command.cwd,
+        pid: child.pid,
+      });
+
+      const heartbeat = setInterval(() => {
+        writeLassoLog("debug", "local_agent_heartbeat", {
+          taskId: context.taskId,
+          provider: this.provider,
+          runningMs: Date.now() - startedAt,
+          stdoutBytes,
+          stderrBytes,
+        });
+      }, 10_000);
+      heartbeat.unref?.();
 
       const onAbort = () => {
         void this.cancelTask(context.taskId);
@@ -269,6 +293,26 @@ export abstract class LocalAgentAdapter implements IBackend {
 
       const processLine = (line: string) => {
         if (!line.trim()) return;
+        try {
+          const event = JSON.parse(line) as Record<string, unknown>;
+          const item = event.item && typeof event.item === "object"
+            ? event.item as Record<string, unknown>
+            : undefined;
+          writeLassoLog("debug", "local_agent_event", {
+            taskId: context.taskId,
+            provider: this.provider,
+            type: typeof event.type === "string" ? event.type : "unknown",
+            ...(typeof item?.item_type === "string" ? { itemType: item.item_type } : {}),
+            ...(typeof item?.type === "string" ? { itemType: item.type } : {}),
+            ...(typeof item?.status === "string" ? { status: item.status } : {}),
+          });
+        } catch {
+          writeLassoLog("debug", "local_agent_unparsed_output", {
+            taskId: context.taskId,
+            provider: this.provider,
+            lineLength: line.length,
+          });
+        }
         try {
           this.handleLine(line, context, sink);
         } catch {
@@ -285,6 +329,7 @@ export abstract class LocalAgentAdapter implements IBackend {
       };
 
       child.stdout?.on("data", (chunk: Buffer) => {
+        stdoutBytes += chunk.length;
         stdoutBuffer += chunk.toString("utf8");
         const lines = stdoutBuffer.split("\n");
         stdoutBuffer = lines.pop() || "";
@@ -292,6 +337,7 @@ export abstract class LocalAgentAdapter implements IBackend {
       });
 
       child.stderr?.on("data", (chunk: Buffer) => {
+        stderrBytes += chunk.length;
         stderrBuffer = (stderrBuffer + chunk.toString("utf8")).slice(-16000);
       });
 
@@ -299,6 +345,7 @@ export abstract class LocalAgentAdapter implements IBackend {
         if (settled) return;
         settled = true;
         signal?.removeEventListener("abort", onAbort);
+        clearInterval(heartbeat);
         if (this.killTimer) clearTimeout(this.killTimer);
         this.process = undefined;
 
@@ -325,6 +372,19 @@ export abstract class LocalAgentAdapter implements IBackend {
           sink.emit("task_failed", { error: message, exitCode });
         }
 
+        writeLassoLog(state.receivedTerminalSuccess && exitCode === 0 ? "info" : "error", "local_agent_finished", {
+          taskId: context.taskId,
+          provider: this.provider,
+          exitCode,
+          runningMs: Date.now() - startedAt,
+          receivedTerminalSuccess: state.receivedTerminalSuccess,
+          toolCount: state.tools.length,
+          stdoutBytes,
+          stderrBytes,
+          ...(state.failureMessage ? { error: state.failureMessage } : {}),
+          ...(!state.receivedTerminalSuccess && stderrBuffer.trim() ? { stderrTail: stderrBuffer.trim().slice(-1200) } : {}),
+        });
+
         resolve(this.buildResult(state, context, exitCode));
       };
 
@@ -333,7 +393,14 @@ export abstract class LocalAgentAdapter implements IBackend {
         if (settled) return;
         settled = true;
         signal?.removeEventListener("abort", onAbort);
+        clearInterval(heartbeat);
         this.process = undefined;
+        writeLassoLog("error", "local_agent_process_error", {
+          taskId: context.taskId,
+          provider: this.provider,
+          runningMs: Date.now() - startedAt,
+          error: error.message,
+        });
         sink.error(error.message, { recoverable: false });
         sink.emit("task_failed", { error: error.message });
         resolve(this.buildResult(state, context, -1));

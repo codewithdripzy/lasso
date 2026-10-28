@@ -268,7 +268,8 @@ export interface ModelMetadata {
     | "claude_code"
     | "opencode"
     | "codex_cli"
-    | "cursor";
+    | "cursor"
+    | "antigravity";
 
   id: string;
 

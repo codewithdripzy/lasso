@@ -64,6 +64,10 @@ function spawnCommand(directory: string, port: number, bridgePort: number): { co
     const entry = path.join(__dirname, "next-host-entry.js");
     if (fs.existsSync(entry)) return { command: process.execPath, args: [entry, directory, String(port), String(bridgePort)], framework };
   }
+  if (framework === "nuxt") {
+    const entry = path.join(__dirname, "nuxt-host-entry.js");
+    if (fs.existsSync(entry)) return { command: process.execPath, args: [entry, directory, String(port), String(bridgePort)], framework };
+  }
 
   // No explicit NPM script should be invoked blindly; only framework dev bins
   // are trusted to accept --port, so an unknown framework cannot be auto-started.
@@ -149,7 +153,7 @@ export async function startProjectRuntime(directory: string, options: { cleanupE
   const bridgePort = await pickFreePort();
   const plan = spawnCommand(directory, port, bridgePort);
   if (!plan) {
-    return { ok: false, error: `${path.basename(directory)} is not a Vite or Next.js project, so Lasso Host can't start it automatically. Run its dev server yourself.` };
+    return { ok: false, error: `${path.basename(directory)} is not a supported Vite, Next.js, or Nuxt project, so Lasso Host can't start it automatically. Run its dev server yourself.` };
   }
 
   if (options.cleanupExisting && plan.framework === "next") await stopExistingNextDev(directory);

@@ -60,6 +60,7 @@ function seedConversation(input: RuntimeSessionInput, timestamp: number): LocalS
 export class LocalRuntime implements RuntimeFacade {
   private sessions = new Map<string, LocalSessionRecord>();
   private abortControllers = new Map<string, AbortController>();
+  private pendingReviewGuards = new Map<string, WorkspaceGuard>();
 
   async createSession(input: RuntimeSessionInput): Promise<RuntimeSession> {
     const backendConfig = input.backendConfig;
@@ -153,6 +154,8 @@ export class LocalRuntime implements RuntimeFacade {
         guard,
         emit,
         phase: "execute",
+        deferTerminalEvent: true,
+        keepEditsForReview: true,
       });
 
       const outcome = await runner.run(
@@ -186,6 +189,10 @@ export class LocalRuntime implements RuntimeFacade {
         },
         controller.signal
       );
+
+      if (outcome.status === "waiting" && outcome.changes.length > 0) {
+        this.pendingReviewGuards.set(sessionId, guard);
+      }
 
       // Persist review payload + normalized actions for the review flow.
       record.actions = outcome.actions as RuntimeSession["actions"];
@@ -229,6 +236,7 @@ export class LocalRuntime implements RuntimeFacade {
       record.status = outcome.status === "waiting" ? "waiting" : outcome.status === "completed" ? "completed" : "failed";
       record.phase = "complete";
       record.updatedAt = new Date();
+      if (outcome.terminalEvent) emit(outcome.terminalEvent);
     } catch (error) {
       record.status = "failed";
       record.errors = [
@@ -334,6 +342,13 @@ export class LocalRuntime implements RuntimeFacade {
   async cancelSession(sessionId: string): Promise<void> {
     const controller = this.abortControllers.get(sessionId);
     if (controller) controller.abort();
+  }
+
+  async resolveReview(sessionId: string, acceptedFilePaths: string[]): Promise<void> {
+    const guard = this.pendingReviewGuards.get(sessionId);
+    if (!guard) throw new Error("The pending workspace review is no longer available.");
+    await guard.resolveReview(acceptedFilePaths);
+    this.pendingReviewGuards.delete(sessionId);
   }
 
   async deleteSession(sessionId: string): Promise<void> {

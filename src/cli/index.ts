@@ -7,6 +7,7 @@ import { Command } from "commander";
 import { getBridgeStatus, restartBridge, startBridge } from "./bridge";
 import { startViteServer } from "./server/vite";
 import { startNextServer } from "./server/next";
+import { startNuxtServer } from "./server/nuxt";
 import { detectFramework } from "./utils/framework";
 import { initProject, readProjectConfig, resolveCollabSession, readProjectEnv, LASSO_CONFIG_FILE, type CollabConfig } from "./project";
 import { authLogin, authLogout, credentialSummary, loadCredentials } from "./auth";
@@ -524,8 +525,12 @@ program.command("dev", { isDefault: true }).description("Start your dev server w
         console.log(chalk.green("✓") + " Detected: Next.js");
         await startNextServer(cwd);
         break;
+      case "nuxt":
+        console.log(chalk.green("✓") + " Detected: Nuxt");
+        startNuxtServer(cwd);
+        break;
       default:
-        console.log(chalk.yellow("!") + " Couldn't detect a supported framework (Vite or Next.js) in this directory.");
+        console.log(chalk.yellow("!") + " Couldn't detect a supported framework (Vite, Next.js, or Nuxt) in this directory.");
         process.exit(1);
     }
 });

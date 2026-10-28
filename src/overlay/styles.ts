@@ -2398,7 +2398,7 @@ export function buildStyles(): string {
       box-shadow: var(--lo-shadow-lg);
       pointer-events: auto;
       font-family: inherit;
-      z-index: 20;
+      z-index: 1000;
     }
 
     .lasso-review[hidden] {
@@ -3613,17 +3613,114 @@ export function buildStyles(): string {
     }
 
     .lasso-command-msg-bubble {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
       max-width: 88%;
       padding: 10px 14px;
       border-radius: 14px 14px 2px 14px;
       background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 0;
       color: var(--lo-text);
+      font: inherit;
       font-size: 13.5px;
       line-height: 1.5;
       word-break: break-word;
       white-space: pre-wrap;
     }
+
+    .lasso-command-editable-message {
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .lasso-command-editable-message:hover,
+    .lasso-command-editable-message:focus-visible {
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .lasso-command-editable-message:focus-visible { outline: 2px solid rgba(147, 197, 253, 0.65); }
+
+    .lasso-command-editable-message:disabled {
+      cursor: default;
+    }
+
+    .lasso-command-edit-hint {
+      flex: 0 0 auto;
+      margin-left: auto;
+      color: var(--lo-text-3);
+      font-size: 10px;
+      opacity: 0;
+      transition: opacity 120ms ease;
+    }
+
+    .lasso-command-editable-message:hover .lasso-command-edit-hint,
+    .lasso-command-editable-message:focus-visible .lasso-command-edit-hint {
+      opacity: 1;
+    }
+
+    .lasso-command-edit-form {
+      width: min(100%, 520px);
+      padding: 10px;
+      border: 1px solid var(--lo-border);
+      border-radius: var(--lo-radius-md);
+      background: var(--lo-surface-2);
+    }
+
+    .lasso-command-edit-input {
+      width: 100%;
+      min-height: 74px;
+      resize: vertical;
+      box-sizing: border-box;
+      padding: 9px 10px;
+      border: 1px solid var(--lo-border);
+      border-radius: 7px;
+      background: var(--lo-surface);
+      color: var(--lo-text);
+      font-family: inherit;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .lasso-command-edit-warning,
+    .lasso-command-edit-error {
+      margin-top: 7px;
+      color: var(--lo-text-3);
+      font-size: 10.5px;
+      line-height: 1.4;
+    }
+
+    .lasso-command-edit-error { color: #fca5a5; }
+
+    .lasso-command-edit-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 7px;
+      margin-top: 9px;
+    }
+
+    .lasso-command-edit-actions button {
+      min-height: 30px;
+      padding: 0 10px;
+      border: 1px solid var(--lo-border);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--lo-text-2);
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 500;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .lasso-command-edit-actions button.primary {
+      border-color: var(--lo-primary);
+      background: var(--lo-primary);
+      color: #111214;
+      font-weight: 650;
+    }
+
+    .lasso-command-edit-actions button:disabled { opacity: 0.6; cursor: wait; }
 
     .lasso-command-msg.assistant {
       align-items: stretch;
@@ -3654,6 +3751,92 @@ export function buildStyles(): string {
       color: #93c5fd;
     }
 
+    .lasso-message-link-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      max-width: min(100%, 420px);
+      margin: 0 1px;
+      padding: 1px 3px;
+      vertical-align: middle;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.045);
+      color: var(--lo-text);
+      text-decoration: none;
+      transition: background 120ms ease, border-color 120ms ease;
+    }
+
+    .lasso-message-link-chip:hover {
+      background: rgba(255, 255, 255, 0.085);
+      border-color: rgba(148, 163, 184, 0.38);
+    }
+
+    .lasso-message-link-favicon,
+    .lasso-message-link-file-icon {
+      display: inline-flex;
+      width: 15px;
+      height: 15px;
+      flex: 0 0 15px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+    }
+
+    .lasso-message-link-favicon {
+      object-fit: contain;
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    .lasso-message-link-file-icon {
+      position: relative;
+      width: 16px;
+      height: 16px;
+      flex-basis: 16px;
+      color: #93c5fd;
+      background: rgba(96, 165, 250, 0.12);
+    }
+
+    .lasso-message-link-file-icon svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      stroke-width: 1.4;
+    }
+
+    .lasso-message-link-file-icon small {
+      position: absolute;
+      right: -3px;
+      bottom: -2px;
+      padding: 1px 2px;
+      border-radius: 3px;
+      background: #111827;
+      color: #cbd5e1;
+      font: 600 6px/1 var(--lo-font-mono);
+    }
+
+    .lasso-message-link-file-icon.json { color: #fbbf24; background: rgba(245, 158, 11, 0.12); }
+    .lasso-message-link-file-icon.style { color: #c4b5fd; background: rgba(167, 139, 250, 0.12); }
+    .lasso-message-link-file-icon.docs { color: #34d399; background: rgba(52, 211, 153, 0.12); }
+    .lasso-message-link-file-icon.generic { color: #cbd5e1; background: rgba(148, 163, 184, 0.12); }
+
+    .lasso-message-link-copy {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      gap: 2px;
+      line-height: 1.2;
+    }
+
+    .lasso-message-link-copy strong,
+    .lasso-message-link-copy small {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .lasso-message-link-copy strong { font-size: 11px; font-weight: 600; }
+    .lasso-message-link-copy small { color: var(--lo-text-3); font-size: 10px; }
     .lasso-command-msg-error {
       display: flex;
       align-items: center;
@@ -3864,14 +4047,64 @@ export function buildStyles(): string {
       color: #60a5fa;
     }
 
+    .lasso-step-status-spinner {
+      position: relative;
+      display: inline-flex;
+      width: 13px;
+      height: 13px;
+      align-items: center;
+      justify-content: center;
+      margin-top: 1px;
+    }
+
+    .lasso-step-spinner-ring {
+      position: absolute;
+      inset: 1px;
+      border: 1px dashed currentColor;
+      border-radius: 50%;
+      animation: lasso-step-spinner-rotate 1.1s linear infinite;
+    }
+
+    .lasso-step-spinner-dot {
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    @keyframes lasso-step-spinner-rotate {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .lasso-step-spinner-ring { animation: none; }
+    }
+
     .lasso-step-content {
       display: flex;
       flex-direction: column;
     }
 
     .lasso-step-name {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
       color: var(--lo-text-2);
       font-weight: 450;
+    }
+
+    .lasso-step-tool-icon {
+      display: inline-flex;
+      width: 14px;
+      height: 14px;
+      flex: 0 0 14px;
+      color: #a5b4fc;
+    }
+
+    .lasso-step-tool-icon svg {
+      display: block;
+      width: 100%;
+      height: 100%;
     }
 
     .lasso-step-detail {
@@ -3896,6 +4129,27 @@ export function buildStyles(): string {
       align-items: center;
       justify-content: space-between;
       gap: 8px;
+    }
+
+    .lasso-command-diff-stats,
+    .lasso-command-file-stats {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      flex: 0 0 auto;
+      font: 600 10px/1.2 var(--lo-font-mono);
+    }
+
+    .lasso-command-diff-stats .additions,
+    .lasso-command-file-stats .additions { color: #4ade80; }
+    .lasso-command-diff-stats .deletions,
+    .lasso-command-file-stats .deletions { color: #fb7185; }
+
+    .lasso-command-diff-stats {
+      margin-left: auto;
+      padding: 4px 7px;
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.045);
     }
 
     .lasso-command-changes-title {
@@ -4005,10 +4259,31 @@ export function buildStyles(): string {
     }
 
     .lasso-command-file-name {
+      min-width: 0;
+      flex: 1;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+
+    .lasso-command-file-extension {
+      display: inline-flex;
+      min-width: 26px;
+      height: 18px;
+      align-items: center;
+      justify-content: center;
+      padding: 0 4px;
+      border-radius: 4px;
+      background: rgba(96, 165, 250, 0.12);
+      color: #93c5fd;
+      font: 700 8px/1 var(--lo-font-mono);
+      letter-spacing: -0.2px;
+    }
+
+    .lasso-command-file-extension.json { color: #fbbf24; background: rgba(245, 158, 11, 0.12); }
+    .lasso-command-file-extension.style { color: #c4b5fd; background: rgba(167, 139, 250, 0.12); }
+    .lasso-command-file-extension.docs { color: #34d399; background: rgba(52, 211, 153, 0.12); }
+    .lasso-command-file-extension.generic { color: #cbd5e1; background: rgba(148, 163, 184, 0.12); }
 
     .lasso-command-diff-container {
       max-height: 200px;
@@ -4026,9 +4301,23 @@ export function buildStyles(): string {
     }
 
     .lasso-command-diff-file-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
       color: #93c5fd;
       font-weight: 600;
       margin-bottom: 4px;
+    }
+
+    .lasso-command-diff-file-name {
+      display: inline-flex;
+      min-width: 0;
+      flex: 1;
+      align-items: center;
+      gap: 7px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .lasso-command-diff-content {
@@ -4047,6 +4336,11 @@ export function buildStyles(): string {
       color: #4ade80;
       background: rgba(34, 197, 94, 0.15);
       display: block;
+    }
+
+    .lasso-diff-context {
+      display: block;
+      color: #94a3b8;
     }
 
     .lasso-command-changes-footer {

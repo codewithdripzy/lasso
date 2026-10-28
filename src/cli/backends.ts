@@ -15,11 +15,14 @@
  */
 
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export type LocalAgentProvider = "claude_code" | "opencode" | "codex_cli" | "cursor";
+export type LocalAgentProvider = "claude_code" | "opencode" | "codex_cli" | "cursor" | "antigravity";
 
 export interface DetectedBackendModel {
   /** Model option id sent by the overlay (e.g. "opencode:big-pickle") */
@@ -188,11 +191,20 @@ async function detectOpenCode(): Promise<DetectedBackend> {
 }
 
 async function detectCodex(): Promise<DetectedBackend> {
+  const configuredModel = await readCodexConfiguredModel();
+  const displayModel = configuredModel
+    ?.split("-")
+    .map((part) => part.toLowerCase() === "gpt" ? "GPT" : `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join("-");
   const base: DetectedBackend = {
     provider: "codex_cli",
     installed: false,
     authenticated: false,
-    models: [{ id: "codex_cli:default", label: "Default model (codex config)", modelId: "" }],
+    models: [{
+      id: "codex_cli:default",
+      label: displayModel || "Default model",
+      modelId: "",
+    }],
   };
 
   const version = await probe("codex", ["--version"]);
@@ -214,6 +226,20 @@ async function detectCodex(): Promise<DetectedBackend> {
   }
   base.authenticated = true;
   return base;
+}
+
+async function readCodexConfiguredModel(): Promise<string | null> {
+  const codexHome = process.env.CODEX_HOME || path.join(homedir(), ".codex");
+  try {
+    const config = await readFile(path.join(codexHome, "config.toml"), "utf8");
+    // Only read the root setting. Profile-specific model values are not active
+    // unless Codex is launched with that profile.
+    const rootConfig = config.split(/^\s*\[/m, 1)[0];
+    const match = rootConfig.match(/^\s*model\s*=\s*["']([^"']+)["']\s*(?:#.*)?$/m);
+    return match?.[1]?.trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 async function detectCursor(): Promise<DetectedBackend> {
@@ -269,18 +295,52 @@ async function detectCursor(): Promise<DetectedBackend> {
   return base;
 }
 
+async function detectAntigravity(): Promise<DetectedBackend> {
+  const base: DetectedBackend = {
+    provider: "antigravity",
+    installed: false,
+    authenticated: false,
+    models: [{ id: "antigravity:default", label: "Default model (Antigravity config)", modelId: "" }],
+  };
+
+  const version = await probe("agy", ["--version"]);
+  if (version.failed) {
+    return {
+      ...base,
+      error: "Antigravity CLI not found.",
+      fixInstructions: "Install Antigravity CLI from https://antigravity.google/docs/install/, then run 'agy' once to sign in.",
+    };
+  }
+
+  base.installed = true;
+  base.version = version.stdout.trim().split("\n")[0];
+
+  // `agy models` is a documented non-interactive CLI command. It verifies
+  // that the CLI can load its configured model environment without sending a
+  // model request or triggering the interactive browser sign-in flow.
+  const models = await probe("agy", ["models"], 15000);
+  if (!models.ok) {
+    base.error = "Antigravity could not load its model configuration.";
+    base.fixInstructions = "Run 'agy' in a terminal and complete sign-in, then run 'agy models' to verify access.";
+    return base;
+  }
+
+  base.authenticated = true;
+  return base;
+}
+
 /**
  * Probe all supported local agents in parallel.
  * Fault-tolerant: a missing or broken CLI never rejects the whole list.
  */
 export async function detectBackends(): Promise<DetectedBackend[]> {
-  return Promise.all([detectClaudeCode(), detectOpenCode(), detectCodex(), detectCursor()]);
+  return Promise.all([detectClaudeCode(), detectOpenCode(), detectCodex(), detectCursor(), detectAntigravity()]);
 }
 
 /**
  * Whether a model option id belongs to a local agent (provider prefix match).
  */
-export const LOCAL_MODEL_PREFIXES = ["claude_code:", "claude-code:", "opencode:", "codex:", "codex_cli:", "cursor:"];
+export const LOCAL_MODEL_PREFIXES = ["claude_code:", "claude-code:", "opencode:", "codex:", "codex_cli:", "cursor:", "antigravity:"];
 
 /**
  * Extract the modelId for backendConfig from an overlay model option id.
@@ -291,7 +351,7 @@ export const LOCAL_MODEL_PREFIXES = ["claude_code:", "claude-code:", "opencode:"
  *   "claude-3-5-sonnet"    → "claude-3-5-sonnet" (hosted ids pass through)
  */
 export function modelIdForBackend(optionId: string, provider: string): string {
-  if (!LOCAL_MODEL_PREFIXES.some((p) => optionId.startsWith(p)) && !["claude_code", "opencode", "codex_cli", "cursor"].includes(provider)) {
+  if (!LOCAL_MODEL_PREFIXES.some((p) => optionId.startsWith(p)) && !["claude_code", "opencode", "codex_cli", "cursor", "antigravity"].includes(provider)) {
     return optionId;
   }
   const colon = optionId.indexOf(":");
@@ -302,6 +362,9 @@ export function modelIdForBackend(optionId: string, provider: string): string {
     return raw.includes("/") ? raw : `opencode/${raw}`;
   }
   if (provider === "codex_cli") {
+    return raw === "default" ? "" : raw;
+  }
+  if (provider === "antigravity") {
     return raw === "default" ? "" : raw;
   }
   return raw;

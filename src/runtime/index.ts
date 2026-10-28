@@ -21,3 +21,4 @@ export { ClaudeCodeAdapter } from "./adapters/claude-code-adapter";
 export { OpenCodeAdapter } from "./adapters/opencode-adapter";
 export { CodexCLIAdapter } from "./adapters/codex-cli-adapter";
 export { CursorAdapter } from "./adapters/cursor-adapter";
+export { AntigravityAdapter } from "./adapters/antigravity-adapter";

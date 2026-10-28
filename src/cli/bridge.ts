@@ -9,7 +9,7 @@ import chalk from "chalk";
 import type { CollabConfig } from "./project";
 import { resolveLassoApiKey, resolveWorkspaceConfig, fetchModels } from "./project";
 import { serverUrlFrom, agentRuntimeUrlFrom, loadCredentials } from "./auth";
-import { createSnapshot, restoreSnapshot, getTimeline, deleteSnapshot, type TimelineSnapshot } from "./snapshot";
+import { createSnapshot, restoreSnapshot, rewindAppliedTasks, getTimeline, deleteSnapshot, type TimelineSnapshot } from "./snapshot";
 import { RuntimeClient, type RuntimeSessionInput, type RuntimeEvent, type RuntimeSession, type RuntimeFacade, type BrowserContextProvider } from "./runtime-client";
 import { detectBackends, modelIdForBackend, type DetectedBackend, type LocalAgentProvider } from "./backends";
 import { getLocalRuntime } from "./local-runtime";
@@ -121,6 +121,7 @@ function detectProjectFramework(cwd: string): string {
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(cwd, "package.json"), "utf8"));
     if (pkg.dependencies?.next || pkg.devDependencies?.next) return "next";
+    if (pkg.dependencies?.nuxt || pkg.devDependencies?.nuxt) return "nuxt";
     if (pkg.dependencies?.react || pkg.devDependencies?.react) return "react";
     if (pkg.dependencies?.vue || pkg.devDependencies?.vue) return "vue";
     if (pkg.dependencies?.svelte || pkg.devDependencies?.svelte) return "svelte";
@@ -187,6 +188,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   let overlaySocket: WebSocket | null = null;
   const taskSnapshots = new Map<string, Array<{ filePath: string; content: string | null }>>();
   const activeSessions = new Map<string, RuntimeSession>();
+  const pendingReviewTasks = new Set<string>();
   // Per-task runtime facade: LocalRuntime for local coding agents (executed
   // in this process), RuntimeClient for hosted models (via Lasso server).
   const taskFacades = new Map<string, RuntimeFacade>();
@@ -268,8 +270,9 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   const BACKEND_LABELS: Record<LocalAgentProvider, string> = {
     claude_code: "Claude Code",
     opencode: "OpenCode",
-    codex_cli: "Codex CLI",
+    codex_cli: "Codex",
     cursor: "Cursor",
+    antigravity: "Antigravity",
   };
 
   for (const backend of detectedBackends) {
@@ -314,13 +317,25 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     return entries.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "directory" ? -1 : 1));
   };
 
-  bridgeServer.on("request", (req, res) => {
+  bridgeServer.on("request", async (req, res) => {
     if (req.method === "GET" && req.url?.split("?", 1)[0] === "/__lasso/bridge/status") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true, pid: process.pid, uptimeMs: Date.now() - startedAt, clients: connectedClients, logFile: lassoLogPath() }));
       return;
     }
     if (req.method !== "POST" || req.url?.split("?", 1)[0] !== "/__lasso/bridge/restart") return;
+    for (const taskId of pendingReviewTasks) {
+      const session = activeSessions.get(taskId);
+      const facade = taskFacades.get(taskId) || runtimeClient;
+      if (session) {
+        try {
+          await facade.resolveReview(session.id, []);
+        } catch (error) {
+          console.warn(`[lasso] Could not reject pending review ${taskId} before bridge restart:`, error);
+        }
+      }
+    }
+    pendingReviewTasks.clear();
     for (const controller of taskControllers.values()) controller.abort();
     taskControllers.clear();
     for (const socket of wss.clients) socket.close(1000, "Bridge restarted by the CLI");
@@ -332,6 +347,23 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   // review=true opens the diff review on agent_completed (edit/ask flow).
   function handleRuntimeEvent(event: RuntimeEvent, socket: WebSocket, taskId: string, session: RuntimeSession, instruction: string, review: boolean): void {
     if (taskControllers.get(taskId)?.signal.aborted) return;
+
+    if (["agent_started", "agent_reasoning", "tool_started", "tool_completed", "agent_completed", "agent_failed", "agent_cancelled", "error"].includes(event.type)) {
+      const data = (event as { data?: Record<string, unknown> }).data || {};
+      const message = [data.summary, data.message, data.label, data.error].find((value) => typeof value === "string" && value.trim());
+      writeLassoLog(event.type === "error" || event.type === "agent_failed" ? "error" : "info", "agent_runtime_event", {
+        taskId,
+        sessionId: event.sessionId,
+        provider: session.model?.provider,
+        type: event.type,
+        ...(typeof message === "string" ? { message: message.slice(0, 400) } : {}),
+        ...(typeof data.actionType === "string" ? { actionType: data.actionType } : {}),
+        ...(typeof data.success === "boolean" ? { success: data.success } : {}),
+        ...(typeof data.recoverable === "boolean" ? { recoverable: data.recoverable } : {}),
+        ...(typeof data.requiresReview === "boolean" ? { requiresReview: data.requiresReview } : {}),
+        ...(typeof data.pendingChanges === "number" ? { pendingChanges: data.pendingChanges } : {}),
+      });
+    }
 
     switch (event.type) {
       case "agent_started":
@@ -441,14 +473,38 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
           );
           break;
         }
-        if (review) void handleReviewReady(session, socket, taskId, instruction);
+        const pendingChanges = typeof data.pendingChanges === "number" ? data.pendingChanges : 0;
+        const requiresReview = data.requiresReview === true || pendingChanges > 0;
+        if (review && requiresReview) {
+          pendingReviewTasks.add(taskId);
+          void handleReviewReady(session, socket, taskId);
+        } else {
+          const summary = typeof data.summary === "string" ? data.summary.trim() : "";
+          socket.send(
+            JSON.stringify({
+              type: "agent_status",
+              taskId,
+              status: "complete",
+              message: summary || "Task completed.",
+            } satisfies ServerBridgeMessage)
+          );
+        }
         break;
       }
 
       case "error":
         {
           const data = (event.data as Record<string, unknown>) || {};
-          const detail = data.error || data.message || data.details;
+          const errorValue = data.error;
+          const errorRecord = errorValue && typeof errorValue === "object" ? (errorValue as Record<string, unknown>) : undefined;
+          const detail =
+            (typeof errorValue === "string" && errorValue) || (typeof errorRecord?.message === "string" && errorRecord.message) || (typeof data.message === "string" && data.message) || (typeof data.details === "string" && data.details) || "The agent runtime failed without an error message.";
+
+          // Local coding agents can report recoverable shell/tool errors and
+          // continue their own loop. Their tool_completed event already shows
+          // the failed step; do not mark the whole task as failed here.
+          if (errorRecord?.recoverable === true || data.recoverable === true) break;
+
           socket.send(
             JSON.stringify({
               type: "agent_status",
@@ -458,6 +514,31 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
             } satisfies ServerBridgeMessage)
           );
         }
+        break;
+
+      case "agent_failed": {
+        const data = (event.data as Record<string, unknown>) || {};
+        const message = [data.error, data.message, data.details].find((value) => typeof value === "string" && value.trim());
+        socket.send(
+          JSON.stringify({
+            type: "agent_status",
+            taskId,
+            status: "error",
+            message: typeof message === "string" ? message : "The agent process failed without an error message.",
+          } satisfies ServerBridgeMessage)
+        );
+        break;
+      }
+
+      case "agent_cancelled":
+        socket.send(
+          JSON.stringify({
+            type: "agent_status",
+            taskId,
+            status: "stopped",
+            message: "Agent stopped.",
+          } satisfies ServerBridgeMessage)
+        );
         break;
 
       case "waiting_for_user":
@@ -502,37 +583,16 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     }
   }
 
-  // The server rolled the workspace back before review, so the current files
-  // are the originals: capture them for undo, then open the review panel.
-  async function handleReviewReady(session: RuntimeSession, socket: WebSocket, taskId: string, instruction: string): Promise<void> {
+  // The proposed edits stay on disk while the review is open. The runtime
+  // guard retains the original state for rejection or partial approval.
+  async function handleReviewReady(session: RuntimeSession, socket: WebSocket, taskId: string): Promise<void> {
     try {
       const facade = taskFacades.get(taskId) || runtimeClient;
       const finalSession = await facade.getSession(session.id);
       const changes = extractChangesFromSession(finalSession);
 
       if (changes.length > 0) {
-        taskSnapshots.set(
-          taskId,
-          changes.map((change: any) => {
-            const abs = path.join(cwd, change.filePath);
-            let content: string | null = null;
-            try {
-              content = fs.readFileSync(abs, "utf8");
-            } catch {
-              content = null; // did not exist before the task (created file)
-            }
-            return { filePath: change.filePath, content };
-          })
-        );
-
-        createSnapshot(
-          cwd,
-          taskId,
-          instruction,
-          changes.map((change: any) => change.filePath),
-          undefined,
-          session.id
-        );
+        pendingReviewTasks.add(taskId);
 
         // Extract the assistant's reply from the session conversation so the user
         // sees both the explanation and the review panel — not just "Review changes".
@@ -552,9 +612,17 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
           } satisfies ServerBridgeMessage)
         );
       } else {
+        pendingReviewTasks.delete(taskId);
         await sendLocalConversationReply(facade, session, taskId, socket);
       }
     } catch (error) {
+      const facade = taskFacades.get(taskId) || runtimeClient;
+      try {
+        await facade.resolveReview(session.id, []);
+      } catch {
+        /* The run may have failed before creating a review guard. */
+      }
+      pendingReviewTasks.delete(taskId);
       socket.send(
         JSON.stringify({
           type: "agent_status",
@@ -672,11 +740,15 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   }
 
   async function handleEditOrAsk(message: any, socket: WebSocket, taskId: string, instruction: string, model: string, provider: string, context: any, element: any, messages: any[] | undefined) {
+    if (pendingReviewTasks.size > 0) {
+      socket.send(JSON.stringify({ type: "agent_status", taskId, status: "error", message: "Accept or reject the open file review before starting another coding task." } satisfies ServerBridgeMessage));
+      return;
+    }
     taskControllers.get(taskId)?.abort();
     const controller = new AbortController();
     taskControllers.set(taskId, controller);
 
-    const isLocalAgent = ["claude_code", "opencode", "codex_cli", "cursor"].includes(provider || "");
+    const isLocalAgent = ["claude_code", "opencode", "codex_cli", "cursor", "antigravity"].includes(provider || "");
     if (message.type === "ask" && !isLocalAgent) {
       await handleHostedConversation(taskId, instruction, model, provider, messages, socket, controller.signal, message.conversationId);
       return;
@@ -742,8 +814,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       activeSessions.set(taskId, session);
       taskFacades.set(taskId, facade);
 
-      // Originals are captured when the review is ready (the workspace was
-      // already rolled back at that point).
+      // The guard captures original contents before the agent starts.
 
       await facade.runSession(
         session.id,
@@ -771,8 +842,8 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     }
   }
 
-  // Handler for apply - applies approved pending changes, then runs server-side
-  // verification. On failure a corrective run is started automatically.
+  // Handler for approval: keep selected edits, restore excluded files, then
+  // run verification. On failure a corrective run is started automatically.
   async function handleApply(message: any, socket: WebSocket, cwd: string) {
     const { taskId, changes } = message;
     const session = activeSessions.get(taskId);
@@ -817,53 +888,47 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       return;
     }
 
-    // The server rolled the workspace back before review, so the disk still
-    // holds the originals — capture them now (if the review didn't already).
-    if (filePaths.length > 0 && (!taskSnapshots.has(taskId) || (taskSnapshots.get(taskId) || []).length === 0)) {
-      taskSnapshots.set(
-        taskId,
-        changes.map((change: any) => {
-          const abs = path.join(cwd, change.filePath);
-          let content: string | null = null;
-          try {
-            content = fs.readFileSync(abs, "utf8");
-          } catch {
-            content = null;
-          }
-          return { filePath: change.filePath, content };
-        })
-      );
-    }
-
-    if (filePaths.length > 0) {
-      createSnapshot(cwd, taskId, `Apply changes for task ${taskId}`, filePaths, undefined, session.id);
-    }
-
-    const applyError = applyChanges(authoritative, cwd);
-    if (applyError) {
-      // Roll back partial application so the project stays consistent
-      const originals = taskSnapshots.get(taskId) || [];
-      for (const item of originals) {
-        try {
-          const abs = path.join(cwd, item.filePath);
-          if (item.content === null) {
-            if (fs.existsSync(abs)) fs.unlinkSync(abs);
-          } else {
-            fs.mkdirSync(path.dirname(abs), { recursive: true });
-            fs.writeFileSync(abs, item.content);
-          }
-        } catch {}
-      }
+    const approvedPaths = new Set(changes.map((change: any) => change?.filePath).filter((filePath: unknown): filePath is string => typeof filePath === "string"));
+    const approvedChanges = authoritative.filter((change) => approvedPaths.has(change.filePath));
+    if (approvedChanges.length === 0) {
       socket.send(
         JSON.stringify({
           type: "agent_status",
           taskId,
           status: "error",
-          message: applyError,
+          message: "Select at least one file to keep.",
         } satisfies ServerBridgeMessage)
       );
       return;
     }
+
+    const approvedFilePaths = approvedChanges.map((change) => change.filePath);
+    const originalFiles = new Map<string, string | null>(approvedChanges.map((change) => [change.filePath, change.operation === "created" ? null : change.oldString]));
+    if (pendingReviewTasks.has(taskId)) {
+      try {
+        await facade.resolveReview(session.id, approvedFilePaths);
+      } catch (error) {
+        socket.send(JSON.stringify({ type: "agent_status", taskId, status: "error", message: error instanceof Error ? error.message : "Could not resolve the file review." } satisfies ServerBridgeMessage));
+        return;
+      }
+    } else {
+      // A rejected review can be applied again later from the saved diff.
+      const applyError = applyChanges(approvedChanges);
+      if (applyError) {
+        restoreOriginalFiles(originalFiles);
+        socket.send(JSON.stringify({ type: "agent_status", taskId, status: "error", message: applyError } satisfies ServerBridgeMessage));
+        return;
+      }
+    }
+    taskSnapshots.set(
+      taskId,
+      approvedChanges.map((change) => ({
+        filePath: change.filePath,
+        content: originalFiles.get(change.filePath) ?? null,
+      }))
+    );
+    createSnapshot(cwd, taskId, `Apply changes for task ${taskId}`, approvedFilePaths, undefined, session.id, originalFiles);
+    pendingReviewTasks.delete(taskId);
 
     // Post-apply verification (inconclusive when the engine can't run —
     // never reported as a failure of the changes themselves).
@@ -885,7 +950,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       JSON.stringify({
         type: "applied",
         taskId,
-        message: "Changes applied successfully",
+        message: "Changes accepted successfully",
         ...(validation ? { validation } : {}),
       } satisfies ServerBridgeMessage)
     );
@@ -895,40 +960,47 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     }
   }
 
-  /** Apply approved changes to disk. Returns an error message or null. */
-  function applyChanges(changes: any[], cwd: string): string | null {
+  function restoreOriginalFiles(originalFiles: Map<string, string | null>): void {
+    for (const [relativePath, content] of originalFiles) {
+      const filePath = resolveWorkspacePath(relativePath);
+      if (!filePath) continue;
+      try {
+        if (content === null) {
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        } else {
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          fs.writeFileSync(filePath, content);
+        }
+      } catch (error) {
+        console.warn(`[lasso] Failed to restore ${relativePath} after an incomplete apply:`, error);
+      }
+    }
+  }
+
+  /** Reapply a previously rejected diff. First-time approval keeps the in-place edits. */
+  function applyChanges(changes: any[]): string | null {
     for (const change of changes) {
       const filePath = resolveWorkspacePath(change.filePath);
       if (!filePath) return `Cannot apply ${String(change.filePath)}: invalid workspace path.`;
-      const dir = path.dirname(filePath);
       const oldString = typeof change.oldString === "string" ? change.oldString : "";
       const newString = typeof change.newString === "string" ? change.newString : "";
       const operation: string = change.operation || (oldString === "" && newString === "" ? "deleted" : oldString === "" ? "created" : "modified");
 
       try {
-        if (!fs.existsSync(dir)) {
-          fs.mkdirSync(dir, { recursive: true });
-        }
-
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
         if (operation === "deleted") {
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        } else if (operation === "created") {
           if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
+            const current = fs.readFileSync(filePath, "utf8");
+            if (current !== newString) return `Cannot apply ${change.filePath}: the file already exists with different contents.`;
           }
-        } else if (operation === "created" || (oldString === "" && operation !== "modified")) {
           fs.writeFileSync(filePath, newString);
         } else {
-          // Full-content replacement; split/join avoids String.replace's
-          // special $-pattern handling in the replacement text.
           const content = fs.readFileSync(filePath, "utf8");
-          let next: string;
-          if (content === oldString) {
-            next = newString;
-          } else if (oldString && content.includes(oldString)) {
-            next = content.split(oldString).join(newString);
-          } else {
-            return `Cannot apply ${change.filePath}: the file changed since the diff was generated.`;
-          }
-          fs.writeFileSync(filePath, next);
+          if (content === oldString) fs.writeFileSync(filePath, newString);
+          else if (oldString && content.includes(oldString)) fs.writeFileSync(filePath, content.split(oldString).join(newString));
+          else return `Cannot apply ${change.filePath}: the file changed since the diff was generated.`;
         }
       } catch (error) {
         return `Failed to apply ${change.filePath}: ${error instanceof Error ? error.message : "Unknown error"}`;
@@ -981,6 +1053,23 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   // Handler for undo - restores snapshot
   async function handleUndo(message: any, socket: WebSocket, cwd: string) {
     const { taskId } = message;
+    if (pendingReviewTasks.has(taskId)) {
+      const session = activeSessions.get(taskId);
+      const facade = taskFacades.get(taskId) || runtimeClient;
+      if (!session) {
+        socket.send(JSON.stringify({ type: "agent_status", taskId, status: "error", message: "The pending file review is no longer available." } satisfies ServerBridgeMessage));
+        return;
+      }
+      try {
+        await facade.resolveReview(session.id, []);
+        pendingReviewTasks.delete(taskId);
+      } catch (error) {
+        socket.send(JSON.stringify({ type: "agent_status", taskId, status: "error", message: error instanceof Error ? error.message : "Could not reject the file review." } satisfies ServerBridgeMessage));
+        return;
+      }
+      socket.send(JSON.stringify({ type: "undone", taskId, message: "Changes rejected and original files restored" } satisfies ServerBridgeMessage));
+      return;
+    }
     const snapshot = taskSnapshots.get(taskId) || [];
 
     for (const item of snapshot) {
@@ -1017,10 +1106,60 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     );
   }
 
+  async function handleRewindConversation(message: any, socket: WebSocket, cwd: string): Promise<void> {
+    const targetMessageId = typeof message.targetMessageId === "string" ? message.targetMessageId : "";
+    const taskIds = Array.isArray(message.taskIds) ? message.taskIds.filter((id: unknown): id is string => typeof id === "string") : [];
+    const pendingTaskIds = Array.isArray(message.pendingTaskIds) ? message.pendingTaskIds.filter((id: unknown): id is string => typeof id === "string") : [];
+    if (!targetMessageId) {
+      socket.send(JSON.stringify({ type: "rewind_result", targetMessageId, success: false, error: "The message to edit was not identified." } satisfies ServerBridgeMessage));
+      return;
+    }
+
+    for (const pendingTaskId of pendingTaskIds) {
+      if (!pendingReviewTasks.has(pendingTaskId)) continue;
+      const session = activeSessions.get(pendingTaskId);
+      const facade = taskFacades.get(pendingTaskId) || runtimeClient;
+      if (!session) {
+        socket.send(JSON.stringify({ type: "rewind_result", targetMessageId, success: false, error: "A later pending file review is no longer available." } satisfies ServerBridgeMessage));
+        return;
+      }
+      try {
+        await facade.resolveReview(session.id, []);
+        pendingReviewTasks.delete(pendingTaskId);
+      } catch (error) {
+        socket.send(JSON.stringify({ type: "rewind_result", targetMessageId, success: false, error: error instanceof Error ? error.message : "Could not restore a later pending review." } satisfies ServerBridgeMessage));
+        return;
+      }
+    }
+
+    const result = rewindAppliedTasks(cwd, taskIds);
+    socket.send(
+      JSON.stringify({
+        type: "rewind_result",
+        targetMessageId,
+        success: result.ok,
+        ...(result.error ? { error: result.error } : {}),
+        restoredFiles: result.restoredFiles,
+      } satisfies ServerBridgeMessage)
+    );
+  }
+
   // Handler for stop
   async function handleStop(message: any, socket: WebSocket) {
     const { taskId } = message;
     if (taskId) {
+      if (pendingReviewTasks.has(taskId)) {
+        const pendingSession = activeSessions.get(taskId);
+        const pendingFacade = taskFacades.get(taskId) || runtimeClient;
+        if (pendingSession) {
+          try {
+            await pendingFacade.resolveReview(pendingSession.id, []);
+          } catch {
+            /* Preserve the file state if rollback conflicts. */
+          }
+        }
+        pendingReviewTasks.delete(taskId);
+      }
       taskControllers.get(taskId)?.abort();
       const session = activeSessions.get(taskId);
       const facade = taskFacades.get(taskId);
@@ -1028,6 +1167,18 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       activeSessions.delete(taskId);
       taskFacades.delete(taskId);
     } else {
+      for (const pendingTaskId of pendingReviewTasks) {
+        const pendingSession = activeSessions.get(pendingTaskId);
+        const pendingFacade = taskFacades.get(pendingTaskId) || runtimeClient;
+        if (pendingSession) {
+          try {
+            await pendingFacade.resolveReview(pendingSession.id, []);
+          } catch {
+            /* Preserve the file state if rollback conflicts. */
+          }
+        }
+      }
+      pendingReviewTasks.clear();
       for (const controller of taskControllers.values()) controller.abort();
       taskControllers.clear();
       for (const [id, session] of activeSessions) {
@@ -1103,7 +1254,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     }
 
     try {
-      const isLocalAgent = ["claude_code", "opencode", "codex_cli", "cursor"].includes(provider || "");
+      const isLocalAgent = ["claude_code", "opencode", "codex_cli", "cursor", "antigravity"].includes(provider || "");
       const facade = taskFacades.get(taskId) || runtimeClient;
       await facade.switchModel(
         session.id,
@@ -1144,6 +1295,10 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   // Handler for oneshot
   async function handleOneshot(message: any, socket: WebSocket, cwd: string) {
     const { taskId, prompt, model, provider, messages, conversation } = message;
+    if (pendingReviewTasks.size > 0) {
+      socket.send(JSON.stringify({ type: "agent_status", taskId, status: "error", message: "Accept or reject the open file review before starting another coding task." } satisfies ServerBridgeMessage));
+      return;
+    }
     const runtimeConversation = toRuntimeConversation(conversation || messages);
     const instruction =
       [...(runtimeConversation || [])]
@@ -1164,7 +1319,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     // decides whether the request needs project work or a conversational reply.
 
     try {
-      const isLocalAgent = ["claude_code", "opencode", "codex_cli", "cursor"].includes(provider || "");
+      const isLocalAgent = ["claude_code", "opencode", "codex_cli", "cursor", "antigravity"].includes(provider || "");
       if (!isLocalAgent) {
         try {
           const route = await runtimeClient.routeRequest({
@@ -1218,8 +1373,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         session.id,
         cwd,
         (event: RuntimeEvent) => {
-          // Oneshot results are reviewed exactly like edit/ask: the workspace is
-          // rolled back and only approval re-applies the changes.
+          // Oneshot results use the same in-place accept/reject review flow.
           handleRuntimeEvent(event, socket, taskId, session, `Oneshot: ${instruction}`, true);
         },
         controller.signal,
@@ -1397,6 +1551,10 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
 
           case "undo":
             await handleUndo(msg, socket, cwd);
+            break;
+
+          case "rewind_conversation":
+            await handleRewindConversation(msg, socket, cwd);
             break;
 
           case "stop":

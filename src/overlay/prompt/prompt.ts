@@ -50,8 +50,9 @@ const providerLabels: Record<ModelOption["provider"], string> = {
   cli: "CLI",
   claude_code: "Claude Code",
   opencode: "OpenCode",
-  codex_cli: "Codex CLI",
+  codex_cli: "Codex",
   cursor: "Cursor",
+  antigravity: "Antigravity",
 };
 
 const providerIcons = {
@@ -65,10 +66,11 @@ const providerIcons = {
   opencode: terminalIcon,
   codex_cli: terminalIcon,
   cursor: terminalIcon,
+  antigravity: terminalIcon,
 };
 
 export function providerIcon(provider: ModelOption["provider"], active = false): string {
-  if (provider === "cli" || provider === "claude_code" || provider === "opencode" || provider === "codex_cli" || provider === "cursor") {
+  if (provider === "cli" || provider === "claude_code" || provider === "opencode" || provider === "codex_cli" || provider === "cursor" || provider === "antigravity") {
     return `<span class="${active ? "lasso-model-active-icon" : "lasso-model-item-icon"} provider-${provider}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false"><circle cx="12" cy="12" r="9" fill="currentColor" opacity=".16"/><circle cx="12" cy="9" r="3" fill="currentColor"/><path d="M6.5 18c.9-2.4 2.7-3.6 5.5-3.6s4.6 1.2 5.5 3.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>`;
   }
   const icon = providerIcons[provider];
@@ -267,14 +269,14 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
     <div class="lasso-review-header">
       <div>
         <h3 class="lasso-review-title">Review source changes</h3>
-        <p class="lasso-review-subtitle">Nothing has been written yet. Inspect the focused diff before applying it.</p>
+        <p class="lasso-review-subtitle">Changes are in your files while you review. Accept to keep them or reject to restore the originals.</p>
       </div>
       <button class="lasso-review-close" type="button" aria-label="Close review">×</button>
     </div>
     <div class="lasso-review-files"></div>
     <div class="lasso-review-actions">
-      <button class="lasso-review-undo" type="button">Keep editing</button>
-      <button class="lasso-review-apply primary" type="button">Accept &amp; apply</button>
+      <button class="lasso-review-undo" type="button">Reject changes</button>
+      <button class="lasso-review-apply primary" type="button">Accept changes</button>
     </div>
   `;
   dom.shadow.appendChild(rev);
@@ -486,14 +488,18 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
   rev.querySelector<HTMLButtonElement>(".lasso-review-close")!.addEventListener("click", closeReview);
   rev.querySelector<HTMLButtonElement>(".lasso-review-undo")!.addEventListener("click", () => {
     const taskId = state.promptTaskId || undefined;
-    if (state.pendingChanges.length && rev.querySelector<HTMLButtonElement>(".lasso-review-apply")!.hidden) {
-      if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
-        state.bridgeSocket.send(JSON.stringify({ type: "undo", taskId }));
+    if (taskId && state.pendingChanges.length && state.bridgeSocket?.readyState === WebSocket.OPEN) {
+      const rejectButton = rev.querySelector<HTMLButtonElement>(".lasso-review-undo");
+      const acceptButton = rev.querySelector<HTMLButtonElement>(".lasso-review-apply");
+      if (rejectButton) {
+        rejectButton.disabled = true;
+        rejectButton.textContent = "Rejecting…";
       }
+      if (acceptButton) acceptButton.disabled = true;
+      state.bridgeSocket.send(JSON.stringify({ type: "undo", taskId }));
       return;
     }
-    closeReview();
-    appendChat("assistant", "Kept as a proposal. Nothing was changed.", taskId);
+    if (!state.pendingChanges.length) closeReview();
   });
 
   // Add timeline/history button to review panel
@@ -524,7 +530,7 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
     const applyBtn = rev.querySelector<HTMLButtonElement>(".lasso-review-apply");
     if (applyBtn) {
       applyBtn.disabled = true;
-      applyBtn.textContent = "Applying...";
+      applyBtn.textContent = "Accepting…";
     }
   });
 
@@ -645,7 +651,7 @@ function respondToAgentPrompt(response: string): void {
   appendChat("assistant", `Responded to the agent: ${response}`, taskId);
 }
 
-const LOCAL_AGENT_PROVIDERS = new Set(["cli", "claude_code", "opencode", "codex_cli", "cursor"]);
+const LOCAL_AGENT_PROVIDERS = new Set(["cli", "claude_code", "opencode", "codex_cli", "cursor", "antigravity"]);
 
 export function buildModelMenuContent(menuEl: HTMLElement, onRefresh: () => void): void {
   const filters = document.createElement("div");
@@ -679,7 +685,7 @@ export function buildModelMenuContent(menuEl: HTMLElement, onRefresh: () => void
     children.push(group);
 
     if (isCliGroup) {
-      // Subgroup by agent provider (claude_code, opencode, codex_cli, cursor).
+      // Subgroup by local agent provider.
       const cliGroups = new Map<string, ModelOption[]>();
       for (const model of models) {
         const key = model.provider;
@@ -736,6 +742,7 @@ function cliLabel(key: string): string {
   if (key === "codex") return "Codex";
   if (key === "opencode") return "OpenCode";
   if (key === "cursor") return "Cursor";
+  if (key === "antigravity") return "Antigravity";
   return key;
 }
 
@@ -1077,6 +1084,7 @@ export function showReview(changes: PendingChange[], summary: string) {
   const subtitle = reviewPanel.querySelector<HTMLParagraphElement>(".lasso-review-subtitle");
   const files = reviewPanel.querySelector<HTMLDivElement>(".lasso-review-files");
   const applyBtn = reviewPanel.querySelector<HTMLButtonElement>(".lasso-review-apply");
+  const rejectBtn = reviewPanel.querySelector<HTMLButtonElement>(".lasso-review-undo");
   if (!subtitle || !files) return;
 
   subtitle.textContent = `${summary} ${changes.length} file${changes.length === 1 ? "" : "s"} proposed.`;
@@ -1095,12 +1103,12 @@ export function showReview(changes: PendingChange[], summary: string) {
       newCode.className = "lasso-review-new";
       const isDelete = change.operation === "deleted" || (change.newString === "" && change.oldString !== "");
       if (isDelete) {
-        oldCode.textContent = `- ${change.oldString}`;
+        oldCode.textContent = reviewDiffSide(change.oldString, change.newString, "old");
         newCode.textContent = "(file deleted)";
         newCode.classList.add("lasso-review-deleted");
       } else {
-        oldCode.textContent = change.oldString ? `- ${change.oldString}` : "(new file)";
-        newCode.textContent = change.newString ? `+ ${change.newString}` : "";
+        oldCode.textContent = change.oldString ? reviewDiffSide(change.oldString, change.newString, "old") : "(new file)";
+        newCode.textContent = change.newString ? reviewDiffSide(change.oldString, change.newString, "new") : "";
       }
       code.append(oldCode, newCode);
       file.append(name, code);
@@ -1111,7 +1119,11 @@ export function showReview(changes: PendingChange[], summary: string) {
   // Re-enable apply button
   if (applyBtn) {
     applyBtn.disabled = false;
-    applyBtn.textContent = "Accept & apply";
+    applyBtn.textContent = "Accept changes";
+  }
+  if (rejectBtn) {
+    rejectBtn.disabled = false;
+    rejectBtn.textContent = "Reject changes";
   }
 
   reviewPanel.hidden = false;
@@ -1119,6 +1131,28 @@ export function showReview(changes: PendingChange[], summary: string) {
   const top = Math.max(12, (window.innerHeight - Math.min(620, window.innerHeight - 24)) / 2);
   reviewPanel.style.left = `${left}px`;
   reviewPanel.style.top = `${top}px`;
+}
+
+function reviewDiffSide(oldText: string, newText: string, side: "old" | "new"): string {
+  const oldLines = oldText.split("\n");
+  const newLines = newText.split("\n");
+  let prefix = 0;
+  while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) prefix++;
+
+  let suffix = 0;
+  while (
+    suffix < oldLines.length - prefix &&
+    suffix < newLines.length - prefix &&
+    oldLines[oldLines.length - suffix - 1] === newLines[newLines.length - suffix - 1]
+  ) suffix++;
+
+  const before = oldLines.slice(prefix, oldLines.length - suffix);
+  const after = newLines.slice(prefix, newLines.length - suffix);
+  const contextBefore = oldLines.slice(Math.max(0, prefix - 2), prefix).map((line) => `  ${line}`);
+  const contextAfter = suffix ? newLines.slice(newLines.length - suffix, newLines.length - suffix + 2).map((line) => `  ${line}`) : [];
+  const changed = (side === "old" ? before : after).map((line) => `${side === "old" ? "−" : "+"} ${line}`);
+  const result = [...contextBefore, ...changed, ...contextAfter];
+  return result.length ? result.join("\n") : "No textual changes";
 }
 
 export function closeReview() {

@@ -26,6 +26,7 @@ interface CodexConfig extends LocalAgentConfig {
 }
 
 interface CodexItem {
+  type?: string;
   item_type?: string;
   text?: string;
   command?: string;
@@ -144,9 +145,10 @@ export class CodexCLIAdapter extends LocalAgentAdapter {
       case "item.started":
       case "item.updated": {
         const item = event.item || {};
-        if (item.item_type === "command_execution" && item.command) {
+        const itemType = item.item_type || item.type;
+        if (itemType === "command_execution" && item.command) {
           sink.toolStarted("shell", item.command.slice(0, 200));
-        } else if (item.item_type === "file_change") {
+        } else if (itemType === "file_change") {
           sink.toolStarted("file_change", undefined);
         }
         return true;
@@ -180,7 +182,7 @@ export class CodexCLIAdapter extends LocalAgentAdapter {
   }
 
   private handleItemCompleted(item: CodexItem, sink: EventSink): void {
-    switch (item.item_type) {
+    switch (item.item_type || item.type) {
       case "command_execution": {
         const success = typeof item.exit_code === "number" ? item.exit_code === 0 : item.status === "completed";
         sink.toolCompleted("shell", success, (item.command || "").slice(0, 200));
@@ -202,7 +204,8 @@ export class CodexCLIAdapter extends LocalAgentAdapter {
         break;
       }
 
-      case "assistant_message": {
+      case "assistant_message":
+      case "agent_message": {
         if (item.text) {
           sink.progress(item.text);
           sink.state.summary = item.text;

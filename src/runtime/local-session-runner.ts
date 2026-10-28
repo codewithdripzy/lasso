@@ -5,7 +5,7 @@
  *   backend.executeTask (agent owns its internal loop)
  *   → guard.diff (authoritative change detection)
  *   → review normalization (pendingChanges contract)
- *   → workspace rollback BEFORE review (finally safety net)
+ *   → keep edits present while the user reviews them
  *   → wire events (agent_completed / error) identical to the hosted SSE flow.
  *
  * Hosts (server orchestrator for colocated self-host, CLI LocalRuntime for
@@ -32,12 +32,29 @@ export class LocalSessionRunner {
     const phase = this.options.phase || "execute";
 
     let outcome: LocalSessionOutcome;
+    let keepWorkspaceChangesForReview = false;
+    let terminalEvent: AgentEvent | undefined;
+    const emitTerminal = (event: AgentEvent) => {
+      if (this.options.deferTerminalEvent) terminalEvent = event;
+      else emit(event);
+    };
     try {
-      const result = await backend.executeTask(context, (event) => emit(toAgentEvent(sessionId, event)), signal);
+      const result = await backend.executeTask(
+        context,
+        (event) => {
+          // The runner emits the authoritative completion only after it has
+          // collected the workspace diff and prepared the review decision.
+          // Forwarding the backend's raw task_completed here ends the UI early.
+          if (event.type === "task_completed") return;
+          emit(toAgentEvent(sessionId, event));
+        },
+        signal
+      );
 
-      // Authoritative diff against the captured state, then rollback so the
-      // review happens against an untouched project.
-      const review = await this.finalizeReview();
+      // Capture the authoritative diff and freeze the current file hashes for
+      // safe accept/reject handling. The edits stay in the project during review.
+      const review = await this.finalizeReview(this.options.keepEditsForReview === true);
+      keepWorkspaceChangesForReview = this.options.keepEditsForReview === true && review.changes.length > 0;
 
       const externalSessionId = (result.metadata as Record<string, unknown> | undefined)?.externalSessionId;
       const metadata: Record<string, unknown> = {
@@ -48,9 +65,9 @@ export class LocalSessionRunner {
 
       let status: LocalSessionOutcome["status"];
       if (review.changes.length > 0) {
-        // Changes await user approval — nothing has been applied.
+        // Changes await user approval and remain in the working tree.
         status = "waiting";
-        emit({
+        emitTerminal({
           type: "agent_completed",
           sessionId,
           timestamp: Date.now(),
@@ -64,7 +81,7 @@ export class LocalSessionRunner {
         });
       } else if (!result.success) {
         status = "failed";
-        emit({
+        emitTerminal({
           type: "error",
           sessionId,
           timestamp: Date.now(),
@@ -72,7 +89,7 @@ export class LocalSessionRunner {
         });
       } else {
         status = "completed";
-        emit({
+        emitTerminal({
           type: "agent_completed",
           sessionId,
           timestamp: Date.now(),
@@ -141,25 +158,25 @@ export class LocalSessionRunner {
         conversation: [],
         metadata: {},
       };
-      emit({
+      emitTerminal({
         type: "error",
         sessionId,
         timestamp: Date.now(),
         data: { error: message },
       });
     } finally {
-      // Safety net: never leave un-reviewed changes on disk, even when the
-      // review path above already restored.
-      await this.restoreGuard();
+      // Keep reviewable edits on disk until the user accepts or rejects them.
+      if (!keepWorkspaceChangesForReview) await this.restoreGuard();
     }
 
+    if (this.options.deferTerminalEvent) outcome.terminalEvent = terminalEvent;
     return outcome;
   }
 
-  /** Diff + rollback in one step (restore happens before any review event). */
-  private async finalizeReview(): Promise<ReturnType<typeof diffToReview>> {
-    const rawChanges = this.options.guard.diff();
-    await this.restoreGuard();
+  /** Diff and emit review data while preserving the proposed workspace edits. */
+  private async finalizeReview(preserveWorkspaceEdits: boolean): Promise<ReturnType<typeof diffToReview>> {
+    const rawChanges = this.options.guard.diffForReview();
+    if (!preserveWorkspaceEdits) await this.restoreGuard();
     const review = diffToReview(rawChanges);
     if (review.changes.length > 0) {
       this.options.emit({

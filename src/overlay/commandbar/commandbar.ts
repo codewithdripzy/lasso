@@ -7,6 +7,20 @@ import { collabEmit } from "../collab/socket";
 import { providerIcon, buildModelMenuContent } from "../prompt/prompt";
 import { setSelectMode } from "../toolbar/select";
 import type { PendingChange } from "../types";
+import { BrowserIcon, CommandLineIcon, Delete02Icon, Edit01Icon, File01Icon, FileCodeIcon, FileAddIcon, Folder01Icon, Search01Icon } from "@hugeicons/core-free-icons";
+
+type HugeiconsSvgNode = readonly (readonly [string, Readonly<Record<string, string | number>>])[];
+
+const thinkingToolIcons: Record<string, HugeiconsSvgNode> = {
+  inspect_project: Folder01Icon,
+  search_code: Search01Icon,
+  read_file: File01Icon,
+  edit_file: Edit01Icon,
+  create_file: FileAddIcon,
+  delete_file: Delete02Icon,
+  run_command: CommandLineIcon,
+  browser_check: BrowserIcon,
+};
 
 export interface SourceChange {
   filePath: string;
@@ -44,6 +58,7 @@ export interface CommandMessage {
   changesUndone?: boolean;
   showDiff?: boolean;
   error?: string;
+  editError?: string;
   isStreaming?: boolean;
   queued?: boolean;
   steering?: boolean;
@@ -70,6 +85,8 @@ let commandEmptyEl: HTMLDivElement | null = null;
 let isOneShotMode = false;
 let commandMessages: CommandMessage[] = [];
 let activeTaskId: string | null = null;
+let editingMessageId: string | null = null;
+let pendingEditedMessage: { messageId: string; prompt: string } | null = null;
 let activeThinkingInterval: any = null;
 let activeStartTime = 0;
 
@@ -101,9 +118,7 @@ function getApiBase(): string {
 /** Best-effort fetch with auth cookie and API key if available */
 async function apiFetch(path: string, options: RequestInit = {}): Promise<any | null> {
   try {
-    const base = path.startsWith("/agent/") && state.collab?.agentServerUrl
-      ? `${state.collab.agentServerUrl.replace(/\/+$/, "")}/api/v1`
-      : getApiBase();
+    const base = path.startsWith("/agent/") && state.collab?.agentServerUrl ? `${state.collab.agentServerUrl.replace(/\/+$/, "")}/api/v1` : getApiBase();
     const apiKey = state.collab?.apiKey || "";
     const headers: Record<string, string> = {
       "content-type": "application/json",
@@ -292,6 +307,7 @@ async function deleteConversation(convId: string): Promise<void> {
 }
 
 async function switchConversation(convId: string): Promise<void> {
+  if (pendingEditedMessage) return;
   if (activeThinkingInterval) {
     clearInterval(activeThinkingInterval);
     activeThinkingInterval = null;
@@ -841,6 +857,33 @@ export function buildCommandBar(): void {
   commandMessagesEl.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
 
+    const editableMessage = target.closest<HTMLButtonElement>(".lasso-command-editable-message");
+    if (editableMessage) {
+      if (activeTaskId || pendingEditedMessage) return;
+      editingMessageId = editableMessage.closest<HTMLElement>(".lasso-command-msg")?.dataset.msgId || null;
+      const message = commandMessages.find((item) => item.id === editingMessageId);
+      if (message) message.editError = undefined;
+      renderMessages();
+      commandMessagesEl?.querySelector<HTMLTextAreaElement>(".lasso-command-edit-input")?.focus();
+      return;
+    }
+
+    const cancelEdit = target.closest<HTMLButtonElement>(".lasso-command-edit-cancel");
+    if (cancelEdit) {
+      if (pendingEditedMessage) return;
+      editingMessageId = null;
+      renderMessages();
+      return;
+    }
+
+    const sendEdited = target.closest<HTMLButtonElement>(".lasso-command-edit-send");
+    if (sendEdited) {
+      const messageId = sendEdited.closest<HTMLElement>(".lasso-command-msg")?.dataset.msgId;
+      const editedPrompt = commandMessagesEl?.querySelector<HTMLTextAreaElement>(".lasso-command-edit-input")?.value.trim();
+      if (messageId && editedPrompt) sendEditedMessage(messageId, editedPrompt, sendEdited);
+      return;
+    }
+
     // Toggle thinking expansion
     const thoughtToggle = target.closest<HTMLElement>(".lasso-command-thought-toggle, .lasso-command-thinking-header");
     if (thoughtToggle) {
@@ -927,7 +970,7 @@ export function buildCommandBar(): void {
           return;
         }
         applyBtn.disabled = true;
-        applyBtn.textContent = "Applying…";
+        applyBtn.textContent = "Accepting…";
         state.runtimeErrors = [];
         state.bridgeSocket.send(
           JSON.stringify({
@@ -1041,6 +1084,7 @@ export function populateModelMenu(): void {
 }
 
 function startNewSession(): void {
+  if (pendingEditedMessage) return;
   if (activeThinkingInterval) {
     clearInterval(activeThinkingInterval);
     activeThinkingInterval = null;
@@ -1350,6 +1394,7 @@ export function handleCommandBarAgentStatus(message: any): void {
     }
 
     const hasChanges = Array.isArray(message.changes) && message.changes.length > 0;
+    targetMsg.error = undefined;
 
     if (targetMsg.thinking) {
       for (const step of targetMsg.thinking.steps) {
@@ -1450,10 +1495,12 @@ export function handleCommandBarAction(message: any): void {
   if (message.type === "applied") {
     targetMsg.changesApplied = true;
     targetMsg.changesUndone = false;
+    saveLocalSession();
     renderMessages();
   } else if (message.type === "undone") {
     targetMsg.changesUndone = true;
     targetMsg.changesApplied = false;
+    saveLocalSession();
     renderMessages();
   }
 }
@@ -1534,8 +1581,28 @@ function renderMessages(): void {
   for (const msg of commandMessages) {
     if (msg.role === "user") {
       html += `
-        <div class="lasso-command-msg user" data-msg-id="${msg.id}">
-          <div class="lasso-command-msg-bubble">${escapeHtml(msg.content)}</div>
+        <div class="lasso-command-msg user" data-msg-id="${escapeHtml(msg.id)}">
+          ${
+            editingMessageId === msg.id
+              ? `
+            <div class="lasso-command-edit-form">
+              <textarea class="lasso-command-edit-input" aria-label="Edit your message">${escapeHtml(msg.content)}</textarea>
+              <div class="lasso-command-edit-warning">Sending from here reverts accepted file changes from later turns.</div>
+              ${msg.editError ? `<div class="lasso-command-edit-error">${escapeHtml(msg.editError)}</div>` : ""}
+              <div class="lasso-command-edit-actions">
+                <button class="lasso-command-edit-cancel" type="button"${pendingEditedMessage ? " disabled" : ""}>Cancel</button>
+                <button class="lasso-command-edit-send primary" type="button"${pendingEditedMessage ? " disabled" : ""}>${pendingEditedMessage?.messageId === msg.id ? "Reverting…" : "Update &amp; resend"}</button>
+              </div>
+            </div>
+          `
+              : msg.queued
+                ? `<div class="lasso-command-msg-bubble">${escapeHtml(msg.content)}</div>`
+                : `
+            <button class="lasso-command-msg-bubble lasso-command-editable-message" type="button" title="Click to edit and resend this prompt"${activeTaskId || pendingEditedMessage ? " disabled" : ""}>
+              <span>${escapeHtml(msg.content)}</span><span class="lasso-command-edit-hint" aria-hidden="true">Edit</span>
+            </button>
+          `
+          }
           ${msg.queued ? `<button class="lasso-command-steer-btn" type="button"${msg.steering ? " disabled" : ""} style="margin-top: 6px; padding: 4px 9px; border: 1px solid rgba(96, 165, 250, 0.45); border-radius: 6px; background: rgba(59, 130, 246, 0.14); color: #bfdbfe; cursor: pointer;">${msg.steering ? "Steering…" : "Steer"}</button>` : msg.steered ? `<span class="lasso-command-steered-label" style="display: inline-block; margin-top: 6px; color: #93c5fd; font-size: 12px;">Steered into next turn</span>` : ""}
         </div>
       `;
@@ -1579,6 +1646,86 @@ function renderMessages(): void {
   commandMessagesEl.innerHTML = html;
 }
 
+function sendEditedMessage(messageId: string, prompt: string, button: HTMLButtonElement): void {
+  if (!state.bridgeSocket || state.bridgeSocket.readyState !== WebSocket.OPEN) {
+    const message = commandMessages.find((item) => item.id === messageId);
+    if (message) message.editError = "Lasso is disconnected. Reconnect before resending this message.";
+    renderMessages();
+    return;
+  }
+
+  const index = commandMessages.findIndex((item) => item.id === messageId);
+  if (index < 0) return;
+  const appliedTaskIds = commandMessages
+    .slice(index + 1)
+    .filter((item) => item.role === "assistant" && item.id.startsWith("oneshot-") && item.changesApplied && !item.changesUndone)
+    .map((item) => item.id);
+  const pendingTaskIds = commandMessages
+    .slice(index + 1)
+    .filter((item) => item.role === "assistant" && item.id.startsWith("oneshot-") && Array.isArray(item.changes) && item.changes.length > 0 && !item.changesApplied && !item.changesUndone)
+    .map((item) => item.id);
+  pendingEditedMessage = { messageId, prompt };
+  button.disabled = true;
+  button.textContent = "Reverting…";
+  state.bridgeSocket.send(JSON.stringify({ type: "rewind_conversation", targetMessageId: messageId, taskIds: appliedTaskIds, pendingTaskIds }));
+}
+
+export function handleCommandBarRewindResult(message: { targetMessageId: string; success: boolean; error?: string }): void {
+  const pending = pendingEditedMessage;
+  if (!pending || pending.messageId !== message.targetMessageId) return;
+  const index = commandMessages.findIndex((item) => item.id === pending.messageId);
+  if (index < 0) {
+    pendingEditedMessage = null;
+    editingMessageId = null;
+    return;
+  }
+
+  if (!message.success) {
+    const target = commandMessages[index];
+    if (target) target.editError = message.error || "Could not rewind the project to this message.";
+    pendingEditedMessage = null;
+    renderMessages();
+    return;
+  }
+
+  const editedPrompt = pending.prompt;
+  commandMessages[index]!.content = editedPrompt;
+  commandMessages = commandMessages.slice(0, index + 1);
+  pendingEditedMessage = null;
+  editingMessageId = null;
+  // A corrected prompt starts a new branch; keep the old local session in history.
+  activeConversationId = null;
+  saveLocalSession();
+  renderMessages();
+  void runPrompt(editedPrompt, true);
+}
+
+function renderThinkingStepTitle(title: string): string {
+  const separator = title.indexOf(":");
+  const tool = separator === -1 ? title : title.slice(0, separator).trim();
+  const icon = thinkingToolIcons[tool];
+  if (!icon) return `<span>${escapeHtml(title)}</span>`;
+
+  const detail = separator === -1 ? "" : title.slice(separator + 1).trim();
+  const iconMarkup = icon
+    .map(([tag, attributes]) => {
+      const attrs = Object.entries(attributes)
+        .filter(([key]) => key !== "key")
+        .map(([key, value]) => {
+          const name = key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+          const escaped = String(value).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+          return `${name}="${escaped}"`;
+        })
+        .join(" ");
+      return `<${tag} ${attrs} />`;
+    })
+    .join("");
+
+  const label = detail || tool.replace(/_/g, " ");
+  const accessibleToolName = escapeHtml(tool.replace(/_/g, " "));
+  return `<span class="lasso-step-tool-icon" role="img" aria-label="${accessibleToolName}" title="${accessibleToolName}"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">${iconMarkup}</svg></span><span>${escapeHtml(label)}</span>`;
+}
+
 function renderThinking(msg: CommandMessage): string {
   if (!msg.thinking) return "";
   const { steps, durationSeconds, completed, expanded } = msg.thinking;
@@ -1603,9 +1750,13 @@ function renderThinking(msg: CommandMessage): string {
             .map(
               (step) => `
             <div class="lasso-command-thinking-step ${step.status}">
-              <span class="lasso-step-status-icon">${step.status === "completed" ? "✓" : "•"}</span>
+              ${
+                step.status === "running"
+                  ? `<span class="lasso-step-status-icon lasso-step-status-spinner" role="img" aria-label="In progress"><span class="lasso-step-spinner-ring"></span><span class="lasso-step-spinner-dot"></span></span>`
+                  : `<span class="lasso-step-status-icon">${step.status === "failed" ? "×" : "✓"}</span>`
+              }
               <div class="lasso-step-content">
-                <div class="lasso-step-name">${escapeHtml(step.title)}</div>
+                <div class="lasso-step-name">${renderThinkingStepTitle(step.title)}</div>
                 ${step.detail ? `<div class="lasso-step-detail">${escapeHtml(step.detail)}</div>` : ""}
               </div>
             </div>
@@ -1638,7 +1789,7 @@ function renderThinking(msg: CommandMessage): string {
           <div class="lasso-command-thinking-step completed">
             <span class="lasso-step-status-icon">✓</span>
             <div class="lasso-step-content">
-              <div class="lasso-step-name">${escapeHtml(step.title)}</div>
+              <div class="lasso-step-name">${renderThinkingStepTitle(step.title)}</div>
               ${step.detail ? `<div class="lasso-step-detail">${escapeHtml(step.detail)}</div>` : ""}
             </div>
           </div>
@@ -1679,6 +1830,15 @@ function renderChanges(msg: CommandMessage): string {
       : "";
 
   const approvedCount = changes.length - rejected.size;
+  const totals = changes.reduce(
+    (result, change) => {
+      const stats = getLineDiff(change.oldString, change.newString);
+      result.additions += stats.additions;
+      result.deletions += stats.deletions;
+      return result;
+    },
+    { additions: 0, deletions: 0 }
+  );
 
   return `
     <div class="lasso-command-changes-card">
@@ -1689,6 +1849,9 @@ function renderChanges(msg: CommandMessage): string {
             <polyline points="14 2 14 8 20 8"/>
           </svg>
           <span>Proposed changes (${approvedCount}/${changes.length} files selected)</span>
+        </div>
+        <div class="lasso-command-diff-stats" aria-label="${totals.additions} lines added, ${totals.deletions} lines removed">
+          <span class="additions">+${totals.additions}</span><span class="deletions">−${totals.deletions}</span>
         </div>
         <button class="lasso-command-toggle-diff" type="button">
           ${showDiff ? "Hide diffs" : "Inspect diffs"}
@@ -1701,13 +1864,17 @@ function renderChanges(msg: CommandMessage): string {
           .map((c) => {
             const isExcluded = rejected.has(c.filePath);
             const isSelected = activeFile === c.filePath;
+            const stats = getLineDiff(c.oldString, c.newString);
+            const extension = getFileExtension(c.filePath);
             return `
           <div class="lasso-command-file-row ${isSelected ? "selected" : ""} ${isExcluded ? "excluded" : ""}" data-file-path="${escapeHtml(c.filePath)}">
             <label class="lasso-command-file-checkbox-label" title="${isExcluded ? "Click to include file" : "Click to exclude file"}">
               <input type="checkbox" class="lasso-command-file-check" ${isExcluded ? "" : "checked"} data-file-path="${escapeHtml(c.filePath)}" />
             </label>
             <span class="lasso-command-file-badge ${c.oldString ? "modified" : "added"}">${c.oldString ? "M" : "+"}</span>
+            <span class="lasso-command-file-extension ${extension.className}" aria-hidden="true">${escapeHtml(extension.label)}</span>
             <span class="lasso-command-file-name" title="${c.filePath}">${escapeHtml(c.filePath)}</span>
+            <span class="lasso-command-file-stats"><span class="additions">+${stats.additions}</span><span class="deletions">−${stats.deletions}</span></span>
             <button class="lasso-command-view-file-diff-btn" type="button" data-file-path="${escapeHtml(c.filePath)}" title="View diff for this file">
               ${isSelected ? "Active" : "Inspect"}
             </button>
@@ -1725,7 +1892,7 @@ function renderChanges(msg: CommandMessage): string {
             ? `
           <div class="lasso-command-status-applied">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-            <span>Changes applied</span>
+            <span>Changes accepted</span>
           </div>
           <button class="lasso-command-undo-btn secondary" type="button">Undo</button>
         `
@@ -1757,24 +1924,95 @@ function renderDiffPreview(changes: SourceChange[], activeFilePath?: string, rej
   return `
     <div class="lasso-command-diff-container">
       ${listToRender
-        .map(
-          (c) => `
+        .map((c) => {
+          const stats = getLineDiff(c.oldString, c.newString);
+          const extension = getFileExtension(c.filePath);
+          return `
         <div class="lasso-command-diff-file ${rejected?.has(c.filePath) ? "excluded-diff" : ""}">
           <div class="lasso-command-diff-file-header">
-            <span>${escapeHtml(c.filePath)}</span>
+            <span class="lasso-command-diff-file-name"><span class="lasso-command-file-extension ${extension.className}">${escapeHtml(extension.label)}</span>${escapeHtml(getPathBasename(c.filePath))}</span>
+            <span class="lasso-command-file-stats"><span class="additions">+${stats.additions}</span><span class="deletions">−${stats.deletions}</span></span>
             ${rejected?.has(c.filePath) ? `<span style="color: #f87171; font-size: 11px; margin-left: 8px;">(Excluded from apply)</span>` : ""}
           </div>
-          <pre class="lasso-command-diff-content">${
-            c.operation === "deleted" || (c.newString === "" && c.oldString !== "")
-              ? `<span class="lasso-diff-del">- ${escapeHtml(c.oldString.slice(0, 1000))}</span>\n<span class="lasso-diff-del">(file deleted)</span>`
-              : `${c.oldString ? `<span class="lasso-diff-del">- ${escapeHtml(c.oldString.slice(0, 1000))}</span>\n` : ""}${c.newString ? `<span class="lasso-diff-add">+ ${escapeHtml(c.newString.slice(0, 1000))}</span>` : ""}`
-          }</pre>
+          <pre class="lasso-command-diff-content">${renderLineDiff(c.oldString, c.newString)}</pre>
         </div>
-      `
-        )
+      `;
+        })
         .join("")}
     </div>
   `;
+}
+
+type DiffLine = { kind: "add" | "delete" | "context"; text: string };
+
+/** Compute an LCS line diff, trimming identical edges and bounding large files. */
+function getLineDiff(oldText: string, newText: string): { additions: number; deletions: number; lines: DiffLine[] } {
+  const oldLines = oldText ? oldText.replace(/\r\n/g, "\n").split("\n") : [];
+  const newLines = newText ? newText.replace(/\r\n/g, "\n").split("\n") : [];
+  let prefix = 0;
+  while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) prefix++;
+  let suffix = 0;
+  while (suffix < oldLines.length - prefix && suffix < newLines.length - prefix && oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]) suffix++;
+
+  const oldMiddle = oldLines.slice(prefix, oldLines.length - suffix);
+  const newMiddle = newLines.slice(prefix, newLines.length - suffix);
+  let changed: DiffLine[];
+  if (oldMiddle.length * newMiddle.length > 1_000_000) {
+    changed = [...oldMiddle.map((text) => ({ kind: "delete" as const, text })), ...newMiddle.map((text) => ({ kind: "add" as const, text }))];
+  } else {
+    const lcs = Array.from({ length: oldMiddle.length + 1 }, () => new Uint32Array(newMiddle.length + 1));
+    for (let i = oldMiddle.length - 1; i >= 0; i--) {
+      for (let j = newMiddle.length - 1; j >= 0; j--) {
+        lcs[i][j] = oldMiddle[i] === newMiddle[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+      }
+    }
+    changed = [];
+    let i = 0;
+    let j = 0;
+    while (i < oldMiddle.length && j < newMiddle.length) {
+      if (oldMiddle[i] === newMiddle[j]) {
+        changed.push({ kind: "context", text: oldMiddle[i++] });
+        j++;
+      } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+        changed.push({ kind: "delete", text: oldMiddle[i++] });
+      } else {
+        changed.push({ kind: "add", text: newMiddle[j++] });
+      }
+    }
+    while (i < oldMiddle.length) changed.push({ kind: "delete", text: oldMiddle[i++] });
+    while (j < newMiddle.length) changed.push({ kind: "add", text: newMiddle[j++] });
+  }
+
+  const lines: DiffLine[] = [...oldLines.slice(0, prefix).map((text) => ({ kind: "context" as const, text })), ...changed, ...oldLines.slice(oldLines.length - suffix).map((text) => ({ kind: "context" as const, text }))];
+  return {
+    additions: lines.filter((line) => line.kind === "add").length,
+    deletions: lines.filter((line) => line.kind === "delete").length,
+    lines,
+  };
+}
+
+function renderLineDiff(oldText: string, newText: string): string {
+  const diff = getLineDiff(oldText, newText);
+  const visible = diff.lines.length > 240 ? diff.lines.slice(0, 240) : diff.lines;
+  if (!visible.length) return '<span class="lasso-diff-context">No textual changes</span>';
+  const rendered = visible.map((line) => {
+    const marker = line.kind === "add" ? "+" : line.kind === "delete" ? "−" : " ";
+    const className = line.kind === "add" ? "lasso-diff-add" : line.kind === "delete" ? "lasso-diff-del" : "lasso-diff-context";
+    return `<span class="${className}">${marker} ${escapeHtml(line.text) || " "}</span>`;
+  });
+  if (diff.lines.length > visible.length) rendered.push(`<span class="lasso-diff-context">… ${diff.lines.length - visible.length} more lines</span>`);
+  return rendered.join("\n");
+}
+
+function getPathBasename(filePath: string): string {
+  return filePath.replace(/\\/g, "/").split("/").filter(Boolean).pop() || filePath;
+}
+
+function getFileExtension(filePath: string): { label: string; className: string } {
+  const match = getPathBasename(filePath).match(/\.([^.]+)$/);
+  const extension = (match?.[1] || "file").toLowerCase();
+  const className = /^(tsx?|jsx?|mjs|cjs)$/.test(extension) ? "code" : extension === "json" ? "json" : /^(css|scss|sass)$/.test(extension) ? "style" : /^(md|mdx)$/.test(extension) ? "docs" : "generic";
+  return { label: extension === "file" ? "FILE" : extension.slice(0, 4).toUpperCase(), className };
 }
 
 function scrollToBottom(): void {
@@ -1800,11 +2038,83 @@ function escapeHtml(text: string): string {
 }
 
 function formatText(text: string): string {
-  // Light markdown: code blocks, bold, newlines
-  let formatted = escapeHtml(text);
+  const links: string[] = [];
+  const withLinkTokens = text.replace(/\[([^\]]+)\]\\?\s*\\?\(([^)]+)\\?\)/g, (_match, rawLabel: string, rawTarget: string) => {
+    const label = rawLabel.trim();
+    const target = rawTarget.trim();
+    const chip = renderMessageLink(label, target);
+    if (!chip) return `${label} (${target})`;
+    const token = `LASSO_MESSAGE_LINK_${links.length}_TOKEN`;
+    links.push(chip);
+    return token;
+  });
+
+  // Light markdown: inline links, code, bold, and newlines.
+  let formatted = escapeHtml(withLinkTokens);
   formatted = formatted.replace(/`([^`]+)`/g, "<code>$1</code>");
   formatted = formatted.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  formatted = formatted.replace(/LASSO_MESSAGE_LINK_(\d+)_TOKEN/g, (_token, index: string) => links[Number(index)] || "");
   formatted = formatted.replace(/\n\n/g, "</p><p>");
   formatted = formatted.replace(/\n/g, "<br/>");
   return `<p>${formatted}</p>`;
+}
+
+function renderMessageLink(label: string, target: string): string | null {
+  let href = "";
+  let favicon = "";
+  let displayName = label;
+  let detail = "";
+  let tooltip = target;
+  let extension = getFileExtension(label);
+  let icon = File01Icon;
+
+  try {
+    const parsed = new URL(target);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      href = parsed.href;
+      displayName = label || getPathBasename(parsed.pathname) || parsed.hostname;
+      detail = parsed.hostname;
+      favicon = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(parsed.hostname)}&sz=32`;
+    } else if (parsed.protocol === "file:") {
+      const filePath = decodeURIComponent(parsed.pathname);
+      href = `vscode://file${encodeURI(filePath)}`;
+      displayName = getPathBasename(filePath);
+      tooltip = filePath;
+      extension = getFileExtension(filePath);
+      icon = FileCodeIcon;
+    } else {
+      return null;
+    }
+  } catch {
+    const isLocalPath = target.startsWith("/") || target.startsWith("~/") || /^[a-zA-Z]:[\\/]/.test(target);
+    const looksLikeFile = /\.[a-zA-Z0-9]{1,10}(?:[?#].*)?$/.test(target) || /\.[a-zA-Z0-9]{1,10}$/.test(label);
+    if (!isLocalPath && !looksLikeFile) return null;
+    const normalizedPath = target.startsWith("~/") ? target : target.replace(/\\/g, "/");
+    href = `vscode://file/${encodeURI(normalizedPath.replace(/^\/+/, ""))}`;
+    displayName = getPathBasename(target) || getPathBasename(label) || label;
+    tooltip = normalizedPath;
+    extension = getFileExtension(target);
+    icon = FileCodeIcon;
+  }
+
+  const iconSvg = renderHugeIcon(icon);
+  const fallbackIcon = `<span class="lasso-message-link-file-icon ${extension.className}"${favicon ? " hidden" : ""} aria-hidden="true">${iconSvg}<small>${escapeHtml(extension.label)}</small></span>`;
+  const iconHtml = favicon ? `<img class="lasso-message-link-favicon" src="${escapeHtml(favicon)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.hidden=true;this.nextElementSibling.hidden=false" />${fallbackIcon}` : fallbackIcon;
+  return `<a class="lasso-message-link-chip" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(detail || tooltip)}" aria-label="${escapeHtml(`${displayName}: ${detail || tooltip}`)}">${iconHtml}<span class="lasso-message-link-copy"><strong>${escapeHtml(displayName)}</strong>${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</span></a>`;
+}
+
+function renderHugeIcon(icon: HugeiconsSvgNode): string {
+  const nodes = icon
+    .map(([tag, attributes]) => {
+      const attrs = Object.entries(attributes)
+        .filter(([key]) => key !== "key")
+        .map(([key, value]) => {
+          const attr = key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+          return `${attr}="${escapeHtml(String(value))}"`;
+        })
+        .join(" ");
+      return `<${tag} ${attrs} />`;
+    })
+    .join("");
+  return `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${nodes}</svg>`;
 }

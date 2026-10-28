@@ -8,7 +8,7 @@ import { elementKey } from "../toolbar/select";
 import { notifyAgent } from "../notifications";
 import { capturePageContext } from "../browser/context";
 import { getAgentTask, recordTaskActivity, recordTaskChangeHistory, updateAgentTask } from "../tasks/tasks";
-import { handleCommandBarAgentStatus, handleCommandBarAction, handleCommandBarPrompt, handleCommandBarSteerResult, isCommandBarTaskId, updateEmptyStateUserName, populateModelMenu } from "../commandbar/commandbar";
+import { handleCommandBarAgentStatus, handleCommandBarAction, handleCommandBarPrompt, handleCommandBarSteerResult, handleCommandBarRewindResult, isCommandBarTaskId, updateEmptyStateUserName, populateModelMenu } from "../commandbar/commandbar";
 import type { GitState, ModelOption, PendingChange, TimelineSnapshot } from "../types";
 
 export function reportRuntimeError(details: string, notifyBridge = true) {
@@ -95,6 +95,7 @@ export function connectBridge() {
           taskId?: string;
           queueId?: string;
           success?: boolean;
+          targetMessageId?: string;
           prompt?: { message: string; kind: "permission" | "input"; options?: string[] };
           path?: string;
           entries?: Array<{ name: string; path: string; type: "directory" | "file" }>;
@@ -204,6 +205,15 @@ export function connectBridge() {
           handleCommandBarSteerResult({
             taskId: message.taskId,
             queueId: message.queueId,
+            success: Boolean(message.success),
+            error: message.error,
+          });
+          return;
+        }
+
+        if (message.type === "rewind_result" && message.targetMessageId) {
+          handleCommandBarRewindResult({
+            targetMessageId: message.targetMessageId,
             success: Boolean(message.success),
             error: message.error,
           });

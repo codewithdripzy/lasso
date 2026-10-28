@@ -1,6 +1,6 @@
 {
   "name": "@lasso-ai/cli",
-  "version": "2.1.28",
+  "version": "2.2.0",
   "description": "Select any part of your running app, describe a change, and let AI edit the real source code.",
   "type": "commonjs",
   "main": "dist/cli/index.js",
@@ -91,6 +91,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
+    "@hugeicons/core-free-icons": "^4.3.5",
     "@iconify-icons/logos": "^2.0.1",
     "@iconify-json/logos": "^1.2.14",
     "@iconify/utils": "^3.1.7",

@@ -5,14 +5,14 @@
  * agent loop and calls the model, but never touches the local filesystem:
  * workspace tools arrive as `tool_call` events and are executed HERE, in the
  * CLI, against the real project directory. The CLI also owns the
- * WorkspaceGuard (snapshot → diff → rollback → review → approval).
+ * WorkspaceGuard (snapshot → diff → in-place review → accept/reject).
  */
 
 import crypto from "node:crypto";
 import { WorkspaceGuard, ActionExecutor, VerificationEngine, type FileChange, type ToolCallRequest, type ToolCallResultPayload } from "../runtime/index.js";
 import { writeLassoLog } from "./logging.js";
 
-export type RuntimeProvider = "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor";
+export type RuntimeProvider = "anthropic" | "openai" | "google" | "nvidia" | "ollama" | "claude_code" | "opencode" | "codex_cli" | "cursor" | "antigravity";
 
 export interface RuntimeSessionInput {
   userPrompt: string;
@@ -58,7 +58,7 @@ export interface RuntimeSessionInput {
   conversation?: Array<{ role: "user" | "assistant" | "system"; content: string; timestamp?: number }>;
   backendConfig?: {
     type: "hosted_model" | "local_agent";
-    provider: "claude_code" | "opencode" | "codex_cli" | "cursor";
+    provider: "claude_code" | "opencode" | "codex_cli" | "cursor" | "antigravity";
     modelId?: string;
     projectPath?: string;
   };
@@ -158,6 +158,7 @@ export interface RuntimeFacade {
   createSession(input: RuntimeSessionInput): Promise<RuntimeSession>;
   runSession(sessionId: string, projectPath: string, onEvent: RuntimeEventHandler, signal?: AbortSignal, opts?: { providerApiKey?: string; browserContextProvider?: BrowserContextProvider; devServerUrl?: string }): Promise<void>;
   getSession(sessionId: string): Promise<RuntimeSession>;
+  resolveReview(sessionId: string, acceptedFilePaths: string[]): Promise<void>;
   verifySession(sessionId: string, projectPath: string): Promise<SessionVerificationResult>;
   switchModel(sessionId: string, model: { provider: string; id: string; name?: string }, apiKey?: string, backendConfig?: RuntimeSessionInput["backendConfig"]): Promise<void>;
   cancelSession(sessionId: string): Promise<void>;
@@ -204,6 +205,7 @@ export class RuntimeClient {
       operation: "created" | "modified" | "deleted";
     }>
   >();
+  private pendingReviewGuards = new Map<string, WorkspaceGuard>();
 
   constructor(serverUrl: string, apiKey?: string) {
     this.serverUrl = serverUrl;
@@ -297,11 +299,10 @@ export class RuntimeClient {
    *   2. Stream events from the server. `tool_call` events are executed
    *      locally (ActionExecutor / VerificationEngine) and the result is
    *      posted back to the server so the model loop can continue.
-   *   3. On agent_completed: diff the workspace, roll it back, and cache the
-   *      changes for the review panel. Only user approval re-applies them.
+   *   3. On agent_completed: diff and cache the changes while leaving them in
+   *      the workspace until the user accepts or rejects the review.
    */
   async runSession(sessionId: string, projectPath: string, onEvent: RuntimeEventHandler, signal?: AbortSignal, opts?: { providerApiKey?: string; browserContextProvider?: BrowserContextProvider; devServerUrl?: string }): Promise<void> {
-    // CLI-side snapshot: nothing the agent does is left on disk before review.
     // Review safety is mandatory. Never allow an agent to run if the
     // pre-run workspace capture could not be established.
     const guard = await WorkspaceGuard.capture(projectPath);
@@ -313,13 +314,13 @@ export class RuntimeClient {
     });
 
     // Idempotent: called on agent_completed AND on stream failure, so the
-    // diff is always cached before the safety-net restore wipes the edits.
+    // diff is cached before a failure-path restore or review decision.
     let finalized = false;
-    const finalizeGuard = async () => {
+    const finalizeGuard = async (preserveForReview = false) => {
       if (finalized) return;
       finalized = true;
       try {
-        const changes = guard.diff();
+        const changes = guard.diffForReview();
         const applyable = changes.filter((c) => !c.binary);
         const pending = applyable.map((change) => ({
           filePath: change.filePath,
@@ -328,17 +329,18 @@ export class RuntimeClient {
           operation: change.operation,
         }));
         this.localReviewCache.set(sessionId, pending);
+        if (preserveForReview && pending.length > 0) {
+          this.pendingReviewGuards.set(sessionId, guard);
+          return;
+        }
       } catch (error) {
         console.error("WorkspaceGuard diff failed:", error);
-      } finally {
-        // Always restore BEFORE the review flow runs — it captures originals
-        // from disk for the undo snapshot, so the workspace must be back to
-        // its pre-run state by the time agent_completed is delivered.
-        try {
-          await guard.restore();
-        } catch (error) {
-          console.error("WorkspaceGuard restore failed:", error);
-        }
+      }
+      // Errors, empty diffs, and interrupted streams restore the workspace.
+      try {
+        await guard.restore();
+      } catch (error) {
+        console.error("WorkspaceGuard restore failed:", error);
       }
     };
 
@@ -396,15 +398,22 @@ export class RuntimeClient {
       writeLassoLog("info", "agent_request_stream_closed", { endpoint: "/api/v1/agent-runtime/sessions/:sessionId/run", sessionId });
       reader?.releaseLock();
       // Stream died before agent_completed (network cut, server crash, model
-      // error surfaced as an error event): cache the diff first so the user's
-      // changes are recoverable, then restore the workspace. On the normal
-      // path finalizeGuard already ran and this is a no-op.
-      await finalizeGuard();
+      // error surfaced as an error event): cache the diff first, then restore
+      // the workspace. On the normal path finalizeGuard already ran.
+      await finalizeGuard(false);
     }
   }
 
+  async resolveReview(sessionId: string, acceptedFilePaths: string[]): Promise<void> {
+    const guard = this.pendingReviewGuards.get(sessionId);
+    if (!guard) throw new Error("The pending workspace review is no longer available.");
+    await guard.resolveReview(acceptedFilePaths);
+    this.pendingReviewGuards.delete(sessionId);
+    this.localReviewCache.delete(sessionId);
+  }
+
   /** Parse and dispatch one complete SSE frame. */
-  private async processSseFrame(frame: string, handleToolCall: (request: ToolCallRequest) => Promise<void>, finalizeGuard: () => Promise<void>, onEvent: RuntimeEventHandler): Promise<void> {
+  private async processSseFrame(frame: string, handleToolCall: (request: ToolCallRequest) => Promise<void>, finalizeGuard: (preserveForReview?: boolean) => Promise<void>, onEvent: RuntimeEventHandler): Promise<void> {
     const data = frame
       .split(/\r?\n/)
       .filter((line) => line.startsWith("data:"))
@@ -418,7 +427,7 @@ export class RuntimeClient {
         await handleToolCall(event.data);
         return;
       }
-      if (event.type === "agent_completed") await finalizeGuard();
+      if (event.type === "agent_completed") await finalizeGuard(true);
       await onEvent(event);
     } catch (error) {
       console.error("Failed to process SSE event:", error);

@@ -86,7 +86,7 @@ function saveTimeline(cwd: string, timeline: TimelineSnapshot[]): void {
 }
 
 // Create a snapshot of current file states
-export function createSnapshot(cwd: string, taskId: string, summary: string, filePaths: string[], parentSnapshotId?: string, sessionId?: string): TimelineSnapshot {
+export function createSnapshot(cwd: string, taskId: string, summary: string, filePaths: string[], parentSnapshotId?: string, sessionId?: string, originalFiles?: Map<string, string | null>): TimelineSnapshot {
   ensureSnapshotsDir(cwd);
 
   const snapshotId = generateSnapshotId();
@@ -98,14 +98,18 @@ export function createSnapshot(cwd: string, taskId: string, summary: string, fil
     let content: string | null = null;
     let hash = "";
 
-    try {
-      if (fs.existsSync(fullPath)) {
-        content = fs.readFileSync(fullPath, "utf8");
-        hash = hashContent(content);
+    if (originalFiles?.has(filePath)) {
+      content = originalFiles.get(filePath) ?? null;
+      hash = content === null ? "" : hashContent(content);
+    } else
+      try {
+        if (fs.existsSync(fullPath)) {
+          content = fs.readFileSync(fullPath, "utf8");
+          hash = hashContent(content);
+        }
+      } catch (error) {
+        console.warn(`[lasso] Failed to snapshot ${filePath}:`, error);
       }
-    } catch (error) {
-      console.warn(`[lasso] Failed to snapshot ${filePath}:`, error);
-    }
 
     files.push({
       filePath,
@@ -224,6 +228,38 @@ export function detectConflicts(cwd: string, expectedFiles: Array<{ filePath: st
 export function getTimeline(cwd: string, limit = 20): TimelineSnapshot[] {
   const timeline = loadTimeline(cwd);
   return timeline.slice(0, limit);
+}
+
+/** Restore accepted changes made by turns after an edited conversation message. */
+export function rewindAppliedTasks(cwd: string, taskIds: string[]): { ok: boolean; error?: string; restoredFiles: string[] } {
+  const taskIdSet = new Set(taskIds.filter((taskId) => typeof taskId === "string" && taskId.trim()));
+  if (taskIdSet.size === 0) return { ok: true, restoredFiles: [] };
+
+  const timeline = loadTimeline(cwd);
+  const checkpoints = timeline.filter((snapshot) => taskIdSet.has(snapshot.taskId) && snapshot.summary === `Apply changes for task ${snapshot.taskId}`);
+  const checkpointTaskIds = new Set(checkpoints.map((snapshot) => snapshot.taskId));
+  if ([...taskIdSet].some((taskId) => !checkpointTaskIds.has(taskId))) {
+    return {
+      ok: false,
+      error: "Lasso is missing a recovery snapshot for one or more applied changes after this message. Nothing was rewound; keep this conversation and project state as-is.",
+      restoredFiles: [],
+    };
+  }
+  const filePaths = [...new Set(checkpoints.flatMap((snapshot) => snapshot.files.map((file) => file.filePath)))];
+  if (filePaths.length === 0) return { ok: true, restoredFiles: [] };
+
+  // Keep a recovery point so a failed or unwanted rewind can be restored from
+  // the normal timeline UI.
+  const backup = createSnapshot(cwd, `rewind-backup-${Date.now()}`, "Before editing an earlier conversation message", filePaths);
+
+  for (const checkpoint of checkpoints) {
+    if (!restoreSnapshot(cwd, checkpoint.id)) {
+      restoreSnapshot(cwd, backup.id);
+      return { ok: false, error: `Could not restore project state before task ${checkpoint.taskId}. The current state was recovered from the rewind backup.`, restoredFiles: [] };
+    }
+  }
+
+  return { ok: true, restoredFiles: filePaths };
 }
 
 // Delete a snapshot
