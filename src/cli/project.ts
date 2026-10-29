@@ -18,7 +18,6 @@ const execFileAsync = promisify(execFile);
 export const LASSO_CONFIG_FILE = "lasso.config.json";
 const PROJECT_STATE_FILE = ".lasso-project.json";
 
-
 export function readEnvFile(filename: string, cwd: string): Record<string, string> {
   try {
     return fs

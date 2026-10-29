@@ -7,68 +7,13 @@ import { collabEmit } from "../collab/socket";
 import { providerIcon, buildModelMenuContent } from "../prompt/prompt";
 import { setSelectMode } from "../toolbar/select";
 import type { PendingChange } from "../types";
-import { BrowserIcon, CommandLineIcon, Delete02Icon, Edit01Icon, File01Icon, FileAddIcon, Folder01Icon, Search01Icon } from "@hugeicons/core-free-icons";
-import { formatMessageText, getFileExtension, getPathBasename } from "../message-format";
+import { getFileExtension, getPathBasename } from "../message-format";
 import { bindSkillsControl, createSkillsControl, selectedSkillIds } from "../skills";
-
-type HugeiconsSvgNode = readonly (readonly [string, Readonly<Record<string, string | number>>])[];
-
-const thinkingToolIcons: Record<string, HugeiconsSvgNode> = {
-  inspect_project: Folder01Icon,
-  search_code: Search01Icon,
-  read_file: File01Icon,
-  edit_file: Edit01Icon,
-  create_file: FileAddIcon,
-  delete_file: Delete02Icon,
-  run_command: CommandLineIcon,
-  browser_check: BrowserIcon,
-};
-
-export interface SourceChange {
-  filePath: string;
-  oldString: string;
-  newString: string;
-  operation?: "created" | "modified" | "deleted";
-}
-
-export interface CommandThinkingStep {
-  title: string;
-  detail?: string;
-  status: "running" | "completed" | "failed";
-}
-
-export interface CommandTodoItem {
-  file: string;
-  action: "modify" | "create" | "delete";
-  reason: string;
-}
-
-export interface CommandMessage {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  timestamp: number;
-  thinking?: {
-    steps: CommandThinkingStep[];
-    durationSeconds: number;
-    completed: boolean;
-    expanded: boolean;
-  };
-  todo?: CommandTodoItem[];
-  changes?: SourceChange[];
-  liveChanges?: boolean;
-  changesApplied?: boolean;
-  changesUndone?: boolean;
-  showDiff?: boolean;
-  error?: string;
-  editError?: string;
-  isStreaming?: boolean;
-  queued?: boolean;
-  steering?: boolean;
-  steered?: boolean;
-  activeDiffFile?: string;
-  rejectedFilePaths?: string[];
-}
+import type { CommandMessage, SourceChange } from "../../core/interfaces/commandbar";
+export type { CommandMessage, CommandThinkingStep, SourceChange } from "../../core/interfaces/commandbar";
+import { escapeHtml } from "./html";
+import { renderLineDiff } from "./diff-view";
+import { formatDuration, renderAssistantMessage } from "./message-view";
 
 let commandBarEl: HTMLDivElement | null = null;
 let commandInput: HTMLTextAreaElement | null = null;
@@ -595,7 +540,6 @@ export function buildCommandBar(): void {
             </svg>
           </button>
           <button class="lasso-command-submit primary" type="button" aria-label="Build">
-            <span class="lasso-command-submit-label">Build</span>
             <svg class="lasso-command-submit-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M5 12h14M12 5l7 7-7 7"/>
             </svg>
@@ -931,26 +875,6 @@ export function buildCommandBar(): void {
       return;
     }
 
-    // Individual file inclusion/exclusion checkbox
-    const fileCheck = target.closest<HTMLInputElement>(".lasso-command-file-check");
-    if (fileCheck) {
-      const msgId = fileCheck.closest<HTMLElement>(".lasso-command-msg")?.dataset.msgId;
-      const filePath = fileCheck.dataset.filePath;
-      const msg = commandMessages.find((m) => m.id === msgId);
-      if (msg && filePath) {
-        msg.rejectedFilePaths = msg.rejectedFilePaths || [];
-        if (fileCheck.checked) {
-          msg.rejectedFilePaths = msg.rejectedFilePaths.filter((p) => p !== filePath);
-        } else {
-          if (!msg.rejectedFilePaths.includes(filePath)) {
-            msg.rejectedFilePaths.push(filePath);
-          }
-        }
-        renderMessages();
-      }
-      return;
-    }
-
     // View specific file diff
     const reviewFile = target.closest<HTMLButtonElement>(".lasso-review-tray-file");
     if (reviewFile) {
@@ -960,43 +884,12 @@ export function buildCommandBar(): void {
       return;
     }
 
-    const viewFileDiffBtn = target.closest<HTMLButtonElement>(".lasso-command-view-file-diff-btn");
-    if (viewFileDiffBtn) {
-      const msgId = viewFileDiffBtn.closest<HTMLElement>(".lasso-command-msg")?.dataset.msgId;
-      const filePath = viewFileDiffBtn.dataset.filePath;
-      const msg = commandMessages.find((m) => m.id === msgId);
-      if (msg && filePath) {
-        msg.activeDiffFile = filePath;
-        msg.showDiff = true;
-        renderMessages();
-      }
-      return;
-    }
-
-    // Toggle diff visibility
-    const diffToggle = target.closest<HTMLButtonElement>(".lasso-command-toggle-diff");
-    if (diffToggle) {
-      const msgId = diffToggle.closest<HTMLElement>(".lasso-command-msg")?.dataset.msgId;
-      const msg = commandMessages.find((m) => m.id === msgId);
-      if (msg) {
-        msg.showDiff = !msg.showDiff;
-        renderMessages();
-      }
-      return;
-    }
-
-    // Apply changes (filtered to only approved files)
+    // Accept all current edits from the live review tray.
     const applyBtn = target.closest<HTMLButtonElement>(".lasso-command-apply-btn");
     if (applyBtn) {
       const msgId = applyBtn.closest<HTMLElement>("[data-msg-id]")?.dataset.msgId;
       const msg = commandMessages.find((m) => m.id === msgId);
       if (msg && msg.changes?.length && state.bridgeSocket?.readyState === WebSocket.OPEN) {
-        const rejected = new Set(msg.rejectedFilePaths || []);
-        const approvedChanges = msg.changes.filter((c) => !rejected.has(c.filePath));
-        if (approvedChanges.length === 0) {
-          alert("Please select at least one file to keep.");
-          return;
-        }
         applyBtn.disabled = true;
         applyBtn.textContent = "Accepting…";
         state.runtimeErrors = [];
@@ -1004,7 +897,7 @@ export function buildCommandBar(): void {
           JSON.stringify({
             type: "apply",
             taskId: msg.id,
-            changes: approvedChanges,
+            changes: msg.changes,
           })
         );
       }
@@ -1134,18 +1027,19 @@ function startNewSession(): void {
 
 function updateSubmitButton(isWorking: boolean): void {
   if (!commandSubmit) return;
-  const label = commandSubmit.querySelector(".lasso-command-submit-label");
   const arrow = commandSubmit.querySelector(".lasso-command-submit-arrow");
 
   if (isWorking) {
     commandSubmit.classList.add("working");
-    if (label) label.textContent = "Stop";
+    commandSubmit.setAttribute("aria-label", "Stop agent");
+    commandSubmit.title = "Stop agent";
     if (arrow) {
       arrow.innerHTML = `<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>`;
     }
   } else {
     commandSubmit.classList.remove("working");
-    if (label) label.textContent = "Build";
+    commandSubmit.setAttribute("aria-label", "Build");
+    commandSubmit.title = "Build";
     if (arrow) {
       arrow.innerHTML = `<path d="M5 12h14M12 5l7 7-7 7"/>`;
     }
@@ -1458,10 +1352,8 @@ export function handleCommandBarAgentStatus(message: any): void {
     if (hasChanges) {
       targetMsg.changes = message.changes;
       targetMsg.liveChanges = false;
-      targetMsg.todo = Array.isArray(message.todo) ? message.todo : undefined;
     } else {
       targetMsg.changes = undefined;
-      targetMsg.todo = undefined;
     }
     targetMsg.isStreaming = false;
     activeTaskId = null;
@@ -1643,38 +1535,7 @@ function renderMessages(): void {
         </div>
       `;
     } else {
-      html += `
-        <div class="lasso-command-msg assistant" data-msg-id="${msg.id}">
-          ${renderThinking(msg)}
-          ${msg.content ? `<div class="lasso-command-msg-text">${formatMessageText(msg.content)}</div>` : ""}
-          ${
-            msg.error
-              ? `
-            <div class="lasso-command-msg-error">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              ${escapeHtml(msg.error)}
-            </div>
-            <div class="lasso-command-error-actions" style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap;">
-              ${
-                msg.thinking && msg.thinking.steps.length > 0
-                  ? `
-                <button class="lasso-command-continue-btn" type="button" title="Continue execution using the thoughts and analysis generated so far" style="display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; font-size: 12px; font-weight: 500; border-radius: 6px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); color: #93c5fd; cursor: pointer;">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                  Continue with thoughts so far
-                </button>
-              `
-                  : ""
-              }
-              <button class="lasso-command-retry-btn" type="button" title="Retry from start" style="display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; font-size: 12px; font-weight: 500; border-radius: 6px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); color: #e2e8f0; cursor: pointer;">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-                Retry
-              </button>
-            </div>
-          `
-              : ""
-          }
-        </div>
-      `;
+      html += renderAssistantMessage(msg);
     }
   }
 
@@ -1692,16 +1553,18 @@ function renderLiveReviewTray(): void {
     return;
   }
 
-  const files = message.changes.map((change) => {
-    const extension = getFileExtension(change.filePath);
-    return `<button class="lasso-review-tray-file" type="button" data-task-id="${escapeHtml(message.id)}" data-file-path="${escapeHtml(change.filePath)}" title="View diff for ${escapeHtml(change.filePath)}">
+  const files = message.changes
+    .map((change) => {
+      const extension = getFileExtension(change.filePath);
+      return `<button class="lasso-review-tray-file" type="button" data-task-id="${escapeHtml(message.id)}" data-file-path="${escapeHtml(change.filePath)}" title="View diff for ${escapeHtml(change.filePath)}">
       <span class="lasso-review-tray-file-heading">
         <span class="lasso-command-file-extension ${extension.className}">${escapeHtml(extension.label)}</span>
         <span class="lasso-review-tray-file-name" title="${escapeHtml(change.filePath)}">${escapeHtml(getPathBasename(change.filePath))}</span>
         <span class="lasso-review-tray-open-icon" aria-hidden="true">↗</span>
       </span>
     </button>`;
-  }).join("");
+    })
+    .join("");
 
   tray.dataset.msgId = message.id;
   tray.hidden = false;
@@ -1795,311 +1658,6 @@ export function handleCommandBarRewindResult(message: { targetMessageId: string;
   void runPrompt(editedPrompt, true);
 }
 
-function renderThinkingStepTitle(title: string): string {
-  const separator = title.indexOf(":");
-  const tool = separator === -1 ? title : title.slice(0, separator).trim();
-  const icon = thinkingToolIcons[tool];
-  if (!icon) return `<span>${escapeHtml(title)}</span>`;
-
-  const detail = separator === -1 ? "" : title.slice(separator + 1).trim();
-  const iconMarkup = icon
-    .map(([tag, attributes]) => {
-      const attrs = Object.entries(attributes)
-        .filter(([key]) => key !== "key")
-        .map(([key, value]) => {
-          const name = key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
-          const escaped = String(value).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-          return `${name}="${escaped}"`;
-        })
-        .join(" ");
-      return `<${tag} ${attrs} />`;
-    })
-    .join("");
-
-  const label = detail || tool.replace(/_/g, " ");
-  const accessibleToolName = escapeHtml(tool.replace(/_/g, " "));
-  return `<span class="lasso-step-tool-icon" role="img" aria-label="${accessibleToolName}" title="${accessibleToolName}"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">${iconMarkup}</svg></span><span>${escapeHtml(label)}</span>`;
-}
-
-function renderThinking(msg: CommandMessage): string {
-  if (!msg.thinking) return "";
-  const { steps, durationSeconds, completed, expanded } = msg.thinking;
-
-  if (!completed) {
-    // Live thinking process
-    return `
-      <div class="lasso-command-thinking-active">
-        <button class="lasso-command-thinking-header" type="button" aria-expanded="${expanded}">
-          <div class="lasso-command-thinking-pulse">
-            <span class="lasso-command-pulse-ring"></span>
-            <span class="lasso-command-pulse-dot"></span>
-          </div>
-          <span class="lasso-command-thinking-title">Thinking…</span>
-          <span class="lasso-command-active-timer">${formatDuration(durationSeconds)}</span>
-          <svg class="lasso-command-thought-chevron ${expanded ? "expanded" : ""}" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 18l6-6-6-6"/>
-          </svg>
-        </button>
-        <div class="lasso-command-thinking-steps" ${expanded ? "" : "hidden"}>
-          ${steps
-            .map(
-              (step) => `
-            <div class="lasso-command-thinking-step ${step.status}">
-              ${
-                step.status === "running"
-                  ? `<span class="lasso-step-status-icon lasso-step-status-spinner" role="img" aria-label="In progress"><span class="lasso-step-spinner-ring"></span><span class="lasso-step-spinner-dot"></span></span>`
-                  : `<span class="lasso-step-status-icon">${step.status === "failed" ? "×" : "✓"}</span>`
-              }
-              <div class="lasso-step-content">
-                <div class="lasso-step-name">${renderThinkingStepTitle(step.title)}</div>
-                ${step.detail ? `<div class="lasso-step-detail">${escapeHtml(step.detail)}</div>` : ""}
-              </div>
-            </div>
-          `
-            )
-            .join("")}
-        </div>
-      </div>
-    `;
-  }
-
-  // Thinking completed: collapsible widget showing "Thought for 30s >"
-  return `
-    <div class="lasso-command-thought-wrapper">
-      <button class="lasso-command-thought-toggle ${expanded ? "expanded" : ""}" type="button" aria-expanded="${expanded}">
-        <div class="lasso-command-thought-left">
-          <svg class="lasso-command-thought-sparkle" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z"/>
-          </svg>
-          <span class="lasso-command-thought-label">Thought for ${durationSeconds || 1}s</span>
-        </div>
-        <svg class="lasso-command-thought-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 18l6-6-6-6"/>
-        </svg>
-      </button>
-      <div class="lasso-command-thinking-steps" ${expanded ? "" : "hidden"}>
-        ${steps
-          .map(
-            (step) => `
-          <div class="lasso-command-thinking-step completed">
-            <span class="lasso-step-status-icon">✓</span>
-            <div class="lasso-step-content">
-              <div class="lasso-step-name">${renderThinkingStepTitle(step.title)}</div>
-              ${step.detail ? `<div class="lasso-step-detail">${escapeHtml(step.detail)}</div>` : ""}
-            </div>
-          </div>
-        `
-          )
-          .join("")}
-      </div>
-    </div>
-  `;
-}
-
-function renderChanges(msg: CommandMessage): string {
-  if (!msg.changes || !msg.changes.length) return "";
-  const changes = msg.changes;
-  const isApplied = msg.changesApplied;
-  const isUndone = msg.changesUndone;
-  const showDiff = msg.showDiff !== false; // Default diff view visible on changes
-  const rejected = new Set(msg.rejectedFilePaths || []);
-  const activeFile = msg.activeDiffFile || changes[0]?.filePath;
-
-  const scopeHtml =
-    msg.todo && msg.todo.length
-      ? `
-    <div class="lasso-command-scope-list">
-      ${msg.todo
-        .map(
-          (item) => `
-        <div class="lasso-command-scope-item">
-          <span class="lasso-command-scope-action ${item.action}">${item.action === "create" ? "+" : item.action === "delete" ? "−" : "~"}</span>
-          <span class="lasso-command-scope-file">${escapeHtml(item.file)}</span>
-          <span class="lasso-command-scope-reason">${escapeHtml(item.reason)}</span>
-        </div>
-      `
-        )
-        .join("")}
-    </div>
-  `
-      : "";
-
-  const approvedCount = changes.length - rejected.size;
-  const totals = changes.reduce(
-    (result, change) => {
-      const stats = getLineDiff(change.oldString, change.newString);
-      result.additions += stats.additions;
-      result.deletions += stats.deletions;
-      return result;
-    },
-    { additions: 0, deletions: 0 }
-  );
-
-  return `
-    <div class="lasso-command-changes-card">
-      <div class="lasso-command-changes-header">
-        <div class="lasso-command-changes-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
-          </svg>
-          <span>${msg.liveChanges ? "Live changes" : "Proposed changes"} (${approvedCount}/${changes.length} files selected)</span>
-        </div>
-        <div class="lasso-command-diff-stats" aria-label="${totals.additions} lines added, ${totals.deletions} lines removed">
-          <span class="additions">+${totals.additions}</span><span class="deletions">−${totals.deletions}</span>
-        </div>
-        <button class="lasso-command-toggle-diff" type="button">
-          ${showDiff ? "Hide diffs" : "Inspect diffs"}
-        </button>
-      </div>
-      ${scopeHtml}
-
-      <div class="lasso-command-files-list">
-        ${changes
-          .map((c) => {
-            const isExcluded = rejected.has(c.filePath);
-            const isSelected = activeFile === c.filePath;
-            const stats = getLineDiff(c.oldString, c.newString);
-            const extension = getFileExtension(c.filePath);
-            return `
-          <div class="lasso-command-file-row ${isSelected ? "selected" : ""} ${isExcluded ? "excluded" : ""}" data-file-path="${escapeHtml(c.filePath)}">
-            <label class="lasso-command-file-checkbox-label" title="${isExcluded ? "Click to include file" : "Click to exclude file"}">
-              <input type="checkbox" class="lasso-command-file-check" ${isExcluded ? "" : "checked"} data-file-path="${escapeHtml(c.filePath)}" />
-            </label>
-            <span class="lasso-command-file-badge ${c.oldString ? "modified" : "added"}">${c.oldString ? "M" : "+"}</span>
-            <span class="lasso-command-file-extension ${extension.className}" aria-hidden="true">${escapeHtml(extension.label)}</span>
-            <span class="lasso-command-file-name" title="${c.filePath}">${escapeHtml(c.filePath)}</span>
-            <span class="lasso-command-file-stats"><span class="additions">+${stats.additions}</span><span class="deletions">−${stats.deletions}</span></span>
-            <button class="lasso-command-view-file-diff-btn" type="button" data-file-path="${escapeHtml(c.filePath)}" title="View diff for this file">
-              ${isSelected ? "Active" : "Inspect"}
-            </button>
-          </div>
-        `;
-          })
-          .join("")}
-      </div>
-
-      ${showDiff ? renderDiffPreview(changes, activeFile, rejected) : ""}
-
-      <div class="lasso-command-changes-footer">
-        ${
-          isApplied
-            ? `
-          <div class="lasso-command-status-applied">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-            <span>Changes accepted</span>
-          </div>
-          <button class="lasso-command-undo-btn secondary" type="button">Undo</button>
-        `
-            : isUndone
-              ? `
-          <div class="lasso-command-status-undone">
-            <span>Changes reverted</span>
-          </div>
-          <button class="lasso-command-apply-btn primary" type="button">Re-apply</button>
-        `
-              : `
-          ${msg.liveChanges ? `<div class="lasso-command-live-review-note">Accepting or discarding will stop the agent and review its current edits.</div>` : ""}
-          <button class="lasso-command-apply-btn primary" type="button">
-            <span>${msg.liveChanges ? "Accept Current" : "Keep Selected"} (${approvedCount})</span>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          </button>
-          <button class="lasso-command-undo-btn secondary" type="button">${msg.liveChanges ? "Stop & discard" : "Discard"}</button>
-        `
-        }
-      </div>
-    </div>
-  `;
-}
-
-function renderDiffPreview(changes: SourceChange[], activeFilePath?: string, rejected?: Set<string>): string {
-  // If activeFilePath is specified, highlight or show that file first, or show all
-  const filtered = activeFilePath ? changes.filter((c) => c.filePath === activeFilePath) : changes;
-  const listToRender = filtered.length > 0 ? filtered : changes;
-
-  return `
-    <div class="lasso-command-diff-container">
-      ${listToRender
-        .map((c) => {
-          const stats = getLineDiff(c.oldString, c.newString);
-          const extension = getFileExtension(c.filePath);
-          return `
-        <div class="lasso-command-diff-file ${rejected?.has(c.filePath) ? "excluded-diff" : ""}">
-          <div class="lasso-command-diff-file-header">
-            <span class="lasso-command-diff-file-name"><span class="lasso-command-file-extension ${extension.className}">${escapeHtml(extension.label)}</span>${escapeHtml(getPathBasename(c.filePath))}</span>
-            <span class="lasso-command-file-stats"><span class="additions">+${stats.additions}</span><span class="deletions">−${stats.deletions}</span></span>
-            ${rejected?.has(c.filePath) ? `<span style="color: #f87171; font-size: 11px; margin-left: 8px;">(Excluded from apply)</span>` : ""}
-          </div>
-          <pre class="lasso-command-diff-content">${renderLineDiff(c.oldString, c.newString)}</pre>
-        </div>
-      `;
-        })
-        .join("")}
-    </div>
-  `;
-}
-
-type DiffLine = { kind: "add" | "delete" | "context"; text: string };
-
-/** Compute an LCS line diff, trimming identical edges and bounding large files. */
-function getLineDiff(oldText: string, newText: string): { additions: number; deletions: number; lines: DiffLine[] } {
-  const oldLines = oldText ? oldText.replace(/\r\n/g, "\n").split("\n") : [];
-  const newLines = newText ? newText.replace(/\r\n/g, "\n").split("\n") : [];
-  let prefix = 0;
-  while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) prefix++;
-  let suffix = 0;
-  while (suffix < oldLines.length - prefix && suffix < newLines.length - prefix && oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]) suffix++;
-
-  const oldMiddle = oldLines.slice(prefix, oldLines.length - suffix);
-  const newMiddle = newLines.slice(prefix, newLines.length - suffix);
-  let changed: DiffLine[];
-  if (oldMiddle.length * newMiddle.length > 1_000_000) {
-    changed = [...oldMiddle.map((text) => ({ kind: "delete" as const, text })), ...newMiddle.map((text) => ({ kind: "add" as const, text }))];
-  } else {
-    const lcs = Array.from({ length: oldMiddle.length + 1 }, () => new Uint32Array(newMiddle.length + 1));
-    for (let i = oldMiddle.length - 1; i >= 0; i--) {
-      for (let j = newMiddle.length - 1; j >= 0; j--) {
-        lcs[i][j] = oldMiddle[i] === newMiddle[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
-      }
-    }
-    changed = [];
-    let i = 0;
-    let j = 0;
-    while (i < oldMiddle.length && j < newMiddle.length) {
-      if (oldMiddle[i] === newMiddle[j]) {
-        changed.push({ kind: "context", text: oldMiddle[i++] });
-        j++;
-      } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
-        changed.push({ kind: "delete", text: oldMiddle[i++] });
-      } else {
-        changed.push({ kind: "add", text: newMiddle[j++] });
-      }
-    }
-    while (i < oldMiddle.length) changed.push({ kind: "delete", text: oldMiddle[i++] });
-    while (j < newMiddle.length) changed.push({ kind: "add", text: newMiddle[j++] });
-  }
-
-  const lines: DiffLine[] = [...oldLines.slice(0, prefix).map((text) => ({ kind: "context" as const, text })), ...changed, ...oldLines.slice(oldLines.length - suffix).map((text) => ({ kind: "context" as const, text }))];
-  return {
-    additions: lines.filter((line) => line.kind === "add").length,
-    deletions: lines.filter((line) => line.kind === "delete").length,
-    lines,
-  };
-}
-
-function renderLineDiff(oldText: string, newText: string): string {
-  const diff = getLineDiff(oldText, newText);
-  const visible = diff.lines.length > 240 ? diff.lines.slice(0, 240) : diff.lines;
-  if (!visible.length) return '<span class="lasso-diff-context">No textual changes</span>';
-  const rendered = visible.map((line) => {
-    const marker = line.kind === "add" ? "+" : line.kind === "delete" ? "−" : " ";
-    const className = line.kind === "add" ? "lasso-diff-add" : line.kind === "delete" ? "lasso-diff-del" : "lasso-diff-context";
-    return `<span class="${className}">${marker} ${escapeHtml(line.text) || " "}</span>`;
-  });
-  if (diff.lines.length > visible.length) rendered.push(`<span class="lasso-diff-context">… ${diff.lines.length - visible.length} more lines</span>`);
-  return rendered.join("\n");
-}
-
 function scrollToBottom(): void {
   if (commandBarEl) {
     const body = commandBarEl.querySelector(".lasso-command-body");
@@ -2109,15 +1667,4 @@ function scrollToBottom(): void {
       }, 30);
     }
   }
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return s ? `${m}m ${s}s` : `${m}m`;
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 }

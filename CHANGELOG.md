@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Bridge environment files load from the project roots correctly.** Fixed the
+  argument order used to read `.env`, `.env.local`, and `.env.production`, which
+  could prevent provider configuration from being discovered.
 - **Skills menu background is opaque.** The popover referenced an undefined surface
   token, causing its background style to be discarded and the page to show through.
 - **npm README setup is clearer.** Restored the centered Lasso logo and package
@@ -16,8 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instructions.
 - **One-shot generation no longer demands a provider API key when a local agent is
   selected.** Picking Claude Code, Codex, OpenCode, or Cursor for a one-shot request
-  used to bail out with *"Please configure an AI provider API key or model in settings
-  to enable code generation."* Those agents authenticate themselves, so the request now
+  used to bail out with _"Please configure an AI provider API key or model in settings
+  to enable code generation."_ Those agents authenticate themselves, so the request now
   runs through the local CLI first. If the local CLI cannot run (not installed, not
   signed in, out of credits) and a Lasso key is available, the request falls back to the
   Lasso Agent Gateway with a hosted provider/model it understands (`claude-code`/`cursor`
@@ -31,6 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Separated command-bar rendering and bridge context helpers.** Shared prompt
+  contracts now live in core interfaces, and the obsolete inline change-card renderer
+  and its unreachable event handlers and styles were removed. The overlay stylesheet
+  is split into feature sections while producing identical CSS output. Local model
+  provider icons and menu rendering are separated from selected-element prompt logic.
+- **Reduced CLI installation dependencies.** Removed unused SDK/Iconify packages,
+  keep overlay-only icon libraries in development dependencies, and declare Vite 7/8
+  as an optional peer so Lasso uses the project's own Vite installation.
+- **Formatted the source tree with Prettier.**
 - **`lasso init` registers against the Lasso API, not the realtime server.**
   Project registration (`init`, `register`, `create`) now posts to
   `serverUrlFrom()` — `https://api.lasso.byorello.space` by default — because the
@@ -186,7 +198,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Voice chat**: P2P WebRTC mesh — join from the toolbar, mute with a right-click
   while live.
 - CLI → overlay `config` message carries `collab: { projectId, realtimeUrl,
-  name, version, workspaceId }` so the overlay can join the right (workspace-
+name, version, workspaceId }` so the overlay can join the right (workspace-
   gated) session. The bridge only forwards a config it successfully authenticated.
 
 ### Fixed

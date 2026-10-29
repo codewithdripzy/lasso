@@ -1,6 +1,6 @@
 {
   "name": "@lasso-ai/cli",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "Select any part of your running app, describe a change, and let AI edit the real source code.",
   "type": "commonjs",
   "main": "dist/cli/index.js",
@@ -91,22 +91,16 @@
     "url": "https://www.buymeacoffee.com/thecodeguyy"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.1",
-    "@hugeicons/core-free-icons": "^4.3.5",
-    "@iconify-icons/logos": "^2.0.1",
-    "@iconify-json/logos": "^1.2.14",
-    "@iconify/utils": "^3.1.7",
     "chalk": "^6.0.0",
     "commander": "^15.0.0",
     "http-proxy": "^1.18.1",
     "open": "^11.0.4",
     "prompts": "^2.4.2",
     "socket.io-client": "^4.8.3",
-    "vite": "^7.0.0",
     "ws": "^8.21.3"
   },
   "peerDependencies": {
-    "vite": "^8.3.0"
+    "vite": "^7.0.0 || ^8.0.0"
   },
   "peerDependenciesMeta": {
     "vite": {
@@ -123,7 +117,9 @@
     "prettier": "^3.9.8",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",
-    "vite": "^8.3.0"
+    "vite": "^8.3.0",
+    "@hugeicons/core-free-icons": "^4.3.5",
+    "@iconify-icons/logos": "^2.0.1"
   },
   "overrides": {
     "@lasso-ai/cli": "link:"

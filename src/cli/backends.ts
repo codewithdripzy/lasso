@@ -194,17 +194,19 @@ async function detectCodex(): Promise<DetectedBackend> {
   const configuredModel = await readCodexConfiguredModel();
   const displayModel = configuredModel
     ?.split("-")
-    .map((part) => part.toLowerCase() === "gpt" ? "GPT" : `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .map((part) => (part.toLowerCase() === "gpt" ? "GPT" : `${part.charAt(0).toUpperCase()}${part.slice(1)}`))
     .join("-");
   const base: DetectedBackend = {
     provider: "codex_cli",
     installed: false,
     authenticated: false,
-    models: [{
-      id: "codex_cli:default",
-      label: displayModel || "Default model",
-      modelId: "",
-    }],
+    models: [
+      {
+        id: "codex_cli:default",
+        label: displayModel || "Default model",
+        modelId: "",
+      },
+    ],
   };
 
   const version = await probe("codex", ["--version"]);

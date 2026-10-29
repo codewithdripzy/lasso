@@ -270,7 +270,7 @@ export abstract class LocalAgentAdapter implements IBackend {
         provider: this.provider,
         model: this.modelId || undefined,
         binary: command.bin,
-        args: command.args.map((arg, index) => index === command.args.length - 1 ? "<prompt>" : arg),
+        args: command.args.map((arg, index) => (index === command.args.length - 1 ? "<prompt>" : arg)),
         cwd: command.cwd,
         pid: child.pid,
       });
@@ -295,9 +295,7 @@ export abstract class LocalAgentAdapter implements IBackend {
         if (!line.trim()) return;
         try {
           const event = JSON.parse(line) as Record<string, unknown>;
-          const item = event.item && typeof event.item === "object"
-            ? event.item as Record<string, unknown>
-            : undefined;
+          const item = event.item && typeof event.item === "object" ? (event.item as Record<string, unknown>) : undefined;
           writeLassoLog("debug", "local_agent_event", {
             taskId: context.taskId,
             provider: this.provider,

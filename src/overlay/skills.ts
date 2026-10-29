@@ -13,7 +13,10 @@ function escapeHtml(value: string): string {
 
 function renderSkillIcon(): string {
   const nodes = SparklesIcon.map(([tag, attributes]) => {
-    const attrs = Object.entries(attributes).filter(([key]) => key !== "key").map(([key, value]) => `${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}="${String(value)}"`).join(" ");
+    const attrs = Object.entries(attributes)
+      .filter(([key]) => key !== "key")
+      .map(([key, value]) => `${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}="${String(value)}"`)
+      .join(" ");
     return `<${tag} ${attrs} />`;
   }).join("");
   return `<svg class="lasso-skills-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${nodes}</svg>`;
@@ -52,11 +55,17 @@ function renderControl(root: HTMLElement): void {
   count.textContent = String(selected.size);
   count.hidden = selected.size === 0;
   popover.innerHTML = `<div class="lasso-skills-heading"><strong>Skills</strong><span>Auto-discovered for this project</span></div>
-    <div class="lasso-skills-list">${catalog.length ? catalog.map((skill) => {
-      const builtin = skill.source === "builtin";
-      const sourceLabel = builtin ? "Lasso built-in · Auto included for UI tasks" : skill.source === "project" ? "Project" : "Personal";
-      return `<label class="lasso-skill-option" title="${escapeHtml(skill.description)}"><input type="checkbox" data-skill-id="${escapeHtml(skill.id)}" ${builtin || selected.has(skill.id) ? "checked" : ""} ${builtin ? "disabled" : ""}><span><strong>${escapeHtml(skill.name)}</strong><small>${sourceLabel} · ${escapeHtml(skill.description)}</small></span></label>`;
-    }).join("") : `<p class="lasso-skills-empty">No skills found. Add a SKILL.md file or upload one.</p>`}</div>
+    <div class="lasso-skills-list">${
+      catalog.length
+        ? catalog
+            .map((skill) => {
+              const builtin = skill.source === "builtin";
+              const sourceLabel = builtin ? "Lasso built-in · Auto included for UI tasks" : skill.source === "project" ? "Project" : "Personal";
+              return `<label class="lasso-skill-option" title="${escapeHtml(skill.description)}"><input type="checkbox" data-skill-id="${escapeHtml(skill.id)}" ${builtin || selected.has(skill.id) ? "checked" : ""} ${builtin ? "disabled" : ""}><span><strong>${escapeHtml(skill.name)}</strong><small>${sourceLabel} · ${escapeHtml(skill.description)}</small></span></label>`;
+            })
+            .join("")
+        : `<p class="lasso-skills-empty">No skills found. Add a SKILL.md file or upload one.</p>`
+    }</div>
     <button class="lasso-skills-upload" type="button">Upload a skill…</button>`;
 }
 

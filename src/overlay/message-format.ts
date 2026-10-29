@@ -80,13 +80,15 @@ function renderMessageLink(label: string, target: string): string | null {
 }
 
 function renderHugeIcon(icon: HugeiconsSvgNode): string {
-  const nodes = icon.map(([tag, attributes]) => {
-    const attrs = Object.entries(attributes)
-      .filter(([key]) => key !== "key")
-      .map(([key, value]) => `${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}="${escapeHtml(String(value))}"`)
-      .join(" ");
-    return `<${tag} ${attrs} />`;
-  }).join("");
+  const nodes = icon
+    .map(([tag, attributes]) => {
+      const attrs = Object.entries(attributes)
+        .filter(([key]) => key !== "key")
+        .map(([key, value]) => `${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}="${escapeHtml(String(value))}"`)
+        .join(" ");
+      return `<${tag} ${attrs} />`;
+    })
+    .join("");
   return `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${nodes}</svg>`;
 }
 

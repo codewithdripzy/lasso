@@ -3,8 +3,6 @@ import { WebSocketServer, type WebSocket } from "ws";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import chalk from "chalk";
 import type { CollabConfig } from "./project";
 import { resolveLassoApiKey, resolveWorkspaceConfig, fetchModels } from "./project";
@@ -13,45 +11,13 @@ import { createSnapshot, restoreSnapshot, rewindAppliedTasks, getTimeline, delet
 import { RuntimeClient, type RuntimeSessionInput, type RuntimeEvent, type RuntimeSession, type RuntimeFacade, type BrowserContextProvider } from "./runtime-client";
 import { detectBackends, modelIdForBackend, type DetectedBackend, type LocalAgentProvider } from "./backends";
 import { getLocalRuntime } from "./local-runtime";
-import type { BridgeMessage, GitState, ModelOption, PageEntry, Provider, ServerBridgeMessage } from "../core/interfaces/data";
+import type { BridgeMessage, ModelOption, PageEntry, ServerBridgeMessage } from "../core/interfaces/data";
 import { lassoLogPath, writeLassoLog } from "./logging";
 import { discoverSkills, saveUploadedSkill, selectedSkillInstructions, toSkillCatalog } from "./skills";
+import { cleanConversationReply, detectProjectFramework, extractChangesFromSession, getGitState, gitCommand, loadProjectEnvironment, toRuntimeConversation } from "./bridge/project-context";
 
 export const DEFAULT_BRIDGE_PORT = 3056;
-const execFileAsync = promisify(execFile);
 export type { BridgeMessage, ServerBridgeMessage } from "../core/interfaces/data";
-
-/** Map overlay chat history to the runtime conversation shape. */
-function toRuntimeConversation(messages: Array<{ role: string; content: string; createdAt?: string; timestamp?: number }> | undefined): RuntimeSessionInput["conversation"] | undefined {
-  if (!Array.isArray(messages) || messages.length === 0) return undefined;
-  const turns = messages
-    .filter((m) => typeof m?.content === "string" && m.content.trim())
-    .map((m) => ({
-      role: (m.role === "user" ? "user" : m.role === "assistant" ? "assistant" : "system") as "user" | "assistant" | "system",
-      content: m.content,
-      timestamp: typeof m.timestamp === "number" ? m.timestamp : m.createdAt ? Date.parse(m.createdAt) || Date.now() : Date.now(),
-    }));
-  return turns.length > 0 ? turns : undefined;
-}
-
-function cleanConversationReply(value: unknown): string {
-  const text = typeof value === "string" ? value.trim() : "";
-  if (!text) return "";
-  try {
-    const parsed = JSON.parse(text);
-    if (typeof parsed?.reply === "string") return parsed.reply.trim();
-  } catch {
-    const match = text.match(/"reply"\s*:\s*"((?:\\.|[^"\\])*)"/);
-    if (match) {
-      try {
-        return JSON.parse(`"${match[1]}"`).trim();
-      } catch {
-        return match[1].replace(/\\n/g, "\n").replace(/\\"/g, '"').trim();
-      }
-    }
-  }
-  return text;
-}
 
 export async function restartBridge(port = DEFAULT_BRIDGE_PORT): Promise<{ ok: boolean; error?: string }> {
   try {
@@ -82,104 +48,6 @@ export async function getBridgeStatus(port = DEFAULT_BRIDGE_PORT): Promise<Bridg
   }
 }
 
-async function gitCommand(cwd: string, args: string[]) {
-  const result = await execFileAsync("git", args, { cwd, maxBuffer: 1024 * 1024 });
-  return result.stdout.trim();
-}
-
-async function getGitState(cwd: string): Promise<GitState> {
-  try {
-    await gitCommand(cwd, ["rev-parse", "--is-inside-work-tree"]);
-  } catch {
-    return { isRepo: false };
-  }
-  const status = (await gitCommand(cwd, ["status", "--short"])).split("\n").filter(Boolean);
-  const branch = await gitCommand(cwd, ["branch", "--show-current"]).catch(() => "");
-  const remote = await gitCommand(cwd, ["remote", "get-url", "origin"]).catch(() => "");
-  return { isRepo: true, branch, status, hasChanges: status.length > 0, hasRemote: Boolean(remote), remote };
-}
-
-function readEnvFile(filename: string, cwd: string): Record<string, string> {
-  try {
-    return fs
-      .readFileSync(path.join(cwd, filename), "utf8")
-      .split(/\r?\n/)
-      .reduce<Record<string, string>>((values, line) => {
-        const match = line.match(/^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-        if (match) {
-          let value = match[2].trim();
-          if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
-          values[match[1]] = value.trim();
-        }
-        return values;
-      }, {});
-  } catch {
-    return {};
-  }
-}
-
-function detectProjectFramework(cwd: string): string {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(cwd, "package.json"), "utf8"));
-    if (pkg.dependencies?.next || pkg.devDependencies?.next) return "next";
-    if (pkg.dependencies?.nuxt || pkg.devDependencies?.nuxt) return "nuxt";
-    if (pkg.dependencies?.react || pkg.devDependencies?.react) return "react";
-    if (pkg.dependencies?.vue || pkg.devDependencies?.vue) return "vue";
-    if (pkg.dependencies?.svelte || pkg.devDependencies?.svelte) return "svelte";
-    if (pkg.dependencies?.solid || pkg.devDependencies?.solid) return "solid";
-  } catch {}
-  return "unknown";
-}
-
-// Helper to extract review changes from a runtime session.
-// Prefers the authoritative guard diff (session.metadata.pendingChanges) and
-// falls back to normalizing recorded actions (accepting filePath OR path).
-function extractChangesFromSession(session: RuntimeSession | null): any[] {
-  if (!session) return [];
-
-  const metadata = (session as { metadata?: Record<string, unknown> }).metadata;
-  const pending = metadata?.pendingChanges;
-  if (Array.isArray(pending) && pending.length > 0) {
-    return pending.map((change: any) => ({
-      filePath: change.filePath,
-      oldString: change.oldString ?? "",
-      newString: change.newString ?? "",
-      operation: change.operation || (change.oldString === "" && change.newString === "" ? "deleted" : change.oldString === "" ? "created" : "modified"),
-    }));
-  }
-
-  const changes: any[] = [];
-  for (const action of session.actions || []) {
-    const data = (action.data || {}) as Record<string, unknown>;
-    const filePath = (data.filePath || data.path) as string | undefined;
-    if (!filePath) continue;
-
-    if (action.type === "edit_file") {
-      changes.push({
-        filePath,
-        oldString: (data.oldString as string) ?? "",
-        newString: (data.newString as string) ?? "",
-        operation: "modified",
-      });
-    } else if (action.type === "create_file") {
-      changes.push({
-        filePath,
-        oldString: "",
-        newString: (data.content as string) ?? "",
-        operation: "created",
-      });
-    } else if (action.type === "delete_file") {
-      changes.push({
-        filePath,
-        oldString: (data.oldContent as string) ?? "(deleted)",
-        newString: "",
-        operation: "deleted",
-      });
-    }
-  }
-  return changes;
-}
-
 export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | null = null, bridgePort = DEFAULT_BRIDGE_PORT) {
   const startedAt = Date.now();
   writeLassoLog("info", "bridge_started", { cwd, port: bridgePort, pid: process.pid });
@@ -198,16 +66,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   const earlyReviewDecisions = new Set<string>();
   const latestReviewChanges = new Map<string, any[]>();
   const pendingBrowserContext = new Map<string, { resolve: (value: any) => void; reject: (error: Error) => void }>();
-  const envRoots = [cwd, path.join(cwd, "web"), path.join(cwd, "server")];
-  const fileEnv = envRoots.reduce<Record<string, string>>(
-    (values, root) => ({
-      ...values,
-      ...readEnvFile(root, ".env"),
-      ...readEnvFile(root, ".env.local"),
-      ...readEnvFile(root, ".env.production"),
-    }),
-    {}
-  );
+  const fileEnv = loadProjectEnvironment(cwd);
 
   // Resolve the user's own model-provider key (BYOK) for hosted runs: the
   // server calls the provider with it and never stores it.
@@ -373,16 +232,18 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         const data = (event.data as any) || {};
         if (Array.isArray(data.changes) && data.changes.length) {
           latestReviewChanges.set(taskId, data.changes);
-          socket.send(JSON.stringify({
-            type: "agent_status",
-            taskId,
-            status: "working",
-            message: data.live ? "Live file changes" : "Preparing file review",
-            changes: data.changes,
-            // The overlay should show the final diff as soon as the local
-            // runner publishes it, even if the backend labels it non-live.
-            liveChanges: true,
-          } satisfies ServerBridgeMessage));
+          socket.send(
+            JSON.stringify({
+              type: "agent_status",
+              taskId,
+              status: "working",
+              message: data.live ? "Live file changes" : "Preparing file review",
+              changes: data.changes,
+              // The overlay should show the final diff as soon as the local
+              // runner publishes it, even if the backend labels it non-live.
+              liveChanges: true,
+            } satisfies ServerBridgeMessage)
+          );
         }
         break;
       }
@@ -643,20 +504,24 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         // review implicitly. The streamed diff is enough to let the user
         // explicitly accept or reject the preserved edits.
         pendingReviewTasks.add(taskId);
-        socket.send(JSON.stringify({
-          type: "agent_status",
-          taskId,
-          status: "review",
-          message: "Changes are ready for review",
-          changes: fallbackChanges,
-        } satisfies ServerBridgeMessage));
+        socket.send(
+          JSON.stringify({
+            type: "agent_status",
+            taskId,
+            status: "review",
+            message: "Changes are ready for review",
+            changes: fallbackChanges,
+          } satisfies ServerBridgeMessage)
+        );
       } else {
-        socket.send(JSON.stringify({
-          type: "agent_status",
-          taskId,
-          status: "error",
-          message: `${error instanceof Error ? error.message : "Failed to load review changes"} Agent edits were preserved.`,
-        } satisfies ServerBridgeMessage));
+        socket.send(
+          JSON.stringify({
+            type: "agent_status",
+            taskId,
+            status: "error",
+            message: `${error instanceof Error ? error.message : "Failed to load review changes"} Agent edits were preserved.`,
+          } satisfies ServerBridgeMessage)
+        );
       }
     }
   }
@@ -799,18 +664,14 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       // agent CLIs need the unprefixed/normalized form.
       const backendModelId = modelIdForBackend(model || "", provider || "");
 
-      const taskSkills = selectedSkillInstructions(
-        cwd,
-        message.skillIds,
-        [instruction, ...(messages || []).filter((entry: any) => entry.role === "user").map((entry: any) => entry.content)].join("\n"),
-        Boolean(context)
-      );
+      const taskSkills = selectedSkillInstructions(cwd, message.skillIds, [instruction, ...(messages || []).filter((entry: any) => entry.role === "user").map((entry: any) => entry.content)].join("\n"), Boolean(context));
       const sessionConversation = toRuntimeConversation(messages) || [];
-      if (taskSkills.length && !isLocalAgent) sessionConversation.push({
-        role: "system",
-        content: taskSkills.map((skill) => `Selected skill: ${skill.name}\n${skill.description}\n${skill.content}`).join("\n\n"),
-        timestamp: Date.now(),
-      });
+      if (taskSkills.length && !isLocalAgent)
+        sessionConversation.push({
+          role: "system",
+          content: taskSkills.map((skill) => `Selected skill: ${skill.name}\n${skill.description}\n${skill.content}`).join("\n\n"),
+          timestamp: Date.now(),
+        });
       const sessionInput: RuntimeSessionInput = {
         userPrompt: instruction,
         conversation: sessionConversation,
@@ -1351,17 +1212,14 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       }
       const backendModelId = modelIdForBackend(model || "", provider || "");
 
-      const taskSkills = selectedSkillInstructions(
-        cwd,
-        message.skillIds,
-        [instruction, ...(runtimeConversation || []).filter((entry) => entry.role === "user").map((entry) => entry.content)].join("\n")
-      );
+      const taskSkills = selectedSkillInstructions(cwd, message.skillIds, [instruction, ...(runtimeConversation || []).filter((entry) => entry.role === "user").map((entry) => entry.content)].join("\n"));
       const sessionConversation = runtimeConversation ? [...runtimeConversation] : [];
-      if (taskSkills.length && !isLocalAgent) sessionConversation.push({
-        role: "system",
-        content: taskSkills.map((skill) => `Selected skill: ${skill.name}\n${skill.description}\n${skill.content}`).join("\n\n"),
-        timestamp: Date.now(),
-      });
+      if (taskSkills.length && !isLocalAgent)
+        sessionConversation.push({
+          role: "system",
+          content: taskSkills.map((skill) => `Selected skill: ${skill.name}\n${skill.description}\n${skill.content}`).join("\n\n"),
+          timestamp: Date.now(),
+        });
       const sessionInput: RuntimeSessionInput = {
         userPrompt: instruction,
         // The sidebar is the source of truth for history. The runtime prompt

@@ -80,9 +80,12 @@ export class AntigravityAdapter extends LocalAgentAdapter {
 
   protected async checkAuthentication(): Promise<{ authenticated: boolean; error?: string; fixInstructions?: string }> {
     try {
-      await import("node:child_process").then(({ execFile }) => new Promise<void>((resolve, reject) => {
-        execFile("agy", ["models"], { timeout: 15000, windowsHide: true }, (error) => error ? reject(error) : resolve());
-      }));
+      await import("node:child_process").then(
+        ({ execFile }) =>
+          new Promise<void>((resolve, reject) => {
+            execFile("agy", ["models"], { timeout: 15000, windowsHide: true }, (error) => (error ? reject(error) : resolve()));
+          })
+      );
       return { authenticated: true };
     } catch {
       return {
@@ -94,11 +97,7 @@ export class AntigravityAdapter extends LocalAgentAdapter {
   }
 
   protected buildCommand(context: TaskContext): CommandSpec {
-    const args = [
-      "--output-format", "stream-json",
-      "--print-timeout", "0",
-      "--mode", context.mode === "conversation" ? "plan" : "accept-edits",
-    ];
+    const args = ["--output-format", "stream-json", "--print-timeout", "0", "--mode", context.mode === "conversation" ? "plan" : "accept-edits"];
     if (this.modelId) args.push("--model", this.modelId);
 
     const resumeId = this.resumeSessionId(context);

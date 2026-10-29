@@ -51,9 +51,7 @@ export class LocalSessionRunner {
         console.warn("Could not capture live workspace diff:", error);
       }
     };
-    const liveDiffTimer = this.options.keepEditsForReview
-      ? setInterval(emitLiveDiff, 700)
-      : undefined;
+    const liveDiffTimer = this.options.keepEditsForReview ? setInterval(emitLiveDiff, 700) : undefined;
     const emitTerminal = (event: AgentEvent) => {
       if (this.options.deferTerminalEvent) terminalEvent = event;
       else emit(event);
@@ -190,9 +188,7 @@ export class LocalSessionRunner {
         conversation: [],
         metadata: {},
       };
-      emitTerminal(keepWorkspaceChangesForReview
-        ? { type: "agent_completed", sessionId, timestamp: Date.now(), data: { requiresReview: true, pendingChanges: review.changes.length, summary: message } }
-        : { type: "error", sessionId, timestamp: Date.now(), data: { error: message } });
+      emitTerminal(keepWorkspaceChangesForReview ? { type: "agent_completed", sessionId, timestamp: Date.now(), data: { requiresReview: true, pendingChanges: review.changes.length, summary: message } } : { type: "error", sessionId, timestamp: Date.now(), data: { error: message } });
     } finally {
       if (liveDiffTimer) clearInterval(liveDiffTimer);
       // Keep reviewable edits on disk until the user accepts or rejects them.

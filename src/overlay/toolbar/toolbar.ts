@@ -14,6 +14,19 @@ import { toggleTaskPanel } from "../tasks/tasks";
 import { togglePagePanel } from "../pages/pages";
 import { openCommandBar, closeCommandBar, isCommandBarOpen } from "../commandbar/commandbar";
 
+function restoreReopenButtonPosition(button: HTMLButtonElement): void {
+  try {
+    const saved = JSON.parse(localStorage.getItem("lasso:toolbar-reopen-position") || "null") as { left?: unknown; top?: unknown } | null;
+    if (!saved || typeof saved.left !== "number" || typeof saved.top !== "number") return;
+    button.style.left = `${Math.max(0, Math.min(window.innerWidth - 44, saved.left))}px`;
+    button.style.top = `${Math.max(0, Math.min(window.innerHeight - 44, saved.top))}px`;
+    button.style.right = "auto";
+    button.style.bottom = "auto";
+  } catch {
+    // Ignore unavailable storage or invalid saved positions.
+  }
+}
+
 // SVG comment-pin cursor — a crosshair with a speech bubble tip
 const COMMENT_CURSOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="32" viewBox="0 0 28 32"><defs><filter id="s" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="rgba(0,0,0,0.5)"/></filter></defs><g filter="url(#s)"><path d="M4 2h16a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H10l-6 6V5a3 3 0 0 1 3-3z" fill="#7C3AED"/><path d="M4 2h16a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H10l-6 6V5a3 3 0 0 1 3-3z" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="0.8"/><line x1="12" y1="7" x2="12" y2="15" stroke="white" stroke-width="1.8" stroke-linecap="round"/><line x1="8" y1="11" x2="16" y2="11" stroke="white" stroke-width="1.8" stroke-linecap="round"/></g></svg>`;
 const COMMENT_CURSOR_URL = `url("data:image/svg+xml,${encodeURIComponent(COMMENT_CURSOR_SVG)}") 4 2, crosshair`;
@@ -181,11 +194,8 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
   toolbarReopen.type = "button";
   toolbarReopen.setAttribute("aria-label", "Show Lasso toolbar");
   toolbarReopen.title = "Show Lasso toolbar";
-  toolbarReopen.innerHTML = `
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M4 4l7.07 17 2.51-7.39L21 11.07 4 4z"/>
-    </svg>
-  `;
+  toolbarReopen.innerHTML = `<img src="${LASSO_ICON_DATA_URL}" width="24" height="24" alt="" aria-hidden="true" />`;
+  restoreReopenButtonPosition(toolbarReopen);
 
   // Discord-style floating voice bar
   const voiceBar = document.createElement("div");
@@ -352,7 +362,47 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
     toolbarReopen.classList.add("visible");
   });
 
-  toolbarReopen.addEventListener("click", () => {
+  let suppressReopenClick = false;
+  let reopenDrag: { pointerId: number; startX: number; startY: number; left: number; top: number; moved: boolean } | null = null;
+  toolbarReopen.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    const rect = toolbarReopen.getBoundingClientRect();
+    reopenDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, left: rect.left, top: rect.top, moved: false };
+    toolbarReopen.setPointerCapture(event.pointerId);
+  });
+  toolbarReopen.addEventListener("pointermove", (event) => {
+    if (!reopenDrag || event.pointerId !== reopenDrag.pointerId) return;
+    const deltaX = event.clientX - reopenDrag.startX;
+    const deltaY = event.clientY - reopenDrag.startY;
+    if (!reopenDrag.moved && Math.hypot(deltaX, deltaY) < 4) return;
+
+    reopenDrag.moved = true;
+    const left = Math.max(0, Math.min(window.innerWidth - toolbarReopen.offsetWidth, reopenDrag.left + deltaX));
+    const top = Math.max(0, Math.min(window.innerHeight - toolbarReopen.offsetHeight, reopenDrag.top + deltaY));
+    toolbarReopen.style.left = `${left}px`;
+    toolbarReopen.style.top = `${top}px`;
+    toolbarReopen.style.right = "auto";
+    toolbarReopen.style.bottom = "auto";
+  });
+  const finishReopenDrag = (event: PointerEvent) => {
+    if (!reopenDrag || event.pointerId !== reopenDrag.pointerId) return;
+    if (reopenDrag.moved) {
+      suppressReopenClick = true;
+      try {
+        localStorage.setItem("lasso:toolbar-reopen-position", JSON.stringify({ left: toolbarReopen.offsetLeft, top: toolbarReopen.offsetTop }));
+      } catch {}
+    }
+    reopenDrag = null;
+  };
+  toolbarReopen.addEventListener("pointerup", finishReopenDrag);
+  toolbarReopen.addEventListener("pointercancel", finishReopenDrag);
+  toolbarReopen.addEventListener("click", (event) => {
+    if (suppressReopenClick) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      suppressReopenClick = false;
+      return;
+    }
     toolbar.classList.remove("dismissed");
     miniToolbar.classList.remove("dismissed");
     toolbarReopen.classList.remove("visible");

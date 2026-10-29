@@ -343,30 +343,31 @@ export class ActionExecutor {
           file: relativePath,
           line: index + 1,
           content: lines[index].trim().slice(0, 300),
-          context: lines
-            .slice(Math.max(0, index - 1), Math.min(lines.length, index + 2))
-            .map((line) => line.trim().slice(0, 300)),
+          context: lines.slice(Math.max(0, index - 1), Math.min(lines.length, index + 2)).map((line) => line.trim().slice(0, 300)),
         });
       }
     }
 
     // Rank direct filename matches first, then preserve source order.
-    const terms = pattern.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const terms = pattern
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean);
     results.sort((a, b) => {
       const score = (result: typeof a) => terms.reduce((total, term) => total + (result.file.toLowerCase().includes(term) ? 2 : 0), 0);
       return score(b) - score(a);
     });
 
-      return {
-        success: true,
-        actionId: id,
-        output: { results },
-        observation: {
-          type: "search",
-          summary: `Found ${results.length} matches for: ${pattern}`,
-          data: { pattern, count: results.length },
-        },
-      };
+    return {
+      success: true,
+      actionId: id,
+      output: { results },
+      observation: {
+        type: "search",
+        summary: `Found ${results.length} matches for: ${pattern}`,
+        data: { pattern, count: results.length },
+      },
+    };
   }
 
   private globMatcher(pattern: string): RegExp {
