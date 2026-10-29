@@ -2249,7 +2249,7 @@ export function buildStyles(): string {
     .lasso-skills-trigger:hover, .lasso-skills-trigger:focus-visible { background: var(--lo-surface-hover); color: var(--lo-text); }
     .lasso-skills-icon { width: 15px; height: 15px; }
     .lasso-skills-count { position: absolute; top: 0; right: 0; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 99px; background: var(--lo-primary); color: #111; font-size: 9px; line-height: 14px; font-weight: 700; }
-    .lasso-skills-popover { position: absolute; z-index: 500; left: 0; bottom: calc(100% + 8px); width: min(320px, calc(100vw - 32px)); max-height: 340px; overflow: auto; padding: 10px; border: 1px solid var(--lo-border); border-radius: 14px; background: var(--lo-surface-1); box-shadow: 0 12px 32px rgba(0,0,0,.34); color: var(--lo-text); }
+    .lasso-skills-popover { position: absolute; z-index: 500; left: 0; bottom: calc(100% + 8px); width: min(320px, calc(100vw - 32px)); max-height: 340px; overflow: auto; padding: 10px; border: 1px solid var(--lo-border); border-radius: 14px; background: var(--lo-surface); box-shadow: 0 12px 32px rgba(0,0,0,.34); color: var(--lo-text); }
     .lasso-command-skills .lasso-skills-popover { left: auto; right: 0; }
     .lasso-skills-popover[hidden] { display: none; }
     .lasso-skills-heading { display: flex; flex-direction: column; gap: 2px; padding: 2px 4px 9px; }

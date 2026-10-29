@@ -1,381 +1,99 @@
-# Architecture
+# Lasso CLI architecture
 
-> Product name: **Lasso**.
+This guide describes the current CLI and browser-overlay package. For the complete hosted request flow, see the repository's `AGENT_ARCHITECTURE.md` and `ai-server/README.md`.
 
-## 1. Core principle
+## Package responsibilities
 
-Lasso edits **source code**, never the live DOM. A visual selection is a pointer into a
-codebase, not a target for direct manipulation. This decision shapes every component
-below — it's what separates a real dev tool from a demo that only works on static HTML.
+`@lasso-ai/cli` contains:
 
-## 2. Repository layout
+- The `lasso` command and framework integrations.
+- The browser overlay, including selection, prompt UI, progress, review, skills, and conversation history.
+- A local WebSocket bridge between the browser and CLI.
+- Local source inspection and file operations.
+- Adapters for local coding CLIs and a client for Lasso's hosted agent runtime.
+- Workspace baseline capture, live diff reporting, accept, and reject behavior.
 
-```
-src/
-  cli/                    # the Node CLI (the coordinator)
-    index.ts              # entry point: `lasso` / `lasso dev`, framework detection dispatch, `daemon`/`projects`/`register`
-    project.ts            # project identity: `lasso init` (writes `{id, domain}`), `lasso dev` session resolution
-    auth.ts               # `lasso auth`: browser-OAuth login, credential store (~/.lasso/credentials.json), status, logout
-    bridge.ts             # WebSocket bridge the overlay connects to
-    server/
-      vite.ts             # Vite dev server with the source-mapping plugin injected in-memory
-      next.ts             # Next.js dev server integration (React _debugSource)
-    utils/
-      framework.ts        # framework/bundler detection
-    host/                 # Lasso Host: user-level local domains + app hosting
-      paths.ts            # host dir (~/.lasso/host), registry/pid/log paths, ports, the `.lasso` TLD
-      registry.ts         # domain → {projectId, directory} persistence (atomic, 0600), unique-domain generation
-      runtime.ts          # auto-start dev servers (Vite/Next), readiness polling, port picking
-      dns.ts              # UDP responder (*.lasso → 127.0.0.1, NXDOMAIN outside) + per-OS resolver config
-      daemon.ts           # the background host: HTTP+WS proxy, /_host/* control API, single-instance, crash guard
-      client.ts           # CLI-side helpers: health, registry read/register, stop/restart
-      install.ts          # `lasso daemon install/uninstall`, LaunchAgent, daemon spawn/status
-      vite-host-entry.js  # programmatic Vite with `.lasso` allow-listed (Vite rejects unknown Host headers)
-  overlay/
-    index.ts              # browser-side overlay (single file, bundled to dist/overlay.js)
-                          # also hosts the realtime client: presence, locks, comments, voice
-    audio/
-      transcribe.ts       # client-side audio capture (MediaRecorder) & STT relay
-```
+The CLI runs on the developer's computer. It owns project filesystem access, including for hosted model runs. The hosted AI service proposes and coordinates actions; local tools execute them.
 
-Two artifacts ship from `pnpm build`:
+## Request flow
 
-- `dist/cli/index.js` — the CLI, compiled with `tsc`
-- `dist/overlay.js` — the browser overlay, bundled with `esbuild`
+### Selected-element prompt
 
-## 3. System overview
+The overlay collects the user instruction, conversation, selected DOM element, source hint, viewport, relevant styles, runtime errors, and any needed screenshot. It sends an `edit` message over the local WebSocket bridge.
 
-Three parties, all coordinating around one shared filesystem:
+The bridge builds a runtime session input and chooses the selected backend:
 
-```
-┌─────────────────────────────── Your machine ───────────────────────────────┐
-│                                                                             │
-│   Browser                        Local CLI                                │
-│  ┌──────────────┐   selection   ┌──────────────────┐   writes   ┌───────┐  │
-│  │ Overlay       │──────────────▶│ Bridge            │───────────▶│ Source │ │
-│  │ (lasso, UI)   │   + prompt    │ Source resolver   │            │ files  │ │
-│  │ Running app   │◀──────────────│ Diff preview      │            └───────┘ │
-│  │ (Vite/Next    │  diff/accept  │ Agent adapter     │                 │    │
-│  │  HMR)         │               └────────┬──────────┘                 │    │
-│  └──────────────┘                         │                    dev server │
-│                                            │                    watches ↓  │
-└────────────────────────────────────────────┼──────────────────────────────┘
-                                              │
-                                   ┌──────────┴──────────┐
-                                   │   Coding agent       │
-                                   │  (pluggable — see §6)│
-                                   └──────────────────────┘
-```
+- **Local CLI**: `LocalRuntime` starts the chosen agent in the project directory and normalizes its structured output.
+- **Hosted model**: `RuntimeClient` talks to `ai-server`. Tool calls stream back to the CLI, which executes them against the local project and returns results.
 
-Everything except the coding agent call runs locally. Edit proposals are never written to
-disk without an explicit accept from the user. The New Page workflow is a separate explicit
-write path: it creates only the file at the folder the user selected in the project
-explorer. The agent is the only party that ever leaves the machine, and only with the
-exact context the CLI assembled for it.
+### One-shot command bar
 
-## 4. Browser layer (capture only)
+The command bar sends the current conversation to the bridge as an `oneshot` message. The bridge uses the request route for hosted requests: conversational prompts go to the conversation service, while coding prompts enter the persistent coding runtime. Local coding CLIs run through `LocalRuntime`.
 
-Responsibilities, and _only_ these:
+Both coding paths use the same overlay progress and review UI. Conversation history stays in the sidebar; task context includes prior conversation when needed.
 
-- Render the floating toolbar (idle / select-mode / selection-active states).
-- Lasso or click select. Match elements by **center-point containment**, not bounding-box
-  overlap (overlap over-selects parents whose edge merely brushes the lasso rect).
-- Resolve each selected DOM node to a `data-source` attribute (file, line, component name)
-  injected by the dev-time build plugin. Where no plugin is present, fall back to React's
-  `_debugSource` fiber data.
-- Take a screenshot of the selection (`html2canvas`) — visual context measurably improves
-  edit quality even when the AI has the source.
-- Capture the page's runtime health: uncaught `window` errors, unhandled promise
-  rejections, and the host app's `console.error` output. Listeners are installed when
-  the overlay script evaluates (before the app's own modules), so failures during
-  initial load — a broken import, a missing named export — are recorded as well. The
-  latest five unique entries travel with every request (`context.runtimeErrors` for
-  select/drag, `pageContext.runtimeErrors` for one-shot) and are cleared on apply so
-  they always describe the code that is running now.
-- Show the inline prompt box anchored to the selection (never a blocking `prompt()`).
-- Render the diff/accept/undo UI once the CLI streams a proposed change back.
-- Render concurrent Agent Tasks with In progress/Completed tabs and task-level review
-  actions; acceptance is the transition that completes an edit task.
-- Keep a stable component conversation identity so repeated prompts reuse conversation
-  and change history across DOM replacement during HMR.
-- Render the secondary toolbar, custom tooltips, and the New Page dialog with a lazy
-  project-folder tree. The tree is populated per-directory on expand; the CLI never
-  sends the whole project at once. Selecting a folder sets the write target, and a
-  new nested folder is created inline through its own bridge message.
-- Render task-scoped permission/input prompts and send explicit responses back over
-  the bridge. The prompt must re-enable pointer events on its panel, because the
-  overlay host disables them to keep the toolbar click-through.
-- **Never mutate the DOM.** All visual changes the user sees post-edit come from the
-  framework's own HMR reload, not from this layer.
+## Hosted services
 
-Transport: a persistent **WebSocket** to the local CLI (`src/cli/bridge.ts`), not one-shot
-`fetch` calls — this lets the CLI push streaming diff previews and error states back
-without polling.
+- `ai-server/` owns hosted coding-agent sessions, model calls, agent orchestration, and runtime state.
+- `server/` owns authentication, workspaces, provider authorization, billing, and quota. It does not run the coding-agent loop.
+- `collab-server/` owns realtime collaboration transport and events.
 
-## 5. Local CLI (the coordinator)
+The local CLI calls `ai-server` for hosted work. The AI service calls the control plane for identity and entitlement checks.
 
-A Node process that wraps the user's existing dev server. Entry: `src/cli/index.ts`.
+## Live changes and review
 
-### 5.1 Responsibilities
+Before a coding task starts, Lasso records a workspace baseline. Agent edits are made in the project and detected as the work proceeds. The overlay shows changed files and lets the user inspect diffs while the task is active.
 
-1. Detect framework/bundler on `npx @lasso-ai/cli` (`src/cli/utils/framework.ts` reads
-   `vite.config.*`, `next.config.*`, `package.json`).
-2. Spawn the dev server programmatically with the source-mapping plugin injected in memory
-   (`src/cli/server/vite.ts`, `src/cli/server/next.ts`) — the user's own config files are
-   never touched on disk.
-3. Host the WebSocket bridge (`src/cli/bridge.ts`) the browser overlay connects to.
-4. On a selection + instruction: read the referenced source file(s), assemble context
-   (source snippet, imports, relevant CSS/Tailwind config, screenshot, captured
-   console/runtime errors, instruction), and hand it to the coding agent (§6).
-5. Hold the returned diff in memory and stream it to the browser for preview — never write
-   on receipt.
-6. On accept: snapshot the file's prior content (for undo), then apply the diff.
-7. On undo: restore the snapshot, full stop — no re-generation needed, so retries are free.
-8. For New Page: answer `list_page_folders` one directory at a time so the overlay can
-   build its tree lazily, skipping dot-entries and build/vendor directories. Every
-   request resolves against the project root, so `..` and absolute paths are refused.
-   Create a file only after the user confirms, and refuse to overwrite. Nested folder
-   creation arrives separately as `create_page_folder` and never accepts a slash or a
-   dotted name.
-9. For local agents: keep child-process stdin attached to its task and forward explicit
-   overlay responses when the agent requests permission or input. Classify stderr
-   before prompting: a filesystem or transport failure is reported as an error with a
-   suggested fix, because Allow/Deny cannot resolve it. Only a genuine approval or
-   sign-in request becomes a prompt, and the text is cleaned of log prefixes first.
+- **Accept** keeps the current file contents.
+- **Reject** restores affected files to the captured pre-task contents.
 
-### 5.2 Source resolution strategies
+The workspace diff is authoritative for which files changed. Agent summaries and reported file lists do not replace it.
 
-| Setup                         | Method                                                                                                                                               |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Vite (React/Vue/Svelte/Solid) | Native Vite plugin, spawned via `createServer()` — injects `data-source` attrs at transform time. No config file edits.                              |
-| Next.js                       | React's `_debugSource` fiber data, read at runtime — no build plugin needed, slightly less precise (nearest component boundary, not exact JSX line). |
-| Webpack-only / CRA / Angular  | **Not supported in v1.** The CLI should say so explicitly rather than fail silently.                                                                  |
-
-### 5.3 Diff format
-
-The agent returns **old-string/new-string pairs**, not a full-file rewrite. Full-file
-regeneration risks silently dropping code the model wasn't told about; a targeted
-find-and-replace is deterministic and safe to apply mechanically.
-
-### 5.4 Multi-instance handling
-
-Editing a component's source file affects every rendered instance, since the source is
-shared. This is usually correct, but the UI should say so explicitly at accept-time
-("this edits the component template — affects N instances on this page") so it never feels
-like the tool did something unexpected.
-
-## 6. Coding agent — pluggable, not hardcoded
-
-Lasso ships its own default agent, but the CLI's job is to assemble _context_, not to be
-married to one model.
-
-```
-context (source + screenshot + console errors + instruction)
-        │
-        ▼
-  ┌───────────────┐
-  │ Agent adapter  │   interface: given context, return old/new string pairs
-  └───────┬───────┘
-          │
-   ┌──────┼──────────────┬─────────────────┐
-   ▼      ▼              ▼                 ▼
- Hosted   Claude Code     Codex             OpenCode
- model    `claude -p`     `codex exec`      `opencode run`
-```
-
-- **Hosted model** (`anthropic` | `openai` | `google` | `ollama`): the default path when
-  no local CLI is selected. Lasso calls the provider SDK directly (`@anthropic-ai/sdk`)
-  with the assembled context and the old/new-string contract from §5.3. The provider and
-  key come from `LASSO_AGENT_PROVIDER` plus the matching `*_API_KEY`, read from the
-  process environment or the project `.env`.
-- **Claude Code passthrough** (`claude-code`): the CLI shells out to Claude Code in
-  headless/print mode (`claude -p … --permission-mode plan --output-format
-stream-json --max-turns 3`), passing the assembled context as the prompt and parsing
-  its output back into the same diff-preview pipeline. This lets a user keep using their
-  existing Claude Code setup (subscription, project memory, MCP tools) while still
-  getting the point-and-select UX.
-- **Codex passthrough** (`codex`): `codex exec --json --sandbox read-only
---skip-git-repo-check`. Lasso passes the repository trust check itself, so Codex's own
-  check is skipped, and the read-only sandbox keeps it from writing.
-- **OpenCode passthrough** (`opencode`): `opencode run --format json --print-logs
---log-level INFO --agent plan`. The `plan` agent is read-only; `--print-logs` is why
-  diagnostics reach the bridge, which classifies them rather than surfacing raw output.
-
-Every local agent is invoked read-only, so it can only propose a patch. Lasso writes
-nothing until the user accepts the diff. If an agent asks for approval or input, the
-child's stdin stays attached and the request is surfaced as a task-scoped overlay prompt.
-
-Availability is detected rather than configured: at bridge start Lasso runs `which` for
-`claude`, `codex`, and `opencode`, and only detected agents appear in the model picker.
-OpenCode's model list is discovered with `opencode models`.
-
-Selection happens in the overlay model picker, not in `lasso.config.json`. That file
-carries only the project `id` and local `domain`:
-
-```json
-// lasso.config.json — the only project fields
-{
-  "id": "proj_3f2a9c…", // workspace-scoped; commit it so teammates share the session
-  "domain": "my-project.lasso"
-}
-```
-
-## 7. Realtime collaboration (optional)
-
-The overlay also speaks to `collab-server` (a Socket.IO server in the monorepo) so
-teammates can collaborate on the same running app. Identity is split across two
-credentials: the **API key** (`lss_live_…` — who you are + which workspace) and
-the **project id** (which Lasso project you're opening). The API key comes from
-`LASSO_API_KEY`, or — after `lasso auth login` — from `~/.lasso/credentials.json`.
-Startup flows:
+Relevant implementation:
 
 ```text
-0) lasso auth login (once per machine, device-style OAuth)
-   │  auth.ts POSTs /auth/cli/start → prints + opens the verification URL
-   │  (web /oauth/continue/cli?code=…, cookie auth) → /auth/cli/confirm mints an API key
-   │  in the user's first ACTIVE workspace; auth.ts polls /auth/cli/status
-   ▼
-   the key is delivered exactly once and stored at ~/.lasso/credentials.json (0600)
-
-1) lasso init (once per repo, API-key auth)
-   │  project.ts POSTs the app manifest to /collab/projects/register
-   ▼
-   collab-server hashes the key → api_keys → derives the workspace → creates or
-   reuses the project there (idempotent by git remote/name). CLI writes
-   lasso.config.json = { "id": "proj_…" }. Key never touches disk.
-
-2) lasso dev (every run, API-key auth)
-   │  reads lasso.config.json, POSTs /collab/projects/:projectId/session
-   ▼
-   collab-server resolves key → workspace, verifies the project belongs to it
-   (else 403 → realtime disabled, local editing continues), authenticates the
-   session (uid === projectId).
-   ▼  bridge sends { collab: { projectId, realtimeUrl, name, workspaceId } } with `config`
-   ▼
-   overlay io(realtimeUrl) → session:join { sessionId: projectId }
-   ◀ session joins are gated: the browser user must own the session's workspace
+src/runtime/workspace-guard.ts
+src/runtime/review.ts
+src/runtime/action-executor.ts
+src/cli/bridge.ts
+src/overlay/prompt/prompt.ts
+src/overlay/commandbar/commandbar.ts
 ```
 
-### Element identity
+## Skills
 
-Cross-user locks, comments, and spotlight key off a deterministic `elementKey`:
+The overlay requests a skill catalog from the CLI bridge. The CLI discovers project `SKILL.md` files under `skills/`, `.agents/skills/`, `.claude/skills/`, `.codex/skills/`, and `.cursor/skills/`. Personal uploads are saved under `~/.lasso/skills/`.
 
-1. `data-source` / `data-lasso-source` attribute (best — from the build plugin) → `attr:…`
-2. element `id` → `id:…`
-3. stable CSS path (an `nth-child` chain on the ancestors) → `css:…`
+The Skills menu appears beside selected-element and one-shot prompts. Users select project or personal skills for each task. Lasso's bundled `skills/ui-design-craft/SKILL.md` is automatically included for selected-element tasks and UI-focused coding prompts. Skill text goes to local CLIs in their task prompt and to hosted models as task-scoped system context.
 
-This is **not** the random per-click `selectionId`. Two browsers looking at the same
-app derive the same key, so a lock acquired on "the hero heading" in one tab is visible
-and enforceable in the other. The overlay keeps an `elementRegistry` mapping key → local
-Element to re-highlight remote selections.
+## Local coding CLIs
 
-### Flow pieces
+The CLI detects and adapts these local tools:
 
-- **Presence**: every joined socket emits `presence:update` (≈ every 30 s) with
-  `selection: { elementId, label, sourceHint }`; the server broadcasts
-  `presence:changed` snapshots. Only the selected element is synced (not raw
-  coordinates), which keeps the wire tiny and the boxes meaningful.
-- **Lock mode**: before running an agent edit, the overlay `lock:acquire`s the
-  element. A `ok:false reason:"LOCKED"` ack means a teammate owns it → the edit is
-  blocked and a chip shows who. The lock is released when the edit is applied or
-  undone, and the client extends its held lock on the heartbeat.
-- **Comments**: `comments:add` with `elementId` + `meta` (source hint, label,
-  position); the panel can filter to the current element or the whole session.
-  Replies nest under a root comment via `parentId`.
-- **Spotlight**: clicking a presence avatar emits `collab:spotlight`; every tab
-  highlights the element (or the sender's own highlight) for ~2.6 s with a
-  "name → element" chip.
-- **Voice**: P2P WebRTC mesh. `voice:join` returns existing peers; the newcomer
-  creates a peer connection per peer and offers; existing members answer. Media
-  never touches the server. Muting is a right-click on the (live) voice button.
+| Agent | Command |
+| --- | --- |
+| Claude Code | `claude` |
+| Codex | `codex` |
+| Cursor Agent | `cursor-agent` |
+| OpenCode | `opencode` |
+| Antigravity | `agy` |
 
-Auth uses the app's own auth cookie (`withCredentials: true`) with `auth: { token }`
-read from `document.cookie` as a fallback. That works on `localhost` because
-cookie-origin and realtime-server-origin are same-site; production deployments keep
-both on the same registrable domain (documented in the collab-server README).
+Each adapter handles that CLI's invocation and structured output. Lasso owns task context, progress normalization, change review, and accept/reject behavior.
 
-## 8. Lasso Host (local domains + app hosting)
+## Framework integrations
 
-Lasso Host turns every project into a first-class local URL. `lasso init` now also
-generates a stable unique domain for the project (`{ "id": "proj_…", "domain": "…" }`),
-so `http://app.lasso` maps to that project — no remembering ports, no manual
-`npm run dev`.
+Lasso includes development integrations for Vite, Next.js, and Nuxt. Source mapping depends on the framework integration and available source metadata. Vue applications are supported through Vite and Nuxt integrations.
 
-- **Daemon**: `lasso daemon` starts a single-instance background process
-  (pid-guarded by holding the proxy port; extra invocations fail with
-  "already running"). Control endpoints under `/_host/*` (health, registry,
-  register, unregister, stop, restart). Logs to `~/.lasso/host/daemon.log`.
-- **Proxy**: binds `127.0.0.1` only. Any request with a `*.lasso` Host header is
-  resolved through the registry and reverse-proxied to that project's dev server;
-  non-`.lasso` hosts get a 404, so nothing outside the namespace is served.
-  WebSocket upgrades (HMR) pass through the same path.
-- **Auto-start**: a request to a stopped project spawns its dev server and waits
-  for readiness before proxying. Vite is launched programmatically
-  (`vite-host-entry.js`) with `*.lasso` allow-listed because Vite rejects unknown
-  Host headers; Next runs via `next dev --port`. Unknown frameworks report a clear
-  error rather than blindly running `npm run dev`. A crash guard stops restarts
-  after repeated immediate crashes.
-- **DNS**: `*.lasso` resolves to `127.0.0.1` via a tiny UDP responder (A record;
-  NXDOMAIN outside the namespace). Platform config behind a `DomainResolver`
-  interface: macOS `/etc/resolver/lasso` (the only `sudo` step; the responder's
-  port is otherwise unprivileged), Linux systemd-resolved split-DNS, and Windows
-  hosts entries. The HTTP proxy runs on port 6766 and the HTTPS proxy on 6767,
-  so registered URLs are shown as `http://app.lasso:6766` unless DNS is installed.
-- **Registry**: `~/.lasso/host/registry.json` (atomic write, `0600`) maps
-  domain → `{ projectId, directory, registeredAt }`. `lasso register` reuses an
-  existing registration for the same directory, never duplicates, and migrates
-  the old domain when a new one is given (also rewriting `lasso.config.json`).
-- **Trust**: no API keys or source paths in project config; only registered
-  domains proxy; the daemon listens on loopback by default.
+## Build outputs
 
-## 9. Speech-to-Text & Voice Input Architecture
+`pnpm build` produces:
 
-Lasso supports natural voice prompting in the prompt toolbar and voice dictation in component comment pins without requiring manual audio file management.
+- `dist/cli/index.js`, the executable CLI.
+- `dist/overlay.js`, the bundled browser overlay.
+- Compiled runtime and CLI modules under `dist/`.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Browser Overlay                                             │
-│  - MediaRecorder captures audio (WebM/Opus / WAV)          │
-│  - Reactive mic animation (.recording / .transcribing)      │
-│  - Base64 payload packaging                                │
-└──────────────────────────────┬──────────────────────────────┘
-                               │
-                ┌──────────────┴──────────────┐
-                │ Bridge WebSocket or Fetch   │
-                └──────────────┬──────────────┘
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Lasso Server /api/v1/transcribe (STTService)                │
-│                                                             │
-│   1. Attempt Gradium ASR (POST api.gradium.ai/speech/asr)   │
-│      - Fast streaming NDJSON transcription                 │
-│      - Credit check (402, 429, error signals)              │
-│                                                             │
-│   2. Automatic Fallback to Deepgram (Nova-2)                │
-│      - Seamless failover if Gradium credits finish/fail     │
-│      - 15-minute cooldown before retrying Gradium           │
-└─────────────────────────────────────────────────────────────┘
-```
+The built-in design skill is packaged from `skills/ui-design-craft/SKILL.md` alongside the compiled CLI.
 
-1. **Client Capture**: `src/overlay/audio/transcribe.ts` starts an audio stream via `navigator.mediaDevices.getUserMedia({ audio: true })`. Chunks are gathered into a single blob on stop.
-2. **Transport**: The client transmits base64-encoded audio either over the local CLI bridge socket (`{ type: "transcribe" }`) or directly to the server REST API (`POST /api/v1/transcribe`), avoiding cross-origin complexities.
-3. **Provider Pooling**: The backend `sttService` attempts Gradium first. If Gradium responds with a credit exhaustion code (402, 429, or out-of-credit status), it transparently falls back to Deepgram Nova-2 and returns the transcribed text to the client.
+## Diagnostics
 
-## 10. Open questions for v1
-
-- Exact context window budget per request (full file vs. just the referenced function).
-- Whether the diff-preview UI lives in the browser overlay only, or also as a terminal
-  side panel for the CLI.
-- Rate limiting / cost guardrails when using a hosted default agent vs. a user's own
-  Claude Code subscription.
-- Extending source resolution beyond Vite and Next.js (Webpack/CRA/Angular).
-
-## 11. Trust model
-
-- **Telemetry-free by default.** Nothing about a user's source code leaves their machine
-  except what's explicitly sent to whichever agent they've configured.
-- **No writes without accept.** Diffs live in memory until the user confirms; undo restores
-  a pre-edit snapshot.
-- **Configs are never modified.** Build plugins are injected in memory via the CLI.
-
-See `SECURITY.md` for how to report anything that breaks this model.
+Use `lasso logs` to inspect recent local activity and `lasso logs -f` to follow new events. The log file is stored at `~/.lasso/logs/lasso.log`.

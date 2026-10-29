@@ -1,141 +1,111 @@
-# Lasso
+<div align="center">
 
-Lasso lets you select part of a running website, describe a change, and review the code edits made by an AI coding agent. You can also describe a larger task from the command bar.
+<img src="https://lasso.byorello.space/icons/logo.png" alt="Lasso" width="92" />
 
-Lasso runs alongside your app. It connects the page to your local project so the agent can inspect and change the source files that render it.
+### Point at it. Describe it. Ship it.
 
-## What you can do
+**Visual coding for your real source code.**
 
-- Select an element or an area of your page and ask for a change.
-- Use the command bar for tasks that affect several files.
-- Work with a hosted AI model or a supported coding CLI installed on your computer.
-- See agent progress, tool activity, and proposed file changes.
-- Keep accepted changes or reject the review to restore the files to their earlier contents.
-- Use your app's normal development server and hot reload.
+Select an element in your running app, describe the change, and review the files as your coding agent works.
 
-## Before you start
+[![npm version](https://img.shields.io/npm/v/%40lasso-ai%2Fcli?style=flat-square&color=6366f1)](https://www.npmjs.com/package/@lasso-ai/cli)
+[![npm downloads](https://img.shields.io/npm/dm/%40lasso-ai%2Fcli?style=flat-square&color=6366f1)](https://www.npmjs.com/package/@lasso-ai/cli)
+[![GitHub stars](https://img.shields.io/github/stars/codewithdripzy/lasso?style=flat-square&color=6366f1)](https://github.com/codewithdripzy/lasso)
+[![Contributors](https://img.shields.io/github/contributors/codewithdripzy/lasso?style=flat-square&color=6366f1)](https://github.com/codewithdripzy/lasso/graphs/contributors)
+[![License](https://img.shields.io/github/license/codewithdripzy/lasso?style=flat-square&color=6366f1)](LICENSE)
+[![Node.js](https://img.shields.io/node/v/%40lasso-ai/cli?style=flat-square&color=6366f1)](https://nodejs.org/)
 
-You need:
+[Website](https://lasso.byorello.space) · [Docs](https://lasso.byorello.space/docs) · [GitHub](https://github.com/codewithdripzy/lasso)
 
-- Node.js 18 or newer.
-- A project with dependencies already installed.
-- A supported development setup: Vite, Next.js, or Nuxt. Vue projects using Vite are supported.
-- An AI model configured in Lasso, or a supported local coding agent that is installed and signed in.
+</div>
 
-Lasso starts Vite, Next.js, and Nuxt projects automatically. Other frameworks may need you to start their development server yourself. Lasso can still connect to a manually started app when its project setup is supported.
+---
 
-## Install and start Lasso
+## Get started
 
-From your project folder, run:
-
-```bash
-npx @lasso-ai/cli
-```
-
-Or install the CLI once for your computer:
+Install Lasso and run it from your project folder:
 
 ```bash
 npm install --global @lasso-ai/cli
-```
-
-Then start it inside your project:
-
-```bash
+cd your-project
 lasso dev
 ```
 
-Lasso detects the framework, starts the development server with the overlay, and prints the local address to open. Keep this terminal open while you work.
-
-## Make your first change
-
-1. Open the local address printed by Lasso.
-2. Select the Lasso selection tool in the page toolbar.
-3. Click an element, or drag to select an area.
-4. Describe the change you want and send it.
-5. Follow the agent's progress and review the changed files.
-6. Accept the changes to keep them, or reject them to restore the original file contents.
-
-For a larger task, open the command bar with **⌘K** on macOS or **Ctrl+K** on Windows and Linux. Describe the outcome you want, then review the files when the agent finishes.
-
-## Choose an AI coding agent
-
-Lasso can use a hosted model or a local coding agent. Local agents use the login and settings from their own CLI. Install and sign in to the agent first, then restart or refresh the Lasso overlay so it can detect it.
-
-Supported local coding agents:
-
-| Agent | CLI command | Sign in |
-| --- | --- | --- |
-| Claude Code | `claude` | Run `claude` and follow its login steps |
-| OpenCode | `opencode` | Run `opencode auth login` |
-| Codex CLI | `codex` | Run `codex login` |
-| Cursor Agent | `cursor-agent` | Run `cursor-agent login` |
-| Antigravity CLI | `agy` | Run `agy` and complete sign in |
-
-Antigravity uses its configured default model unless you choose a model in its configuration. It streams task progress to Lasso and can continue a conversation using its session ID. See the [Antigravity CLI guide](https://antigravity.google/docs/cli/headless/) and [authentication guide](https://antigravity.google/docs/install/).
-
-## Supported frameworks
-
-| Setup | Lasso support |
-| --- | --- |
-| Vite with React, Vue, Svelte, or Solid | Starts through Lasso's Vite integration |
-| Next.js | Starts through Lasso's Next.js integration |
-| Nuxt | Starts through Lasso's Nuxt integration |
-| Other frameworks | Start the development server yourself; support depends on the app's source setup |
-
-Lasso does not rewrite your framework configuration just to start the supported development servers.
-
-## Useful commands
-
-Run these commands from your project folder:
+Or try it without a global install:
 
 ```bash
-lasso dev       # Start your app with the Lasso overlay
-lasso logs      # Show recent Lasso activity
-lasso logs -f   # Follow new log entries
-lasso auth status # Show your Lasso account status
-lasso create    # Create a new project, including Vue and Nuxt projects
-lasso help      # List commands
+npx @lasso-ai/cli dev
 ```
 
-Some commands, including project registration and local `.lasso` domains, use a Lasso account:
+Open the local URL printed in your terminal. Select an element, describe the change, and follow the agent's progress. Changed files appear in the review tray while the agent works. **Accept** keeps the edits. **Reject** restores the files to their pre-task state.
+
+## Use Lasso Host
+
+Lasso Host gives your local projects stable `.lasso` addresses and can start registered development servers for you.
 
 ```bash
+# Sign in to your Lasso account
 lasso auth login
+
+# Install and start Lasso Host
+lasso daemon install
+
+# From the project folder, register it and create its local domain
 lasso init
+
+# Check the host and registered projects
+lasso daemon status
+lasso projects
+```
+
+The `lasso init` command creates `lasso.config.json` in the project. Use `lasso daemon` to start the host without configuring automatic startup. See the [Lasso Host guide](https://lasso.byorello.space/docs/host) for setup details and troubleshooting.
+
+If a `.lasso` address or Lasso Host stops working, restart the daemon and check its status:
+
+```bash
+lasso daemon restart
 lasso daemon status
 ```
 
-Run `lasso help` to see the exact commands and options available in your installed version.
+## Works with your coding agent
 
-## Troubleshooting
+Choose a hosted model in Lasso, or use a coding CLI already installed on your computer:
 
-### Lasso cannot detect my coding agent
+| Agent | Command |
+| --- | --- |
+| Claude Code | `claude` |
+| Codex | `codex` |
+| Cursor Agent | `cursor-agent` |
+| OpenCode | `opencode` |
+| Antigravity | `agy` |
 
-Check that the agent's command works in a new terminal. For example:
+Sign in with the agent's own CLI first. Lasso passes project context to the selected agent and keeps its file edits available for review.
+
+## Skills
+
+Lasso discovers project `SKILL.md` files and lets you upload personal skills from the prompt menu. The built-in UI Design Craft skill is included automatically for selected-element and UI-focused tasks. Read the [Skills guide](https://lasso.byorello.space/docs/skills) to add your own.
+
+## Supported projects
+
+Lasso can start Vite, Next.js, and Nuxt projects. Vite projects using React, Vue, Svelte, or Solid are supported. Other development servers can be started separately when the project integration is supported.
+
+## Useful commands
 
 ```bash
-agy --version
-agy models
+lasso dev          # Start your project with the Lasso overlay
+lasso logs -f      # Follow Lasso activity
+lasso auth status  # Check your Lasso account
+lasso daemon       # Start Lasso Host
+lasso help         # List commands
 ```
 
-If it is installed but not signed in, open the agent once and complete its sign-in flow. Then restart Lasso.
+If Lasso Host or a `.lasso` address has issues, run `lasso daemon restart` and then `lasso daemon status`.
 
-### My app does not start
+## Help and contribution
 
-Run the install command for your project first, such as `npm install`. Check the terminal output for errors. You can also start the framework's development server yourself and review the Lasso logs with `lasso logs -f`.
+- [Documentation](https://lasso.byorello.space/docs)
+- [Local coding agent guide](docs/local-coding-agents.md)
+- [Report an issue](https://github.com/codewithdripzy/lasso/issues)
+- [Contributing guide](CONTRIBUTING.md)
 
-### The overlay is missing
-
-Confirm that you opened the address printed by `lasso dev`, not a separate development server address. If the overlay still does not appear, restart Lasso and check `lasso logs -f`.
-
-### A change is not what I wanted
-
-Reject the open review to restore the original file contents. Then send a clearer follow-up request. Keep accepted changes by accepting the review.
-
-## More help
-
-- [Local coding agent details](docs/local-coding-agents.md)
-- [Report a problem](https://github.com/codewithdripzy/lasso/issues)
-- [Contribute to Lasso](https://github.com/codewithdripzy/lasso/blob/main/CONTRIBUTING.md)
-
-Lasso is licensed under the ISC License.
+Lasso is open source under the [ISC License](LICENSE).

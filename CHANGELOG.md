@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Skills menu background is opaque.** The popover referenced an undefined surface
+  token, causing its background style to be discarded and the page to show through.
+- **npm README setup is clearer.** Restored the centered Lasso logo and package
+  metric badges, and added short install, first-run, Lasso Host, and daemon restart
+  instructions.
 - **One-shot generation no longer demands a provider API key when a local agent is
   selected.** Picking Claude Code, Codex, OpenCode, or Cursor for a one-shot request
   used to bail out with *"Please configure an AI provider API key or model in settings
@@ -35,9 +40,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `LASSO_SERVER_URL`.
 - **One-shot mode as sidebar panel**: Changed one-shot mode from a centered modal to a right-side sidebar panel that only appears during one-shot mode. When users exit one-shot mode, they return to the normal edit mode with just the toolbar. This provides a cleaner, more integrated experience similar to modern AI editors.
 - **Mini toolbar positioning**: Adjusted the mini toolbar position to `left: calc(50% + 140px)` (reduced from 280px) to reduce overlap with the main toolbar. Added smooth transition and centered positioning when the main toolbar is dismissed. Mini toolbar is now hidden when one-shot sidebar is open to avoid UI clutter.
+- **Live file review**: Agent edits remain visible in the workspace while a task runs. The review tray streams changed files; accepting keeps the edits and rejecting restores the pre-task contents.
+- **Change history placement**: The selected-element Change history button is now in the prompt toolbar, separate from file accept/reject controls.
 
 ### Added
 
+- **Built-in UI Design Craft skill.** UI-focused coding tasks and selected-element
+  edits receive Lasso's design skill by default. It prioritizes the user's
+  instructions and the project's existing design system, with practical guidance
+  for layout, typography, accessibility, responsive behavior, and visual restraint.
+- **Project and personal skills.** The overlay discovers `SKILL.md` files in
+  common project skill directories. Users can choose skills per task or upload
+  Markdown skills, which are stored in `~/.lasso/skills/` and reused across projects.
+- **Skills controls** are available beside both prompt inputs. The built-in UI
+  skill is automatically included for UI-focused coding tasks.
 - **Console-aware agent context**: the overlay now captures the page's runtime
   health — uncaught `window` errors, unhandled promise rejections, and anything
   the host app logs through `console.error` — starting from the moment the overlay
