@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import path from "node:path";
 import { resolve } from "node:path";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { type ViteDevServer } from "vite";
 import { createRequire } from "node:module";
@@ -19,7 +19,14 @@ function lassoInjectPlugin(bridgePort = 3056, cwd: string) {
     },
     configureServer(server: ViteDevServer) {
       server.middlewares.use("/__lasso/overlay.js", (req, res) => {
-        const bundlePath = resolve(cwd, "node_modules/lasso/dist/overlay.js");
+        const localBundle = resolve(cwd, "node_modules/lasso/dist/overlay.js");
+        const packageBundle = resolve(cwd, "node_modules/@lasso-ai/cli/dist/overlay.js");
+        const bundlePath = [localBundle, packageBundle, resolve(__dirname, "../../overlay.js")].find(existsSync);
+        if (!bundlePath) {
+          res.statusCode = 404;
+          res.end("Lasso overlay bundle not found. Reinstall the Lasso CLI and restart the dev server.");
+          return;
+        }
         res.setHeader("Content-Type", "application/javascript");
         res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
         res.setHeader("Pragma", "no-cache");

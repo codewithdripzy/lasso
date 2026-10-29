@@ -48,7 +48,8 @@ export async function getBridgeStatus(port = DEFAULT_BRIDGE_PORT): Promise<Bridg
   }
 }
 
-export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | null = null, bridgePort = DEFAULT_BRIDGE_PORT) {
+export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfig | null = null, bridgePort = DEFAULT_BRIDGE_PORT, initialPrompt?: string) {
+  let pendingInitialPrompt = initialPrompt?.trim() || undefined;
   const startedAt = Date.now();
   writeLassoLog("info", "bridge_started", { cwd, port: bridgePort, pid: process.pid });
   const bridgeServer = http.createServer();
@@ -1408,8 +1409,10 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         models,
         collab: collabConfig?.registered ? { ...collabConfig, agentServerUrl: agentRuntimeUrlFrom(fileEnv), plan: collabConfig.plan, configuredProviders: collabConfig.configuredProviders } : null,
         user: userInfo,
+        initialPrompt: pendingInitialPrompt,
       })
     );
+    pendingInitialPrompt = undefined;
     void getGitState(cwd).then((git) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "git_state", git }));
     });

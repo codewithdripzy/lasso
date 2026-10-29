@@ -1207,6 +1207,10 @@ async function runPrompt(prompt: string, skipUserMessage = false): Promise<void>
     isStreaming: true,
   });
 
+  // Persist as soon as the task starts so it is visible in session history
+  // even while the agent is still working.
+  saveLocalSession();
+
   updateSubmitButton(true);
   renderMessages();
   scrollToBottom();
@@ -1265,6 +1269,17 @@ async function runPrompt(prompt: string, skipUserMessage = false): Promise<void>
     renderMessages();
     scrollToBottom();
   }
+}
+
+/** Start an initial prompt delivered by `lasso create --prompt` from the local bridge. */
+export function startCommandBarPrompt(prompt: string): void {
+  const instruction = prompt.trim();
+  if (!instruction || activeTaskId) return;
+
+  openCommandBar();
+  activeConversationId = `local-session-${Date.now()}`;
+  commandMessages = [];
+  void runPrompt(instruction);
 }
 
 function updateActiveTimerDisplay(seconds: number): void {

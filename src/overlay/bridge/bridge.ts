@@ -9,7 +9,7 @@ import { elementKey } from "../toolbar/select";
 import { notifyAgent } from "../notifications";
 import { capturePageContext } from "../browser/context";
 import { getAgentTask, recordTaskActivity, recordTaskChangeHistory, updateAgentTask } from "../tasks/tasks";
-import { handleCommandBarAgentStatus, handleCommandBarAction, handleCommandBarPrompt, handleCommandBarSteerResult, handleCommandBarRewindResult, isCommandBarTaskId, updateEmptyStateUserName, populateModelMenu } from "../commandbar/commandbar";
+import { handleCommandBarAgentStatus, handleCommandBarAction, handleCommandBarPrompt, handleCommandBarSteerResult, handleCommandBarRewindResult, isCommandBarTaskId, startCommandBarPrompt, updateEmptyStateUserName, populateModelMenu } from "../commandbar/commandbar";
 import type { GitState, ModelOption, PendingChange, TimelineSnapshot } from "../types";
 
 export function reportRuntimeError(details: string, notifyBridge = true) {
@@ -104,6 +104,7 @@ export function connectBridge() {
           project?: string;
           collab?: { projectId?: string; realtimeUrl?: string; name?: string; version?: string; workspaceId?: string; token?: string; apiKey?: string; plan?: string; agentServerUrl?: string; configuredProviders?: string[] };
           user?: { name?: string; email?: string } | null;
+          initialPrompt?: string;
           snapshots?: TimelineSnapshot[];
           requestId?: string;
           check?: Record<string, unknown>;
@@ -161,6 +162,11 @@ export function connectBridge() {
           }
           refreshModelMenu();
           populateModelMenu();
+        }
+
+        if (message.type === "config" && message.initialPrompt) {
+          // Wait for config/model selection to finish before submitting.
+          window.setTimeout(() => startCommandBarPrompt(message.initialPrompt!), 0);
         }
 
         if (message.type === "git_state" && message.git) {
