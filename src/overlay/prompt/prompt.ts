@@ -23,6 +23,7 @@ import { renderComments } from "../comments/pins";
 import { LASSO_ICON_DATA_URL } from "../icons/lasso";
 import { closeCommandBar } from "../commandbar/commandbar";
 import { formatMessageText, getFileExtension, getPathBasename } from "../message-format";
+import { bindSkillsControl, createSkillsControl, selectedSkillIds } from "../skills";
 import { startVoiceRecording, stopVoiceRecording, isRecordingVoice } from "../audio/transcribe";
 import type { AgentTask, AgentTaskStatus, ChatMessage, ModelOption, PendingChange, ScreenshotContext } from "../types";
 
@@ -163,6 +164,7 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
 
       <div class="lasso-prompt-actions">
         <div class="lasso-prompt-icon-group">
+          ${createSkillsControl("lasso-prompt-skills")}
           <button class="lasso-prompt-upload" type="button" aria-label="Upload screenshot" title="Screenshot included">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -270,6 +272,8 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
   agentStatusElement = el.querySelector<HTMLDivElement>(".lasso-agent-status")!;
   agentStatusMessage = el.querySelector<HTMLSpanElement>(".lasso-agent-status-message")!;
   promptHistoryButton = el.querySelector<HTMLButtonElement>(".lasso-prompt-history")!;
+  const skillsControl = el.querySelector<HTMLElement>(".lasso-prompt-skills")!;
+  bindSkillsControl(skillsControl);
   agentLogElement = el.querySelector<HTMLDivElement>(".lasso-agent-log")!;
   agentLogToggle = el.querySelector<HTMLButtonElement>(".lasso-agent-log-toggle")!;
   modelBtn = el.querySelector<HTMLButtonElement>(".lasso-prompt-model")!;
@@ -1404,6 +1408,7 @@ export async function handleSend(event: MouseEvent) {
       taskId: task.id,
       instruction,
       messages,
+      skillIds: selectedSkillIds(),
       changesHistory,
       model: model.id,
       provider: model.provider,

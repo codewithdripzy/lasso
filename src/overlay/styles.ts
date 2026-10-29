@@ -1566,17 +1566,6 @@ export function buildStyles(): string {
       gap: 6px;
     }
 
-    .lasso-prompt-review-tray .lasso-review-history {
-      min-height: 28px;
-      padding: 4px 7px;
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 6px;
-      background: rgba(255,255,255,0.05);
-      color: var(--lo-text-2);
-      font-size: 10px;
-      cursor: pointer;
-    }
-
     @keyframes lasso-prompt-in {
       from { opacity: 0; transform: translateY(-5px) scale(0.98); }
       to { opacity: 1; transform: translateY(0) scale(1); }
@@ -1623,9 +1612,9 @@ export function buildStyles(): string {
 
     .lasso-prompt-model-wrap {
       position: relative;
-      flex: 0 1 148px;
+      flex: 0 1 132px;
       min-width: 0;
-      max-width: 148px;
+      max-width: 132px;
     }
 
     .lasso-model-chevron {
@@ -1647,7 +1636,7 @@ export function buildStyles(): string {
       height: 28px;
       width: 100%;
       min-width: 0;
-      max-width: 148px;
+      max-width: 132px;
       display: flex;
       align-items: center;
       gap: 6px;
@@ -2255,6 +2244,28 @@ export function buildStyles(): string {
       padding-top: 6px;
     }
 
+    .lasso-skills-control { position: relative; display: inline-flex; flex: 0 0 auto; }
+    .lasso-skills-trigger { position: relative; width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 50%; background: transparent; color: var(--lo-text-3); cursor: pointer; }
+    .lasso-skills-trigger:hover, .lasso-skills-trigger:focus-visible { background: var(--lo-surface-hover); color: var(--lo-text); }
+    .lasso-skills-icon { width: 15px; height: 15px; }
+    .lasso-skills-count { position: absolute; top: 0; right: 0; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 99px; background: var(--lo-primary); color: #111; font-size: 9px; line-height: 14px; font-weight: 700; }
+    .lasso-skills-popover { position: absolute; z-index: 500; left: 0; bottom: calc(100% + 8px); width: min(320px, calc(100vw - 32px)); max-height: 340px; overflow: auto; padding: 10px; border: 1px solid var(--lo-border); border-radius: 14px; background: var(--lo-surface-1); box-shadow: 0 12px 32px rgba(0,0,0,.34); color: var(--lo-text); }
+    .lasso-command-skills .lasso-skills-popover { left: auto; right: 0; }
+    .lasso-skills-popover[hidden] { display: none; }
+    .lasso-skills-heading { display: flex; flex-direction: column; gap: 2px; padding: 2px 4px 9px; }
+    .lasso-skills-heading strong { font-size: 12px; font-weight: 650; }
+    .lasso-skills-heading span, .lasso-skill-option small { color: var(--lo-text-3); font-size: 10px; }
+    .lasso-skills-list { display: grid; gap: 3px; max-height: 220px; overflow: auto; }
+    .lasso-skill-option { display: flex; align-items: flex-start; gap: 8px; padding: 7px 5px; border-radius: 8px; cursor: pointer; }
+    .lasso-skill-option:hover { background: var(--lo-surface-hover); }
+    .lasso-skill-option input { margin: 2px 0 0; accent-color: var(--lo-primary); }
+    .lasso-skill-option span { min-width: 0; display: grid; gap: 2px; }
+    .lasso-skill-option strong { font-size: 11px; font-weight: 550; }
+    .lasso-skill-option small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lasso-skills-empty { margin: 5px; color: var(--lo-text-3); font-size: 11px; }
+    .lasso-skills-upload { width: 100%; margin-top: 7px; padding: 7px 8px; border: 1px solid var(--lo-border-subtle); border-radius: 8px; background: transparent; color: var(--lo-text); text-align: left; font: inherit; font-size: 11px; cursor: pointer; }
+    .lasso-skills-upload:hover { background: var(--lo-surface-hover); }
+
     .lasso-prompt-icon-group {
       display: flex;
       align-items: center;
@@ -2272,6 +2283,7 @@ export function buildStyles(): string {
 
     .lasso-prompt-upload,
     .lasso-prompt-voice,
+    .lasso-prompt-history,
     .lasso-prompt-stop {
       flex: 0 0 30px;
       width: 30px;
@@ -2285,6 +2297,24 @@ export function buildStyles(): string {
       color: var(--lo-text-3);
       cursor: pointer;
       transition: background 120ms ease, color 120ms ease;
+    }
+
+    .lasso-prompt-history {
+      flex-basis: 26px;
+      width: 26px;
+      height: 26px;
+      border: 1px solid var(--lo-border-subtle);
+      border-radius: var(--lo-radius-full);
+    }
+
+    .lasso-prompt-history:hover {
+      background: var(--lo-surface-hover);
+      color: var(--lo-text);
+    }
+
+    .lasso-prompt-history-icon {
+      width: 14px;
+      height: 14px;
     }
 
     .lasso-prompt-upload:hover {
@@ -2545,12 +2575,6 @@ export function buildStyles(): string {
 
     .lasso-review-actions .primary:hover {
       background: var(--lo-primary-hover);
-    }
-
-    .lasso-review-history {
-      margin-right: auto;
-      font-size: 11px;
-      color: var(--lo-text-2);
     }
 
     /* ==========================================================

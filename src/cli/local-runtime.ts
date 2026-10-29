@@ -162,6 +162,7 @@ export class LocalRuntime implements RuntimeFacade {
         {
           taskId: record.id,
           userPrompt: record.userPrompt,
+          skills: record.input.skills,
           mode: record.mode,
           project: {
             projectId: record.project.projectId || "local",

@@ -9,6 +9,7 @@ import { setSelectMode } from "../toolbar/select";
 import type { PendingChange } from "../types";
 import { BrowserIcon, CommandLineIcon, Delete02Icon, Edit01Icon, File01Icon, FileAddIcon, Folder01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { formatMessageText, getFileExtension, getPathBasename } from "../message-format";
+import { bindSkillsControl, createSkillsControl, selectedSkillIds } from "../skills";
 
 type HugeiconsSvgNode = readonly (readonly [string, Readonly<Record<string, string | number>>])[];
 
@@ -586,6 +587,7 @@ export function buildCommandBar(): void {
           <div class="lasso-command-model-menu lasso-prompt-model-menu" hidden></div>
         </div>
         <div class="lasso-command-input-actions">
+          ${createSkillsControl("lasso-command-skills")}
           <button class="lasso-command-voice" type="button" aria-label="Voice input" title="Voice input (speech-to-text)">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <rect x="9" y="3" width="6" height="11" rx="3"/>
@@ -620,6 +622,8 @@ export function buildCommandBar(): void {
   commandInput = el.querySelector<HTMLTextAreaElement>(".lasso-command-input")!;
   commandSubmit = el.querySelector<HTMLButtonElement>(".lasso-command-submit")!;
   commandVoice = el.querySelector<HTMLButtonElement>(".lasso-command-voice")!;
+  const skillsControl = el.querySelector<HTMLElement>(".lasso-command-skills")!;
+  bindSkillsControl(skillsControl);
   commandClose = el.querySelector<HTMLButtonElement>(".lasso-command-close")!;
   commandNewChat = el.querySelector<HTMLButtonElement>(".lasso-command-new-chat")!;
   commandHistoryBtn = el.querySelector<HTMLButtonElement>(".lasso-command-history-btn")!;
@@ -1339,6 +1343,7 @@ async function runPrompt(prompt: string, skipUserMessage = false): Promise<void>
         scope: "project",
         model: state.selectedModel.id,
         provider: state.selectedModel.provider,
+        skillIds: selectedSkillIds(),
         conversationId: activeConversationId || undefined,
         // The conversation already includes the current user message. It is
         // the only prompt context sent to the runtime.

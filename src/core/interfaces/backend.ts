@@ -156,6 +156,9 @@ export interface TaskContext {
    */
   userPrompt: string;
 
+  /** Selected task-scoped skill instructions. */
+  skills?: Array<{ name: string; description: string; content: string }>;
+
   /** Whether the backend should answer conversationally without project work. */
   mode?: "conversation" | "task";
 

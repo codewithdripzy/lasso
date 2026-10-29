@@ -56,6 +56,8 @@ export interface RuntimeSessionInput {
    * no idea what was asked or done before.
    */
   conversation?: Array<{ role: "user" | "assistant" | "system"; content: string; timestamp?: number }>;
+  /** Selected task-scoped skill instructions discovered by the local CLI. */
+  skills?: Array<{ name: string; description: string; content: string }>;
   backendConfig?: {
     type: "hosted_model" | "local_agent";
     provider: "claude_code" | "opencode" | "codex_cli" | "cursor" | "antigravity";

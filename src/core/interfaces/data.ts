@@ -57,6 +57,8 @@ export type PageEntry = {
 
 export type BridgeMessage =
   | { type: "hello"; from: "overlay" | "cli" }
+  | { type: "get_skills" }
+  | { type: "upload_skill"; name: string; content: string }
   | {
       type: "edit";
       taskId: string;
@@ -65,6 +67,7 @@ export type BridgeMessage =
       provider?: Provider;
       messages?: Array<{ role: string; content: string; createdAt?: string }>;
       conversation?: Array<{ role: "user" | "assistant" | "system"; content: string; createdAt?: string }>;
+      skillIds?: string[];
       changesHistory?: Array<{ summary: string; changes: any[]; createdAt?: string }>;
       context?: {
         selectionId?: string;
@@ -85,6 +88,7 @@ export type BridgeMessage =
       provider?: Provider;
       messages?: Array<{ role: string; content: string; createdAt?: string }>;
       conversation?: Array<{ role: "user" | "assistant" | "system"; content: string; createdAt?: string }>;
+      skillIds?: string[];
       context?: {
         selectionId?: string;
         position?: Record<string, number>;
@@ -123,6 +127,7 @@ export type BridgeMessage =
       conversation?: Array<{ role: "user" | "assistant" | "system"; content: string; timestamp?: number }>;
       conversationId?: string;
       taskId?: string;
+      skillIds?: string[];
     }
   | { type: "page_context_response"; requestId: string; pageContext?: any; error?: string }
   | { type: "restore_snapshot"; snapshotId: string }
@@ -131,6 +136,7 @@ export type BridgeMessage =
   | { type: "switch_model"; taskId: string; provider: string; modelId: string };
 
 export type ServerBridgeMessage =
+  | { type: "skills_catalog"; skills: import("./skills").SkillCatalogEntry[]; error?: string }
   | { type: "config"; apiKeyConfigured: boolean; agentConfigured: boolean; models: ModelOption[]; collab?: CollabConfig | null; user?: { name?: string; email?: string } | null }
   | { type: "git_state"; git: GitState }
   | { type: "git_result"; message?: string; error?: string }

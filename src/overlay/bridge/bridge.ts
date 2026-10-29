@@ -1,4 +1,5 @@
 import { state, rememberModel, storedModelId } from "../state";
+import { receiveSkillCatalog } from "../skills";
 import { connectCollab, collabEmit } from "../collab/socket";
 import { releaseHeldLock } from "../collab/locks";
 import { renderGitState, setGitMessage, setGeneratedCommitMessage } from "../git/git";
@@ -106,6 +107,7 @@ export function connectBridge() {
           snapshots?: TimelineSnapshot[];
           requestId?: string;
           check?: Record<string, unknown>;
+          skills?: Array<{ id: string; name: string; description: string; source: "builtin" | "project" | "user" }>;
         };
 
         if (message.type === "page_context_request" && message.requestId) {
@@ -137,6 +139,10 @@ export function connectBridge() {
           if (message.collab?.projectId && message.collab.realtimeUrl && !state.collabSocket) {
             connectCollab(message.collab);
           }
+        }
+
+        if (message.type === "skills_catalog") {
+          receiveSkillCatalog(message.skills || [], message.error);
         }
 
         if (message.type === "config" && message.models?.length) {

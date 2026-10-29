@@ -15,6 +15,7 @@ import { detectBackends, modelIdForBackend, type DetectedBackend, type LocalAgen
 import { getLocalRuntime } from "./local-runtime";
 import type { BridgeMessage, GitState, ModelOption, PageEntry, Provider, ServerBridgeMessage } from "../core/interfaces/data";
 import { lassoLogPath, writeLassoLog } from "./logging";
+import { discoverSkills, saveUploadedSkill, selectedSkillInstructions, toSkillCatalog } from "./skills";
 
 export const DEFAULT_BRIDGE_PORT = 3056;
 const execFileAsync = promisify(execFile);
@@ -798,9 +799,22 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       // agent CLIs need the unprefixed/normalized form.
       const backendModelId = modelIdForBackend(model || "", provider || "");
 
+      const taskSkills = selectedSkillInstructions(
+        cwd,
+        message.skillIds,
+        [instruction, ...(messages || []).filter((entry: any) => entry.role === "user").map((entry: any) => entry.content)].join("\n"),
+        Boolean(context)
+      );
+      const sessionConversation = toRuntimeConversation(messages) || [];
+      if (taskSkills.length && !isLocalAgent) sessionConversation.push({
+        role: "system",
+        content: taskSkills.map((skill) => `Selected skill: ${skill.name}\n${skill.description}\n${skill.content}`).join("\n\n"),
+        timestamp: Date.now(),
+      });
       const sessionInput: RuntimeSessionInput = {
         userPrompt: instruction,
-        conversation: toRuntimeConversation(messages),
+        conversation: sessionConversation,
+        skills: taskSkills,
         project: {
           projectId,
           framework,
@@ -1337,11 +1351,23 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       }
       const backendModelId = modelIdForBackend(model || "", provider || "");
 
+      const taskSkills = selectedSkillInstructions(
+        cwd,
+        message.skillIds,
+        [instruction, ...(runtimeConversation || []).filter((entry) => entry.role === "user").map((entry) => entry.content)].join("\n")
+      );
+      const sessionConversation = runtimeConversation ? [...runtimeConversation] : [];
+      if (taskSkills.length && !isLocalAgent) sessionConversation.push({
+        role: "system",
+        content: taskSkills.map((skill) => `Selected skill: ${skill.name}\n${skill.description}\n${skill.content}`).join("\n\n"),
+        timestamp: Date.now(),
+      });
       const sessionInput: RuntimeSessionInput = {
         userPrompt: instruction,
         // The sidebar is the source of truth for history. The runtime prompt
         // is derived from its final user message rather than sent separately.
-        conversation: runtimeConversation,
+        conversation: sessionConversation,
+        skills: taskSkills,
         project: {
           projectId,
           framework,
@@ -1539,6 +1565,19 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         writeLassoLog("info", "overlay_message", { type: msg.type, taskId: (msg as any).taskId });
         switch (msg.type) {
           case "hello":
+            break;
+
+          case "get_skills":
+            socket.send(JSON.stringify({ type: "skills_catalog", skills: toSkillCatalog(discoverSkills(cwd)) } satisfies ServerBridgeMessage));
+            break;
+
+          case "upload_skill":
+            try {
+              saveUploadedSkill(msg.name, msg.content);
+              socket.send(JSON.stringify({ type: "skills_catalog", skills: toSkillCatalog(discoverSkills(cwd)) } satisfies ServerBridgeMessage));
+            } catch (error) {
+              socket.send(JSON.stringify({ type: "skills_catalog", skills: toSkillCatalog(discoverSkills(cwd)), error: error instanceof Error ? error.message : "Could not save skill." } satisfies ServerBridgeMessage));
+            }
             break;
 
           case "edit":

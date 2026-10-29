@@ -458,6 +458,14 @@ export abstract class LocalAgentAdapter implements IBackend {
     lines.push("   - If the request is ambiguous, provide a helpful answer and ask for clarification before editing files.");
     lines.push("2. All file changes will be captured as a diff, reviewed by the user, and only applied if approved.");
     lines.push("3. Do not commit, push, or perform operations outside this project directory.");
+    if (context.skills?.length) {
+      lines.push("4. Apply the following user-selected project skills when they are relevant to the task:");
+      for (const skill of context.skills) {
+        lines.push(`\n--- Skill: ${skill.name} ---`);
+        if (skill.description) lines.push(skill.description);
+        lines.push(skill.content);
+      }
+    }
     lines.push("");
 
     // Retry/continuation replies ("try again", "continue", …) must resume
