@@ -1,4 +1,5 @@
 import html2canvas from "html2canvas";
+import { ArrowDown01Icon, HistoryIcon } from "@hugeicons/core-free-icons";
 import anthropicIcon from "@iconify-icons/logos/anthropic-icon";
 import googleIcon from "@iconify-icons/logos/google-icon";
 import openaiIcon from "@iconify-icons/logos/openai-icon";
@@ -33,6 +34,7 @@ let stopButton: HTMLButtonElement | null = null;
 let promptClose: HTMLButtonElement | null = null;
 let agentStatusElement: HTMLDivElement | null = null;
 let agentStatusMessage: HTMLSpanElement | null = null;
+let promptHistoryButton: HTMLButtonElement | null = null;
 let agentLogElement: HTMLDivElement | null = null;
 let agentLogToggle: HTMLButtonElement | null = null;
 let agentLogLines: string[] = [];
@@ -42,6 +44,19 @@ let reviewTray: HTMLDivElement | null = null;
 let agentPromptPanel: HTMLDivElement | null = null;
 let agentPromptTaskId: string | null = null;
 let timelinePanel: HTMLDivElement | null = null;
+
+type HugeiconsSvgNode = readonly (readonly [string, Readonly<Record<string, string | number>>])[];
+
+function renderHugeIcon(icon: HugeiconsSvgNode, className: string): string {
+  const nodes = icon.map(([tag, attributes]) => {
+    const attrs = Object.entries(attributes)
+      .filter(([key]) => key !== "key")
+      .map(([key, value]) => `${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}="${String(value)}"`)
+      .join(" ");
+    return `<${tag} ${attrs} />`;
+  }).join("");
+  return `<svg class="${className}" width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${nodes}</svg>`;
+}
 
 let modelBtn: HTMLButtonElement | null = null;
 let modelName: HTMLSpanElement | null = null;
@@ -129,23 +144,17 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
       <div class="lasso-command-live-review-tray lasso-prompt-review-tray" hidden></div>
 
       <div class="lasso-agent-status" hidden aria-live="polite">
-        <div class="lasso-agent-terminal-header">
-          <div class="lasso-agent-terminal-dots">
-            <span class="lasso-dot-red"></span>
-            <span class="lasso-dot-yellow"></span>
-            <span class="lasso-dot-green"></span>
+        <div class="lasso-agent-status-header">
+          <div class="lasso-agent-status-line">
+            <span class="lasso-agent-status-indicator" aria-hidden="true">
+              <span class="lasso-agent-status-spinner-ring"></span>
+              <span class="lasso-agent-status-spinner-dot"></span>
+            </span>
+            <span class="lasso-agent-status-message"></span>
           </div>
-          <span class="lasso-agent-status-kicker">lasso-agent</span>
-          <span class="lasso-agent-status-badge">active</span>
-          <button class="lasso-agent-log-toggle" type="button" aria-label="Show agent activity" aria-expanded="false" hidden>
-            <span>Activity</span>
-            <span class="lasso-agent-log-chevron">⌄</span>
+          <button class="lasso-agent-log-toggle" type="button" aria-label="Show agent activity" title="Show agent activity" aria-expanded="false" hidden>
+            ${renderHugeIcon(ArrowDown01Icon, "lasso-agent-log-chevron")}
           </button>
-        </div>
-        <div class="lasso-agent-status-line">
-          <span class="lasso-agent-terminal-prompt">❯</span>
-          <span class="lasso-agent-status-message"></span>
-          <span class="lasso-agent-cursor"></span>
         </div>
         <div class="lasso-agent-log" aria-label="Agent activity" hidden></div>
       </div>
@@ -164,6 +173,10 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
 
           <button class="lasso-prompt-voice" type="button" aria-label="Voice input (speech-to-text)" title="Click to speak (speech-to-text)">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></svg>
+          </button>
+
+          <button class="lasso-prompt-history" type="button" aria-label="Change history" title="Change history">
+            ${renderHugeIcon(HistoryIcon, "lasso-prompt-history-icon")}
           </button>
 
           <div class="lasso-prompt-model-wrap">
@@ -256,6 +269,7 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
   promptClose = el.querySelector<HTMLButtonElement>(".lasso-prompt-close")!;
   agentStatusElement = el.querySelector<HTMLDivElement>(".lasso-agent-status")!;
   agentStatusMessage = el.querySelector<HTMLSpanElement>(".lasso-agent-status-message")!;
+  promptHistoryButton = el.querySelector<HTMLButtonElement>(".lasso-prompt-history")!;
   agentLogElement = el.querySelector<HTMLDivElement>(".lasso-agent-log")!;
   agentLogToggle = el.querySelector<HTMLButtonElement>(".lasso-agent-log-toggle")!;
   modelBtn = el.querySelector<HTMLButtonElement>(".lasso-prompt-model")!;
@@ -266,6 +280,12 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
     event.preventDefault();
     event.stopPropagation();
     setAgentLogExpanded(!agentLogExpanded);
+  });
+
+  promptHistoryButton.addEventListener("click", () => {
+    if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
+      state.bridgeSocket.send(JSON.stringify({ type: "get_timeline" }));
+    }
   });
 
   // Diff modal. The file tray stays attached to the prompt while changes are reviewed.
@@ -506,10 +526,6 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
     if (fileButton) {
       const change = state.pendingChanges.find((item) => item.filePath === fileButton.dataset.reviewFile);
       if (change) openSelectedReviewDiff(change);
-      return;
-    }
-    if (target.closest(".lasso-review-history")) {
-      if (state.bridgeSocket?.readyState === WebSocket.OPEN) state.bridgeSocket.send(JSON.stringify({ type: "get_timeline" }));
       return;
     }
     if (target.closest(".lasso-review-undo")) {
@@ -834,6 +850,7 @@ function setAgentLogExpanded(expanded: boolean) {
     agentLogToggle.hidden = agentLogLines.length === 0;
     agentLogToggle.setAttribute("aria-expanded", String(agentLogExpanded));
     agentLogToggle.setAttribute("aria-label", agentLogExpanded ? "Hide agent activity" : "Show agent activity");
+    agentLogToggle.title = agentLogExpanded ? "Hide agent activity" : "Show agent activity";
   }
 }
 
@@ -848,6 +865,7 @@ function clearAgentLog() {
     agentLogToggle.hidden = true;
     agentLogToggle.setAttribute("aria-expanded", "false");
     agentLogToggle.setAttribute("aria-label", "Show agent activity");
+    agentLogToggle.title = "Show agent activity";
   }
   if (agentStatusElement) {
     agentStatusElement.hidden = true;
@@ -963,12 +981,7 @@ export function setAgentStatus(status: AgentTaskStatus, message: string, detail?
   agentStatusElement.hidden = status === "review" || status === "complete";
   agentStatusElement.dataset.status = status;
   agentStatusMessage.textContent = message;
-
-  const badgeEl = agentStatusElement.querySelector<HTMLSpanElement>(".lasso-agent-status-badge");
-  if (badgeEl) {
-    badgeEl.textContent = status === "thinking" ? "thinking" : status === "working" ? "executing" : status === "complete" ? "done" : status;
-    badgeEl.className = `lasso-agent-status-badge ${status}`;
-  }
+  agentStatusElement.querySelector(".lasso-agent-status-line")?.classList.toggle("is-running", running);
 
   state.agentRunning = running;
   sendButton.classList.toggle("loading", running);
@@ -1139,10 +1152,6 @@ export function showReview(changes: PendingChange[], summary: string, live = fal
   const note = document.createElement("span");
   note.textContent = live ? "Accepting or rejecting stops the agent." : "Accept or reject these edits.";
   const buttons = document.createElement("div");
-  const history = document.createElement("button");
-  history.className = "lasso-review-history secondary";
-  history.type = "button";
-  history.textContent = "History";
   const reject = document.createElement("button");
   reject.className = "lasso-command-undo-btn secondary lasso-review-undo";
   reject.type = "button";
@@ -1151,7 +1160,7 @@ export function showReview(changes: PendingChange[], summary: string, live = fal
   accept.className = "lasso-command-apply-btn primary lasso-review-apply";
   accept.type = "button";
   accept.textContent = live ? "Accept current" : "Accept changes";
-  buttons.append(history, reject, accept);
+  buttons.append(reject, accept);
   actions.append(note, buttons);
   reviewTray.append(header, list, actions);
   reviewTray.hidden = false;

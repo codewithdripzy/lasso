@@ -34,7 +34,6 @@ let cardRevertBtn: HTMLButtonElement | null = null;
 let cardCloseBtn: HTMLButtonElement | null = null;
 let cardStatusWrap: HTMLDivElement | null = null;
 let cardStatusMessage: HTMLSpanElement | null = null;
-let cardStatusBadge: HTMLSpanElement | null = null;
 let cardParentSwitchBtn: HTMLButtonElement | null = null;
 
 /**
@@ -183,17 +182,11 @@ export function buildDrag() {
     </div>
 
     <div class="lasso-drag-status-wrap" style="display:none;">
-      <div class="lasso-agent-terminal-header">
-        <div class="lasso-agent-terminal-dots">
-          <span class="lasso-dot-red"></span>
-          <span class="lasso-dot-yellow"></span>
-          <span class="lasso-dot-green"></span>
-        </div>
-        <span class="lasso-agent-status-kicker">lasso-agent</span>
-        <span class="lasso-agent-status-badge">working</span>
-      </div>
-      <div class="lasso-agent-status-line">
-        <span class="lasso-agent-terminal-prompt">›</span>
+      <div class="lasso-agent-status-line is-running">
+        <span class="lasso-agent-status-indicator" aria-hidden="true">
+          <span class="lasso-agent-status-spinner-ring"></span>
+          <span class="lasso-agent-status-spinner-dot"></span>
+        </span>
         <span class="lasso-drag-status-msg">Thinking…</span>
       </div>
     </div>
@@ -222,7 +215,6 @@ export function buildDrag() {
   cardParentSwitchBtn = dragCard.querySelector<HTMLButtonElement>(".lasso-drag-parent-switch-btn");
   cardStatusWrap = dragCard.querySelector<HTMLDivElement>(".lasso-drag-status-wrap");
   cardStatusMessage = dragCard.querySelector<HTMLSpanElement>(".lasso-drag-status-msg");
-  cardStatusBadge = dragCard.querySelector<HTMLSpanElement>(".lasso-agent-status-badge");
 
   cardCloseBtn?.addEventListener("click", () => resetDrag(true));
   cardRevertBtn?.addEventListener("click", () => resetDrag(true));
@@ -706,11 +698,11 @@ async function handleApplyReposition() {
 }
 
 export function setDragCardStatus(status: "thinking" | "working" | "review" | "complete" | "error" | "stopped", message: string) {
-  if (!cardStatusWrap || !cardStatusMessage || !cardStatusBadge) return;
+  if (!cardStatusWrap || !cardStatusMessage) return;
   cardStatusWrap.style.display = status === "review" || status === "complete" || status === "stopped" ? "none" : "block";
+  cardStatusWrap.dataset.status = status;
   cardStatusMessage.textContent = message;
-  cardStatusBadge.textContent = status === "thinking" ? "thinking" : status === "working" ? "executing" : status === "complete" ? "done" : status;
-  cardStatusBadge.className = `lasso-agent-status-badge ${status}`;
+  cardStatusWrap.querySelector(".lasso-agent-status-line")?.classList.toggle("is-running", status === "thinking" || status === "working");
 
   if (status === "review" || status === "complete" || status === "error" || status === "stopped") {
     if (cardApplyBtn) {
