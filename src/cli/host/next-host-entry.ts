@@ -105,6 +105,9 @@ void (async () => {
   const server = http.createServer((req, res) => {
     if (req.url?.split("?", 1)[0] === "/__lasso/overlay.js") {
       res.setHeader("content-type", "application/javascript");
+      res.setHeader("cache-control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.setHeader("pragma", "no-cache");
+      res.setHeader("expires", "0");
       res.end(fs.readFileSync(bundlePath, "utf8"));
       return;
     }

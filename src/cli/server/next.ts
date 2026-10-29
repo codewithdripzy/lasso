@@ -32,6 +32,9 @@ function serveOverlayBundle(res: ServerResponse, cwd: string) {
   }
 
   res.setHeader("Content-Type", "application/javascript");
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   res.end(readFileSync(bundlePath, "utf-8"));
 }
 
@@ -74,7 +77,7 @@ export async function startNextServer(cwd: string): Promise<{ nextProcess: Child
   // 3. Our own HTTP server: serve the real overlay bundle directly,
   //    proxy everything else through to Next
   const server = http.createServer((req: IncomingMessage, res: ServerResponse) => {
-    if (req.url === "/__lasso/overlay.js") {
+    if (req.url?.split("?", 1)[0] === "/__lasso/overlay.js") {
       serveOverlayBundle(res, cwd);
       return;
     }

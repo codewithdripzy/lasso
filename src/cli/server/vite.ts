@@ -21,6 +21,9 @@ function lassoInjectPlugin(bridgePort = 3056, cwd: string) {
       server.middlewares.use("/__lasso/overlay.js", (req, res) => {
         const bundlePath = resolve(cwd, "node_modules/lasso/dist/overlay.js");
         res.setHeader("Content-Type", "application/javascript");
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
         res.end(readFileSync(bundlePath, "utf-8"));
       });
     },

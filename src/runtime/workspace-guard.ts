@@ -49,6 +49,9 @@ const DEFAULT_IGNORE_DIRS = new Set([
 ]);
 
 const DEFAULT_IGNORE_FILES = new Set(["next-env.d.ts", "tsconfig.tsbuildinfo", ".DS_Store", "Thumbs.db"]);
+const TEXT_FILE_EXTENSIONS = new Set([
+  ".astro", ".c", ".cc", ".conf", ".cpp", ".cs", ".css", ".csv", ".cxx", ".go", ".h", ".handlebars", ".hpp", ".html", ".ini", ".java", ".js", ".json", ".jsx", ".md", ".mdx", ".mjs", ".mts", ".php", ".prisma", ".py", ".rb", ".rs", ".scss", ".sh", ".sql", ".svelte", ".svg", ".toml", ".ts", ".tsx", ".txt", ".vue", ".xml", ".yaml", ".yml", ".zsh",
+]);
 
 function shouldIgnoreFile(name: string): boolean {
   return DEFAULT_IGNORE_FILES.has(name) || name.endsWith(".tsbuildinfo");
@@ -61,6 +64,17 @@ function hashBuffer(buf: Buffer): string {
 function looksBinary(buf: Buffer): boolean {
   const sample = buf.subarray(0, Math.min(buf.length, 8192));
   return sample.includes(0);
+}
+
+function isTextFile(relPath: string): boolean {
+  return TEXT_FILE_EXTENSIONS.has(path.extname(relPath).toLowerCase());
+}
+
+function decodeText(buf: Buffer): string {
+  // A stray NUL in a source file should not turn the whole change into an
+  // unreviewable binary diff. Strip it from the displayed diff only; snapshots
+  // retain the original bytes for exact rejection.
+  return buf.toString("utf8").replace(/\0/g, "");
 }
 
 export class WorkspaceGuard {
@@ -186,7 +200,12 @@ export class WorkspaceGuard {
       }
 
       if (!stat || !stat.isFile()) {
-        changes.push({ filePath: relPath, operation: "deleted", oldContent: entry.binary ? undefined : entry.content?.toString("utf8") });
+        changes.push({
+          filePath: relPath,
+          operation: "deleted",
+          oldContent: entry.binary && !isTextFile(relPath) ? undefined : entry.content ? decodeText(entry.content) : undefined,
+          binary: entry.binary && !isTextFile(relPath),
+        });
         continue;
       }
 
@@ -203,14 +222,15 @@ export class WorkspaceGuard {
       // classification. A text source file can contain a stray NUL byte and
       // then be repaired by the agent; treating it as binary here would hide
       // the edit from review and cause the safety restore to discard it.
-      if (looksBinary(current)) {
+      const textFile = isTextFile(relPath);
+      if (looksBinary(current) && !textFile) {
         changes.push({ filePath: relPath, operation: "modified", binary: true });
       } else {
         changes.push({
           filePath: relPath,
           operation: "modified",
-          oldContent: entry.binary ? "(original file contained binary data)" : entry.content ? entry.content.toString("utf8") : undefined,
-          newContent: current.toString("utf8"),
+          oldContent: entry.binary && !textFile ? "(original file contained binary data)" : entry.content ? decodeText(entry.content) : undefined,
+          newContent: decodeText(current),
         });
       }
     }
@@ -353,8 +373,8 @@ export class WorkspaceGuard {
         let content: string | undefined;
         try {
           const buf = fs.readFileSync(absPath);
-          binary = looksBinary(buf);
-          content = binary ? undefined : buf.toString("utf8");
+          binary = looksBinary(buf) && !isTextFile(relPath);
+          content = binary ? undefined : decodeText(buf);
         } catch {
           continue;
         }

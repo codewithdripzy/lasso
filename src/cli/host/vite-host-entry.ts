@@ -18,6 +18,9 @@ function lassoOverlayPlugin() {
     configureServer(server: any) {
       server.middlewares.use("/__lasso/overlay.js", (_req: any, res: any) => {
         res.setHeader("Content-Type", "application/javascript");
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
         res.end(fs.readFileSync(bundlePath, "utf8"));
       });
     },
