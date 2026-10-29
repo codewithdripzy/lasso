@@ -21,6 +21,7 @@ import { renderRemoteBoxes, showActivity } from "../collab/presence";
 import { renderComments } from "../comments/pins";
 import { LASSO_ICON_DATA_URL } from "../icons/lasso";
 import { closeCommandBar } from "../commandbar/commandbar";
+import { formatMessageText, getFileExtension, getPathBasename } from "../message-format";
 import { startVoiceRecording, stopVoiceRecording, isRecordingVoice } from "../audio/transcribe";
 import type { AgentTask, AgentTaskStatus, ChatMessage, ModelOption, PendingChange, ScreenshotContext } from "../types";
 
@@ -37,6 +38,7 @@ let agentLogToggle: HTMLButtonElement | null = null;
 let agentLogLines: string[] = [];
 let agentLogExpanded = false;
 let reviewPanel: HTMLDivElement | null = null;
+let reviewTray: HTMLDivElement | null = null;
 let agentPromptPanel: HTMLDivElement | null = null;
 let agentPromptTaskId: string | null = null;
 let timelinePanel: HTMLDivElement | null = null;
@@ -123,6 +125,8 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
       </div>
 
       <div class="lasso-chat-thread" aria-live="polite"></div>
+
+      <div class="lasso-command-live-review-tray lasso-prompt-review-tray" hidden></div>
 
       <div class="lasso-agent-status" hidden aria-live="polite">
         <div class="lasso-agent-terminal-header">
@@ -264,26 +268,27 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
     setAgentLogExpanded(!agentLogExpanded);
   });
 
-  // Review panel
+  // Diff modal. The file tray stays attached to the prompt while changes are reviewed.
   const rev = document.createElement("div");
-  rev.className = "lasso-review";
+  rev.className = "lasso-review-diff-backdrop";
   rev.hidden = true;
   rev.innerHTML = `
-    <div class="lasso-review-header">
-      <div>
-        <h3 class="lasso-review-title">Review source changes</h3>
-        <p class="lasso-review-subtitle">Changes are in your files while you review. Accept to keep them or reject to restore the originals.</p>
+    <section class="lasso-review-diff-modal" role="dialog" aria-modal="true" aria-label="File diff">
+      <header class="lasso-review-diff-modal-header">
+        <div class="lasso-review-diff-modal-file">
+          <span class="lasso-command-file-extension"></span>
+          <div><strong></strong><span></span></div>
+        </div>
+        <button class="lasso-review-diff-close" type="button" aria-label="Close diff">×</button>
+      </header>
+      <div class="lasso-review-diff-modal-body">
+        <div class="lasso-review-code"><pre class="lasso-review-old"></pre><pre class="lasso-review-new"></pre></div>
       </div>
-      <button class="lasso-review-close" type="button" aria-label="Close review">×</button>
-    </div>
-    <div class="lasso-review-files"></div>
-    <div class="lasso-review-actions">
-      <button class="lasso-review-undo" type="button">Reject changes</button>
-      <button class="lasso-review-apply primary" type="button">Accept changes</button>
-    </div>
+    </section>
   `;
   dom.shadow.appendChild(rev);
   reviewPanel = rev;
+  reviewTray = el.querySelector<HTMLDivElement>(".lasso-prompt-review-tray");
 
   // Timeline/history panel
   const timeline = document.createElement("div");
@@ -487,53 +492,59 @@ export function buildPrompt(): { prompt: HTMLDivElement; review: HTMLDivElement 
     }
   });
 
-  // Review panel buttons
-  rev.querySelector<HTMLButtonElement>(".lasso-review-close")!.addEventListener("click", closeReview);
-  rev.querySelector<HTMLButtonElement>(".lasso-review-undo")!.addEventListener("click", () => {
-    const taskId = state.promptTaskId || undefined;
-    if (taskId && state.pendingChanges.length && state.bridgeSocket?.readyState === WebSocket.OPEN) {
-      const rejectButton = rev.querySelector<HTMLButtonElement>(".lasso-review-undo");
-      const acceptButton = rev.querySelector<HTMLButtonElement>(".lasso-review-apply");
-      if (rejectButton) {
-        rejectButton.disabled = true;
-        rejectButton.textContent = "Rejecting…";
-      }
-      if (acceptButton) acceptButton.disabled = true;
-      state.bridgeSocket.send(JSON.stringify({ type: "undo", taskId }));
+  // Review tray actions and per-file diff modal.
+  const closeDiffModal = () => {
+    rev.hidden = true;
+  };
+  rev.querySelector<HTMLButtonElement>(".lasso-review-diff-close")!.addEventListener("click", closeDiffModal);
+  rev.addEventListener("click", (event) => {
+    if (event.target === rev) closeDiffModal();
+  });
+  reviewTray?.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+    const fileButton = target.closest<HTMLButtonElement>("[data-review-file]");
+    if (fileButton) {
+      const change = state.pendingChanges.find((item) => item.filePath === fileButton.dataset.reviewFile);
+      if (change) openSelectedReviewDiff(change);
       return;
     }
-    if (!state.pendingChanges.length) closeReview();
-  });
-
-  // Add timeline/history button to review panel
-  const historyBtn = document.createElement("button");
-  historyBtn.type = "button";
-  historyBtn.className = "lasso-review-history";
-  historyBtn.textContent = "View history";
-  historyBtn.addEventListener("click", () => {
-    if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
-      state.bridgeSocket.send(JSON.stringify({ type: "get_timeline" }));
+    if (target.closest(".lasso-review-history")) {
+      if (state.bridgeSocket?.readyState === WebSocket.OPEN) state.bridgeSocket.send(JSON.stringify({ type: "get_timeline" }));
+      return;
     }
-  });
-  rev.querySelector<HTMLDivElement>(".lasso-review-actions")!.prepend(historyBtn);
-
-  rev.querySelector<HTMLButtonElement>(".lasso-review-apply")!.addEventListener("click", () => {
-    const taskId = state.promptTaskId;
-    if (!taskId || !state.bridgeSocket || state.bridgeSocket.readyState !== WebSocket.OPEN || !state.pendingChanges.length) return;
-    requestAgentNotificationPermission();
-    state.runtimeErrors = [];
-    state.bridgeSocket.send(JSON.stringify({ type: "apply", taskId, changes: state.pendingChanges }));
-    updateAgentTask(taskId, {
-      status: "working",
-      message: "Applying accepted changes…",
-      activity: [...(getAgentTask(taskId)?.activity || []), "Applying accepted changes…"],
-    });
-    appendChat("assistant", "Applying the reviewed change…", taskId);
-    // Disable the apply button to prevent double-clicks
-    const applyBtn = rev.querySelector<HTMLButtonElement>(".lasso-review-apply");
-    if (applyBtn) {
-      applyBtn.disabled = true;
-      applyBtn.textContent = "Accepting…";
+    if (target.closest(".lasso-review-undo")) {
+      const taskId = state.promptTaskId || undefined;
+      if (taskId && state.pendingChanges.length && state.bridgeSocket?.readyState === WebSocket.OPEN) {
+        const rejectButton = reviewTray?.querySelector<HTMLButtonElement>(".lasso-review-undo");
+        const acceptButton = reviewTray?.querySelector<HTMLButtonElement>(".lasso-review-apply");
+        if (rejectButton) {
+          rejectButton.disabled = true;
+          rejectButton.textContent = "Rejecting…";
+        }
+        if (acceptButton) acceptButton.disabled = true;
+        state.bridgeSocket.send(JSON.stringify({ type: "undo", taskId }));
+        return;
+      }
+      if (!state.pendingChanges.length) closeReview();
+      return;
+    }
+    if (target.closest(".lasso-review-apply")) {
+      const taskId = state.promptTaskId;
+      if (!taskId || !state.bridgeSocket || state.bridgeSocket.readyState !== WebSocket.OPEN || !state.pendingChanges.length) return;
+      requestAgentNotificationPermission();
+      state.runtimeErrors = [];
+      state.bridgeSocket.send(JSON.stringify({ type: "apply", taskId, changes: state.pendingChanges }));
+      updateAgentTask(taskId, {
+        status: "working",
+        message: "Applying accepted changes…",
+        activity: [...(getAgentTask(taskId)?.activity || []), "Applying accepted changes…"],
+      });
+      appendChat("assistant", "Applying the reviewed change…", taskId);
+      const applyBtn = reviewTray?.querySelector<HTMLButtonElement>(".lasso-review-apply");
+      if (applyBtn) {
+        applyBtn.disabled = true;
+        applyBtn.textContent = "Accepting…";
+      }
     }
   });
 
@@ -936,24 +947,7 @@ export function appendChat(role: "user" | "assistant" | "error", text: string, t
 }
 
 function renderChatText(container: HTMLElement, text: string): void {
-  const codePattern = /(`+)([\s\S]*?)\1/g;
-  let lastIndex = 0;
-
-  for (const match of text.matchAll(codePattern)) {
-    const index = match.index ?? 0;
-    if (index > lastIndex) {
-      container.append(document.createTextNode(text.slice(lastIndex, index)));
-    }
-
-    const code = document.createElement("code");
-    code.textContent = match[2] ?? "";
-    container.append(code);
-    lastIndex = index + match[0].length;
-  }
-
-  if (lastIndex < text.length) {
-    container.append(document.createTextNode(text.slice(lastIndex)));
-  }
+  container.innerHTML = formatMessageText(text);
 }
 
 export function setAgentStatus(status: AgentTaskStatus, message: string, detail?: string, taskId = state.promptTaskId, appendMessage = true) {
@@ -1008,10 +1002,13 @@ export function resetAgentState() {
   }
   if (sendButton) {
     sendButton.classList.remove("loading");
-    sendButton.dataset.state = "idle";
+    // Unresolved edits keep the review entry point alive even after the
+    // runtime reports done — the user must still be able to accept/reject.
+    const pendingReview = state.pendingChanges.length > 0;
+    sendButton.dataset.state = pendingReview ? "review" : "idle";
     const label = sendButton.querySelector("span");
-    if (label) label.textContent = "Send";
-    sendButton.setAttribute("aria-label", "Send request");
+    if (label) label.textContent = pendingReview ? "Review" : "Send";
+    sendButton.setAttribute("aria-label", pendingReview ? "Review proposed changes" : "Send request");
     syncSendButtonState();
   }
   if (stopButton) stopButton.hidden = true;
@@ -1020,6 +1017,10 @@ export function resetAgentState() {
 
 function hideReview(): void {
   if (reviewPanel) reviewPanel.hidden = true;
+  if (reviewTray) {
+    reviewTray.hidden = true;
+    reviewTray.replaceChildren();
+  }
 }
 
 function resetPromptSession(element: Element | null = state.selected): void {
@@ -1081,62 +1082,101 @@ function restoreTaskPrompt(task: AgentTask): void {
 
   if (promptEl) promptEl.classList.add("visible");
   setSelectMode(false);
-  setAgentStatus(task.status, task.message, task.detail, task.id, false);
+  // Unresolved edits keep the review entry point alive even when the task
+  // itself was marked complete (conversational wrap-up after real edits).
+  const hasPendingReview = state.pendingChanges.length > 0;
+  const uiStatus: AgentTaskStatus = hasPendingReview && (task.status === "complete" || task.status === "review") ? "review" : task.status;
+  setAgentStatus(uiStatus, task.message, task.detail, task.id, false);
+  if (hasPendingReview) {
+    showReview(state.pendingChanges, task.message, task.status === "working");
+  }
   requestAnimationFrame(() => promptInput?.focus());
 }
 
 export function showReview(changes: PendingChange[], summary: string, live = false) {
+  if (!reviewTray || !changes.length) return;
+  // Final reviews block other coding tasks until resolved — the prompt card
+  // must be on screen even if it was dismissed while the agent ran.
+  if (!live && promptEl && !promptEl.classList.contains("visible")) {
+    promptEl.classList.add("visible");
+  }
+  reviewTray.replaceChildren();
+  const header = document.createElement("div");
+  header.className = "lasso-review-tray-header";
+  const title = document.createElement("strong");
+  title.textContent = live ? "Files changing" : "Changed files";
+  const count = document.createElement("span");
+  count.textContent = `${changes.length} file${changes.length === 1 ? "" : "s"}`;
+  header.append(title, count);
+  const list = document.createElement("div");
+  list.className = "lasso-review-tray-files";
+  for (const change of changes) {
+    const extension = getFileExtension(change.filePath);
+    const file = document.createElement("button");
+    file.className = "lasso-review-tray-file";
+    file.type = "button";
+    file.dataset.reviewFile = change.filePath;
+    file.title = `View diff for ${change.filePath}`;
+    const row = document.createElement("span");
+    row.className = "lasso-review-tray-file-heading";
+    const ext = document.createElement("span");
+    ext.className = `lasso-command-file-extension ${extension.className}`;
+    ext.textContent = extension.label;
+    const name = document.createElement("span");
+    name.className = "lasso-review-tray-file-name";
+    name.title = change.filePath;
+    name.textContent = getPathBasename(change.filePath);
+    const open = document.createElement("span");
+    open.className = "lasso-review-tray-open-icon";
+    open.setAttribute("aria-hidden", "true");
+    open.textContent = "↗";
+    row.append(ext, name, open);
+    file.append(row);
+    list.append(file);
+  }
+  const actions = document.createElement("div");
+  actions.className = "lasso-review-tray-actions";
+  const note = document.createElement("span");
+  note.textContent = live ? "Accepting or rejecting stops the agent." : "Accept or reject these edits.";
+  const buttons = document.createElement("div");
+  const history = document.createElement("button");
+  history.className = "lasso-review-history secondary";
+  history.type = "button";
+  history.textContent = "History";
+  const reject = document.createElement("button");
+  reject.className = "lasso-command-undo-btn secondary lasso-review-undo";
+  reject.type = "button";
+  reject.textContent = live ? "Stop & reject" : "Reject";
+  const accept = document.createElement("button");
+  accept.className = "lasso-command-apply-btn primary lasso-review-apply";
+  accept.type = "button";
+  accept.textContent = live ? "Accept current" : "Accept changes";
+  buttons.append(history, reject, accept);
+  actions.append(note, buttons);
+  reviewTray.append(header, list, actions);
+  reviewTray.hidden = false;
+}
+
+function openSelectedReviewDiff(change: PendingChange): void {
   if (!reviewPanel) return;
-  const subtitle = reviewPanel.querySelector<HTMLParagraphElement>(".lasso-review-subtitle");
-  const files = reviewPanel.querySelector<HTMLDivElement>(".lasso-review-files");
-  const applyBtn = reviewPanel.querySelector<HTMLButtonElement>(".lasso-review-apply");
-  const rejectBtn = reviewPanel.querySelector<HTMLButtonElement>(".lasso-review-undo");
-  if (!subtitle || !files) return;
-
-  subtitle.textContent = `${summary} ${changes.length} file${changes.length === 1 ? "" : "s"} ${live ? "changed so far. Accepting or rejecting stops the agent." : "proposed."}`;
-  files.replaceChildren(
-    ...changes.map((change) => {
-      const file = document.createElement("div");
-      file.className = "lasso-review-file";
-      const name = document.createElement("div");
-      name.className = "lasso-review-file-name";
-      name.textContent = change.filePath;
-      const code = document.createElement("div");
-      code.className = "lasso-review-code";
-      const oldCode = document.createElement("pre");
-      oldCode.className = "lasso-review-old";
-      const newCode = document.createElement("pre");
-      newCode.className = "lasso-review-new";
-      const isDelete = change.operation === "deleted" || (change.newString === "" && change.oldString !== "");
-      if (isDelete) {
-        oldCode.textContent = reviewDiffSide(change.oldString, change.newString, "old");
-        newCode.textContent = "(file deleted)";
-        newCode.classList.add("lasso-review-deleted");
-      } else {
-        oldCode.textContent = change.oldString ? reviewDiffSide(change.oldString, change.newString, "old") : "(new file)";
-        newCode.textContent = change.newString ? reviewDiffSide(change.oldString, change.newString, "new") : "";
-      }
-      code.append(oldCode, newCode);
-      file.append(name, code);
-      return file;
-    })
-  );
-
-  // Re-enable apply button
-  if (applyBtn) {
-    applyBtn.disabled = false;
-    applyBtn.textContent = live ? "Accept current changes" : "Accept changes";
-  }
-  if (rejectBtn) {
-    rejectBtn.disabled = false;
-    rejectBtn.textContent = live ? "Stop & reject" : "Reject changes";
-  }
-
+  const extension = getFileExtension(change.filePath);
+  const icon = reviewPanel.querySelector<HTMLSpanElement>(".lasso-review-diff-modal-file .lasso-command-file-extension");
+  const name = reviewPanel.querySelector<HTMLElement>(".lasso-review-diff-modal-file strong");
+  const path = reviewPanel.querySelector<HTMLElement>(".lasso-review-diff-modal-file > div > span");
+  const oldCode = reviewPanel.querySelector<HTMLPreElement>(".lasso-review-old");
+  const newCode = reviewPanel.querySelector<HTMLPreElement>(".lasso-review-new");
+  if (!icon || !name || !path || !oldCode || !newCode) return;
+  icon.className = `lasso-command-file-extension ${extension.className}`;
+  icon.textContent = extension.label;
+  name.textContent = getPathBasename(change.filePath);
+  name.title = change.filePath;
+  path.textContent = change.filePath;
+  path.title = change.filePath;
+  const isDelete = change.operation === "deleted" || (change.newString === "" && change.oldString !== "");
+  oldCode.textContent = change.oldString ? reviewDiffSide(change.oldString, change.newString, "old") : "(new file)";
+  newCode.textContent = isDelete ? "(file deleted)" : change.newString ? reviewDiffSide(change.oldString, change.newString, "new") : "";
+  newCode.classList.toggle("lasso-review-deleted", isDelete);
   reviewPanel.hidden = false;
-  const left = Math.max(12, (window.innerWidth - Math.min(520, window.innerWidth - 24)) / 2);
-  const top = Math.max(12, (window.innerHeight - Math.min(620, window.innerHeight - 24)) / 2);
-  reviewPanel.style.left = `${left}px`;
-  reviewPanel.style.top = `${top}px`;
 }
 
 function reviewDiffSide(oldText: string, newText: string, side: "old" | "new"): string {
@@ -1146,11 +1186,7 @@ function reviewDiffSide(oldText: string, newText: string, side: "old" | "new"): 
   while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) prefix++;
 
   let suffix = 0;
-  while (
-    suffix < oldLines.length - prefix &&
-    suffix < newLines.length - prefix &&
-    oldLines[oldLines.length - suffix - 1] === newLines[newLines.length - suffix - 1]
-  ) suffix++;
+  while (suffix < oldLines.length - prefix && suffix < newLines.length - prefix && oldLines[oldLines.length - suffix - 1] === newLines[newLines.length - suffix - 1]) suffix++;
 
   const before = oldLines.slice(prefix, oldLines.length - suffix);
   const after = newLines.slice(prefix, newLines.length - suffix);
@@ -1163,6 +1199,7 @@ function reviewDiffSide(oldText: string, newText: string, side: "old" | "new"): 
 
 export function closeReview() {
   hideReview();
+  state.pendingChanges = [];
   resetAgentState();
 }
 

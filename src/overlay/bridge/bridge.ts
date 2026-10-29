@@ -256,6 +256,12 @@ export function connectBridge() {
             if (task?.element) releaseHeldLock(elementKey(task.element));
             void notifyAgent(message.status === "error" ? "Agent error" : "Agent stopped", message.message);
           }
+          // A final review must stay reachable even if the prompt session was
+          // reset while the agent ran (element re-select cleared promptTaskId).
+          // Adopt the finishing task so its preserved edits can be reviewed.
+          if (message.status === "review" && message.changes?.length && taskId && !state.promptTaskId) {
+            state.promptTaskId = taskId;
+          }
           if (taskId && taskId !== state.promptTaskId) return;
 
           setAgentStatus(message.status, message.message, message.detail, taskId, false);
@@ -269,9 +275,14 @@ export function connectBridge() {
             state.pendingChanges = [...message.changes];
             showReview(message.changes, "The agent is still working.", true);
           } else if (message.status === "error" || message.status === "stopped") {
-            // Close review panel on error or stopped for the active task
+            // Keep the review available if the runtime failed after publishing
+            // live edits. The user must still be able to accept or reject them.
             if (taskId === state.promptTaskId) {
-              closeReview();
+              if (state.pendingChanges.length) {
+                showReview(state.pendingChanges, "Review the edits made before the agent stopped.");
+              } else {
+                closeReview();
+              }
             }
           }
         }
@@ -288,17 +299,36 @@ export function connectBridge() {
             return;
           }
           const task = taskId ? getAgentTask(taskId) : undefined;
+          // Live edits may already be preserved on disk when the runtime wraps
+          // up with a conversational reply. Keep the task in review so the user
+          // can accept or reject — same contract as the oneshot sidebar.
+          const pending = task ? (task.pendingChanges.length ? task.pendingChanges : task.changes || []) : state.pendingChanges;
           if (task) {
-            updateAgentTask(task.id, { status: "complete", message: "Complete", response: message.message });
-            recordTaskActivity(task.id, "Agent complete");
+            if (pending.length) {
+              updateAgentTask(task.id, { status: "review", message: "Review the proposed changes.", response: message.message });
+              recordTaskActivity(task.id, "Review ready");
+            } else {
+              updateAgentTask(task.id, { status: "complete", message: "Complete", response: message.message });
+              recordTaskActivity(task.id, "Agent complete");
+            }
           }
           appendChat("assistant", message.message, taskId);
+          if (taskId && !state.promptTaskId) state.promptTaskId = taskId;
           if (taskId && taskId !== state.promptTaskId) {
             void notifyAgent("Agent complete", message.message);
             return;
           }
           void notifyAgent("Agent complete", message.message);
-          resetAgentState();
+          if (pending.length) {
+            state.pendingChanges = [...pending];
+            setAgentStatus("review", "Review the proposed changes.", undefined, taskId, false);
+            setDragCardStatus("review", "Review the proposed changes.");
+            showReview(pending, "Review the proposed changes.");
+          } else {
+            // This task resolved with no edits — drop any superseded review state.
+            state.pendingChanges = [];
+            resetAgentState();
+          }
         }
 
         if (message.type === "applied" || message.type === "undone") {
@@ -338,9 +368,9 @@ export function connectBridge() {
             });
           }
           if (isPromptTask) {
+            state.pendingChanges = [];
             closeReview();
             resetDrag(false);
-            state.pendingChanges = [];
           }
         }
       } catch {

@@ -1552,6 +1552,31 @@ export function buildStyles(): string {
       border: 1px solid var(--lo-border-subtle);
     }
 
+    .lasso-prompt-review-tray {
+      max-height: 190px;
+      margin: 0 -16px;
+      padding: 9px 12px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .lasso-prompt-review-tray .lasso-review-tray-actions > div {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .lasso-prompt-review-tray .lasso-review-history {
+      min-height: 28px;
+      padding: 4px 7px;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px;
+      background: rgba(255,255,255,0.05);
+      color: var(--lo-text-2);
+      font-size: 10px;
+      cursor: pointer;
+    }
+
     @keyframes lasso-prompt-in {
       from { opacity: 0; transform: translateY(-5px) scale(0.98); }
       to { opacity: 1; transform: translateY(0) scale(1); }
