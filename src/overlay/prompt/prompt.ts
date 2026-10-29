@@ -4,6 +4,11 @@ import googleIcon from "@iconify-icons/logos/google-icon";
 import openaiIcon from "@iconify-icons/logos/openai-icon";
 import nvidiaIcon from "@iconify-icons/logos/nvidia";
 import terminalIcon from "@iconify-icons/logos/terminal";
+import antigravityIcon from "@iconify-icons/logos/antigravity";
+import claudeIcon from "@iconify-icons/logos/claude-icon";
+import codexIcon from "@iconify-icons/logos/codex";
+import cursorIcon from "@iconify-icons/logos/cursor-icon";
+import opencodeIcon from "@iconify-icons/logos/opencode-icon";
 
 import { state, rememberModel, loadChatHistory, saveChatHistory, timeAgo } from "../state";
 import { appendTaskMessage, createAgentTask, getComponentConversation, findReusableAgentTask, getAgentTask, onAgentTaskReviewRequested, onAgentTaskSelected, recordTaskActivity, selectAgentTask, updateAgentTask } from "../tasks/tasks";
@@ -40,6 +45,7 @@ let modelBtn: HTMLButtonElement | null = null;
 let modelName: HTMLSpanElement | null = null;
 let modelMenu: HTMLDivElement | null = null;
 const openCliGroups = new Set<string>();
+let cliGroupsInitialized = false;
 
 const providerLabels: Record<ModelOption["provider"], string> = {
   google: "Google",
@@ -62,17 +68,14 @@ const providerIcons = {
   nvidia: nvidiaIcon,
   ollama: terminalIcon,
   cli: terminalIcon,
-  claude_code: terminalIcon,
-  opencode: terminalIcon,
-  codex_cli: terminalIcon,
-  cursor: terminalIcon,
-  antigravity: terminalIcon,
+  claude_code: claudeIcon,
+  opencode: opencodeIcon,
+  codex_cli: codexIcon,
+  cursor: cursorIcon,
+  antigravity: antigravityIcon,
 };
 
 export function providerIcon(provider: ModelOption["provider"], active = false): string {
-  if (provider === "cli" || provider === "claude_code" || provider === "opencode" || provider === "codex_cli" || provider === "cursor" || provider === "antigravity") {
-    return `<span class="${active ? "lasso-model-active-icon" : "lasso-model-item-icon"} provider-${provider}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false"><circle cx="12" cy="12" r="9" fill="currentColor" opacity=".16"/><circle cx="12" cy="9" r="3" fill="currentColor"/><path d="M6.5 18c.9-2.4 2.7-3.6 5.5-3.6s4.6 1.2 5.5 3.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>`;
-  }
   const icon = providerIcons[provider];
   if (!icon) {
     return `<span class="${active ? "lasso-model-active-icon" : "lasso-model-item-icon"} provider-${provider}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false"><circle cx="12" cy="12" r="9" fill="currentColor" opacity=".16"/><circle cx="12" cy="9" r="3" fill="currentColor"/><path d="M6.5 18c.9-2.4 2.7-3.6 5.5-3.6s4.6 1.2 5.5 3.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>`;
@@ -694,7 +697,10 @@ export function buildModelMenuContent(menuEl: HTMLElement, onRefresh: () => void
         cliGroups.set(key, groupModels);
       }
       const selectedCliGroup = state.selectedModel.provider;
-      if (selectedCliGroup && LOCAL_AGENT_PROVIDERS.has(selectedCliGroup) && !openCliGroups.size) openCliGroups.add(selectedCliGroup);
+      if (!cliGroupsInitialized && selectedCliGroup && LOCAL_AGENT_PROVIDERS.has(selectedCliGroup)) {
+        openCliGroups.add(selectedCliGroup);
+      }
+      cliGroupsInitialized = true;
       for (const [cliKey, cliModels] of cliGroups) {
         const subGroup = document.createElement("div");
         subGroup.className = "lasso-cli-subgroup";
@@ -702,7 +708,7 @@ export function buildModelMenuContent(menuEl: HTMLElement, onRefresh: () => void
         subHeader.type = "button";
         subHeader.className = "lasso-cli-subgroup-header";
         subHeader.setAttribute("aria-expanded", String(openCliGroups.has(cliKey)));
-        subHeader.innerHTML = `<span>${providerLabels[cliKey as ModelOption["provider"]] || cliKey}</span><svg class="lasso-model-chevron lasso-cli-subgroup-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>`;
+        subHeader.innerHTML = `<span class="lasso-cli-subgroup-brand">${providerIcon(cliKey as ModelOption["provider"])}<span>${providerLabels[cliKey as ModelOption["provider"]] || cliKey}</span></span><svg class="lasso-model-chevron lasso-cli-subgroup-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>`;
         const subItems = document.createElement("div");
         subItems.className = "lasso-cli-subgroup-items";
         subItems.hidden = !openCliGroups.has(cliKey);
@@ -1079,7 +1085,7 @@ function restoreTaskPrompt(task: AgentTask): void {
   requestAnimationFrame(() => promptInput?.focus());
 }
 
-export function showReview(changes: PendingChange[], summary: string) {
+export function showReview(changes: PendingChange[], summary: string, live = false) {
   if (!reviewPanel) return;
   const subtitle = reviewPanel.querySelector<HTMLParagraphElement>(".lasso-review-subtitle");
   const files = reviewPanel.querySelector<HTMLDivElement>(".lasso-review-files");
@@ -1087,7 +1093,7 @@ export function showReview(changes: PendingChange[], summary: string) {
   const rejectBtn = reviewPanel.querySelector<HTMLButtonElement>(".lasso-review-undo");
   if (!subtitle || !files) return;
 
-  subtitle.textContent = `${summary} ${changes.length} file${changes.length === 1 ? "" : "s"} proposed.`;
+  subtitle.textContent = `${summary} ${changes.length} file${changes.length === 1 ? "" : "s"} ${live ? "changed so far. Accepting or rejecting stops the agent." : "proposed."}`;
   files.replaceChildren(
     ...changes.map((change) => {
       const file = document.createElement("div");
@@ -1119,11 +1125,11 @@ export function showReview(changes: PendingChange[], summary: string) {
   // Re-enable apply button
   if (applyBtn) {
     applyBtn.disabled = false;
-    applyBtn.textContent = "Accept changes";
+    applyBtn.textContent = live ? "Accept current changes" : "Accept changes";
   }
   if (rejectBtn) {
     rejectBtn.disabled = false;
-    rejectBtn.textContent = "Reject changes";
+    rejectBtn.textContent = live ? "Stop & reject" : "Reject changes";
   }
 
   reviewPanel.hidden = false;

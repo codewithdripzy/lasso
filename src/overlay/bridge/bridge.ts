@@ -88,10 +88,11 @@ export function connectBridge() {
           models?: ModelOption[];
           git?: GitState;
           error?: string;
-          status?: "thinking" | "working" | "review" | "error" | "stopped";
+          status?: "thinking" | "working" | "review" | "complete" | "error" | "stopped";
           message?: string;
           detail?: string;
           changes?: PendingChange[];
+          liveChanges?: boolean;
           taskId?: string;
           queueId?: string;
           success?: boolean;
@@ -238,6 +239,9 @@ export function connectBridge() {
               patch.changes = message.changes;
               patch.pendingChanges = message.changes;
               recordTaskChangeHistory(task.id, message.message, message.changes);
+            } else if (message.liveChanges && message.changes) {
+              patch.changes = message.changes;
+              patch.pendingChanges = message.changes;
             }
             updateAgentTask(task.id, patch);
             recordTaskActivity(task.id, message.detail || message.message);
@@ -245,6 +249,8 @@ export function connectBridge() {
           if (message.status === "review") {
             appendChat("assistant", message.message, taskId);
             if (message.changes?.length) void notifyAgent("Review requested", message.message);
+          } else if (message.status === "complete") {
+            appendChat("assistant", message.message, taskId);
           } else if (message.status === "error" || message.status === "stopped") {
             appendChat(message.status === "error" ? "error" : "assistant", message.message, taskId);
             if (task?.element) releaseHeldLock(elementKey(task.element));
@@ -258,6 +264,10 @@ export function connectBridge() {
             if (task) state.changesHistory = task.changesHistory.map((entry) => ({ ...entry, changes: entry.changes.map((change) => ({ ...change })) }));
             state.pendingChanges = [...message.changes];
             showReview(message.changes, message.message);
+          } else if (message.liveChanges && message.changes?.length) {
+            if (task) state.changesHistory = task.changesHistory.map((entry) => ({ ...entry, changes: entry.changes.map((change) => ({ ...change })) }));
+            state.pendingChanges = [...message.changes];
+            showReview(message.changes, "The agent is still working.", true);
           } else if (message.status === "error" || message.status === "stopped") {
             // Close review panel on error or stopped for the active task
             if (taskId === state.promptTaskId) {

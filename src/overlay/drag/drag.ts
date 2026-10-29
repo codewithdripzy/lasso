@@ -705,14 +705,14 @@ async function handleApplyReposition() {
   state.bridgeSocket.send(JSON.stringify(payload));
 }
 
-export function setDragCardStatus(status: "thinking" | "working" | "review" | "error" | "stopped", message: string) {
+export function setDragCardStatus(status: "thinking" | "working" | "review" | "complete" | "error" | "stopped", message: string) {
   if (!cardStatusWrap || !cardStatusMessage || !cardStatusBadge) return;
-  cardStatusWrap.style.display = status === "review" || status === "stopped" ? "none" : "block";
+  cardStatusWrap.style.display = status === "review" || status === "complete" || status === "stopped" ? "none" : "block";
   cardStatusMessage.textContent = message;
-  cardStatusBadge.textContent = status === "thinking" ? "thinking" : status === "working" ? "executing" : status;
+  cardStatusBadge.textContent = status === "thinking" ? "thinking" : status === "working" ? "executing" : status === "complete" ? "done" : status;
   cardStatusBadge.className = `lasso-agent-status-badge ${status}`;
 
-  if (status === "review" || status === "error" || status === "stopped") {
+  if (status === "review" || status === "complete" || status === "error" || status === "stopped") {
     if (cardApplyBtn) {
       cardApplyBtn.disabled = false;
       cardApplyBtn.classList.remove("loading");

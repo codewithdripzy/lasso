@@ -54,6 +54,7 @@ export interface CommandMessage {
   };
   todo?: CommandTodoItem[];
   changes?: SourceChange[];
+  liveChanges?: boolean;
   changesApplied?: boolean;
   changesUndone?: boolean;
   showDiff?: boolean;
@@ -81,6 +82,7 @@ let commandModelIcon: HTMLSpanElement | null = null;
 let commandModelLabel: HTMLSpanElement | null = null;
 let commandMessagesEl: HTMLDivElement | null = null;
 let commandEmptyEl: HTMLDivElement | null = null;
+let reviewDiffModal: HTMLDivElement | null = null;
 
 let isOneShotMode = false;
 let commandMessages: CommandMessage[] = [];
@@ -565,6 +567,7 @@ export function buildCommandBar(): void {
     </div>
 
     <div class="lasso-command-input-composite">
+      <div class="lasso-command-live-review-tray" hidden></div>
       <textarea
         class="lasso-command-input"
         placeholder="Describe what you want to build…"
@@ -600,6 +603,18 @@ export function buildCommandBar(): void {
   `;
   dom.shadow.appendChild(el);
   commandBarEl = el;
+
+  reviewDiffModal = document.createElement("div");
+  reviewDiffModal.className = "lasso-review-diff-backdrop";
+  reviewDiffModal.hidden = true;
+  reviewDiffModal.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+    if (target === reviewDiffModal || target.closest(".lasso-review-diff-close")) closeReviewDiffModal();
+  });
+  reviewDiffModal.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeReviewDiffModal();
+  });
+  dom.shadow.appendChild(reviewDiffModal);
 
   commandInput = el.querySelector<HTMLTextAreaElement>(".lasso-command-input")!;
   commandSubmit = el.querySelector<HTMLButtonElement>(".lasso-command-submit")!;
@@ -853,8 +868,8 @@ export function buildCommandBar(): void {
     }
   });
 
-  // Click delegation for messages (thought toggles, apply/undo, diff toggles, retry)
-  commandMessagesEl.addEventListener("click", (event) => {
+  // Delegate across the sidebar so controls in the live review tray also work.
+  commandBarEl.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
 
     const editableMessage = target.closest<HTMLButtonElement>(".lasso-command-editable-message");
@@ -932,6 +947,14 @@ export function buildCommandBar(): void {
     }
 
     // View specific file diff
+    const reviewFile = target.closest<HTMLButtonElement>(".lasso-review-tray-file");
+    if (reviewFile) {
+      const message = commandMessages.find((item) => item.id === reviewFile.dataset.taskId);
+      const change = message?.changes?.find((item) => item.filePath === reviewFile.dataset.filePath);
+      if (change) openReviewDiffModal(change);
+      return;
+    }
+
     const viewFileDiffBtn = target.closest<HTMLButtonElement>(".lasso-command-view-file-diff-btn");
     if (viewFileDiffBtn) {
       const msgId = viewFileDiffBtn.closest<HTMLElement>(".lasso-command-msg")?.dataset.msgId;
@@ -960,7 +983,7 @@ export function buildCommandBar(): void {
     // Apply changes (filtered to only approved files)
     const applyBtn = target.closest<HTMLButtonElement>(".lasso-command-apply-btn");
     if (applyBtn) {
-      const msgId = applyBtn.closest<HTMLElement>(".lasso-command-msg")?.dataset.msgId;
+      const msgId = applyBtn.closest<HTMLElement>("[data-msg-id]")?.dataset.msgId;
       const msg = commandMessages.find((m) => m.id === msgId);
       if (msg && msg.changes?.length && state.bridgeSocket?.readyState === WebSocket.OPEN) {
         const rejected = new Set(msg.rejectedFilePaths || []);
@@ -986,7 +1009,7 @@ export function buildCommandBar(): void {
     // Undo changes
     const undoBtn = target.closest<HTMLButtonElement>(".lasso-command-undo-btn");
     if (undoBtn) {
-      const msgId = undoBtn.closest<HTMLElement>(".lasso-command-msg")?.dataset.msgId;
+      const msgId = undoBtn.closest<HTMLElement>("[data-msg-id]")?.dataset.msgId;
       const msg = commandMessages.find((m) => m.id === msgId);
       if (msg && state.bridgeSocket?.readyState === WebSocket.OPEN) {
         undoBtn.disabled = true;
@@ -1361,6 +1384,12 @@ export function handleCommandBarAgentStatus(message: any): void {
   if (!targetMsg) return;
 
   if (message.status === "thinking" || message.status === "working") {
+    if (Array.isArray(message.changes) && message.changes.length) {
+      targetMsg.changes = message.changes;
+      targetMsg.liveChanges = message.liveChanges === true;
+      targetMsg.changesApplied = false;
+      targetMsg.changesUndone = false;
+    }
     if (!targetMsg.thinking) {
       targetMsg.thinking = {
         steps: [],
@@ -1422,6 +1451,7 @@ export function handleCommandBarAgentStatus(message: any): void {
     targetMsg.content = message.message || "";
     if (hasChanges) {
       targetMsg.changes = message.changes;
+      targetMsg.liveChanges = false;
       targetMsg.todo = Array.isArray(message.todo) ? message.todo : undefined;
     } else {
       targetMsg.changes = undefined;
@@ -1438,7 +1468,7 @@ export function handleCommandBarAgentStatus(message: any): void {
     });
 
     // Persist the completed assistant message to the server conversation (non-blocking)
-    if (activeConversationId) {
+    if (activeConversationId && !activeConversationId.startsWith("local-session-")) {
       const convId = activeConversationId;
       const userMsg = [...commandMessages].reverse().find((m) => m.role === "user");
       // Save user prompt + assistant reply via the /messages endpoint
@@ -1611,7 +1641,6 @@ function renderMessages(): void {
         <div class="lasso-command-msg assistant" data-msg-id="${msg.id}">
           ${renderThinking(msg)}
           ${msg.content ? `<div class="lasso-command-msg-text">${formatText(msg.content)}</div>` : ""}
-          ${renderChanges(msg)}
           ${
             msg.error
               ? `
@@ -1644,6 +1673,66 @@ function renderMessages(): void {
   }
 
   commandMessagesEl.innerHTML = html;
+  renderLiveReviewTray();
+}
+
+function renderLiveReviewTray(): void {
+  const tray = commandBarEl?.querySelector<HTMLDivElement>(".lasso-command-live-review-tray");
+  if (!tray) return;
+  const message = [...commandMessages].reverse().find((item) => item.role === "assistant" && item.changes?.length && !item.changesApplied && !item.changesUndone);
+  if (!message?.changes?.length) {
+    tray.hidden = true;
+    tray.innerHTML = "";
+    return;
+  }
+
+  const files = message.changes.map((change) => {
+    const extension = getFileExtension(change.filePath);
+    return `<button class="lasso-review-tray-file" type="button" data-task-id="${escapeHtml(message.id)}" data-file-path="${escapeHtml(change.filePath)}" title="View diff for ${escapeHtml(change.filePath)}">
+      <span class="lasso-review-tray-file-heading">
+        <span class="lasso-command-file-extension ${extension.className}">${escapeHtml(extension.label)}</span>
+        <span class="lasso-review-tray-file-name" title="${escapeHtml(change.filePath)}">${escapeHtml(getPathBasename(change.filePath))}</span>
+        <span class="lasso-review-tray-open-icon" aria-hidden="true">↗</span>
+      </span>
+    </button>`;
+  }).join("");
+
+  tray.dataset.msgId = message.id;
+  tray.hidden = false;
+  tray.innerHTML = `<div class="lasso-review-tray-header">
+      <strong>${message.liveChanges ? "Files changing" : "Changed files"}</strong>
+      <span>${message.changes.length} file${message.changes.length === 1 ? "" : "s"}</span>
+    </div>
+    <div class="lasso-review-tray-files">${files}</div>
+    <div class="lasso-review-tray-actions">
+      <span>${message.liveChanges ? "Accepting or rejecting stops the agent." : "Accept or reject these edits."}</span>
+      <div>
+        <button class="lasso-command-undo-btn secondary" type="button">${message.liveChanges ? "Stop & reject" : "Reject"}</button>
+        <button class="lasso-command-apply-btn primary" type="button">${message.liveChanges ? "Accept current" : "Accept changes"}</button>
+      </div>
+    </div>`;
+}
+
+function openReviewDiffModal(change: SourceChange): void {
+  if (!reviewDiffModal) return;
+  reviewDiffModal.innerHTML = `<section class="lasso-review-diff-modal" role="dialog" aria-modal="true" aria-label="Diff for ${escapeHtml(change.filePath)}">
+    <header class="lasso-review-diff-modal-header">
+      <div class="lasso-review-diff-modal-file">
+        <span class="lasso-command-file-extension ${getFileExtension(change.filePath).className}">${escapeHtml(getFileExtension(change.filePath).label)}</span>
+        <div><strong>${escapeHtml(getPathBasename(change.filePath))}</strong><span title="${escapeHtml(change.filePath)}">${escapeHtml(change.filePath)}</span></div>
+      </div>
+      <button class="lasso-review-diff-close" type="button" aria-label="Close diff" title="Close">×</button>
+    </header>
+    <div class="lasso-review-diff-modal-body"><pre class="lasso-command-diff-content">${renderLineDiff(change.oldString, change.newString)}</pre></div>
+  </section>`;
+  reviewDiffModal.hidden = false;
+  reviewDiffModal.querySelector<HTMLButtonElement>(".lasso-review-diff-close")?.focus();
+}
+
+function closeReviewDiffModal(): void {
+  if (!reviewDiffModal) return;
+  reviewDiffModal.hidden = true;
+  reviewDiffModal.replaceChildren();
 }
 
 function sendEditedMessage(messageId: string, prompt: string, button: HTMLButtonElement): void {
@@ -1848,7 +1937,7 @@ function renderChanges(msg: CommandMessage): string {
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
           </svg>
-          <span>Proposed changes (${approvedCount}/${changes.length} files selected)</span>
+          <span>${msg.liveChanges ? "Live changes" : "Proposed changes"} (${approvedCount}/${changes.length} files selected)</span>
         </div>
         <div class="lasso-command-diff-stats" aria-label="${totals.additions} lines added, ${totals.deletions} lines removed">
           <span class="additions">+${totals.additions}</span><span class="deletions">−${totals.deletions}</span>
@@ -1904,11 +1993,12 @@ function renderChanges(msg: CommandMessage): string {
           <button class="lasso-command-apply-btn primary" type="button">Re-apply</button>
         `
               : `
+          ${msg.liveChanges ? `<div class="lasso-command-live-review-note">Accepting or discarding will stop the agent and review its current edits.</div>` : ""}
           <button class="lasso-command-apply-btn primary" type="button">
-            <span>Keep Selected (${approvedCount})</span>
+            <span>${msg.liveChanges ? "Accept Current" : "Keep Selected"} (${approvedCount})</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
           </button>
-          <button class="lasso-command-undo-btn secondary" type="button">Discard</button>
+          <button class="lasso-command-undo-btn secondary" type="button">${msg.liveChanges ? "Stop & discard" : "Discard"}</button>
         `
         }
       </div>

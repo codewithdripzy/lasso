@@ -136,7 +136,7 @@ export type ServerBridgeMessage =
   | { type: "git_result"; message?: string; error?: string }
   | { type: "git_progress"; message: string }
   | { type: "git_commit_message"; message?: string; error?: string }
-  | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "complete" | "error" | "stopped"; message: string; detail?: string; changes?: any[]; thinking?: Array<{ title: string; detail?: string; durationMs?: number }>; totalThinkingTimeMs?: number }
+  | { type: "agent_status"; taskId?: string; status: "thinking" | "working" | "review" | "complete" | "error" | "stopped"; message: string; detail?: string; changes?: any[]; liveChanges?: boolean; thinking?: Array<{ title: string; detail?: string; durationMs?: number }>; totalThinkingTimeMs?: number }
   | { type: "agent_prompt"; taskId: string; prompt: { message: string; kind: "permission" | "input" | "multiselect"; options?: string[] } }
   | { type: "steer_result"; taskId: string; queueId: string; success: boolean; error?: string }
   | { type: "rewind_result"; targetMessageId: string; success: boolean; error?: string; restoredFiles?: string[] }

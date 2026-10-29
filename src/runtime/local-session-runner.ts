@@ -34,6 +34,26 @@ export class LocalSessionRunner {
     let outcome: LocalSessionOutcome;
     let keepWorkspaceChangesForReview = false;
     let terminalEvent: AgentEvent | undefined;
+    let lastLiveDiff = "";
+    const emitLiveDiff = () => {
+      try {
+        const changes = diffToReview(guard.diff()).changes;
+        const signature = JSON.stringify(changes);
+        if (!changes.length || signature === lastLiveDiff) return;
+        lastLiveDiff = signature;
+        emit({
+          type: "file_changed",
+          sessionId,
+          timestamp: Date.now(),
+          data: { changes, live: true },
+        });
+      } catch (error) {
+        console.warn("Could not capture live workspace diff:", error);
+      }
+    };
+    const liveDiffTimer = this.options.keepEditsForReview
+      ? setInterval(emitLiveDiff, 700)
+      : undefined;
     const emitTerminal = (event: AgentEvent) => {
       if (this.options.deferTerminalEvent) terminalEvent = event;
       else emit(event);
@@ -46,6 +66,10 @@ export class LocalSessionRunner {
           // collected the workspace diff and prepared the review decision.
           // Forwarding the backend's raw task_completed here ends the UI early.
           if (event.type === "task_completed") return;
+          if (["file_modified", "file_created", "file_deleted", "diff_available"].includes(event.type)) {
+            emitLiveDiff();
+            return;
+          }
           emit(toAgentEvent(sessionId, event));
         },
         signal
@@ -55,6 +79,7 @@ export class LocalSessionRunner {
       // safe accept/reject handling. The edits stay in the project during review.
       const review = await this.finalizeReview(this.options.keepEditsForReview === true);
       keepWorkspaceChangesForReview = this.options.keepEditsForReview === true && review.changes.length > 0;
+      console.info("[lasso:workspace-review]", JSON.stringify({ sessionId, fileCount: review.changes.length, files: review.changes.map((change) => change.filePath), preserved: keepWorkspaceChangesForReview }));
 
       const externalSessionId = (result.metadata as Record<string, unknown> | undefined)?.externalSessionId;
       const metadata: Record<string, unknown> = {
@@ -137,13 +162,20 @@ export class LocalSessionRunner {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Backend execution failed";
-      await this.restoreGuard();
+      const review = this.options.keepEditsForReview ? diffToReview(this.options.guard.diffForReview()) : { changes: [], binaryPaths: [], actions: [] };
+      keepWorkspaceChangesForReview = this.options.keepEditsForReview === true && review.changes.length > 0;
+      if (keepWorkspaceChangesForReview) {
+        emit({ type: "file_changed", sessionId, timestamp: Date.now(), data: { changes: review.changes, live: false } });
+      } else {
+        await this.restoreGuard();
+      }
       outcome = {
         success: false,
-        status: "failed",
-        changes: [],
-        binaryPaths: [],
-        actions: [],
+        status: keepWorkspaceChangesForReview ? "waiting" : "failed",
+        summary: message,
+        changes: review.changes,
+        binaryPaths: review.binaryPaths,
+        actions: review.actions,
         observations: [],
         errors: [
           {
@@ -158,13 +190,11 @@ export class LocalSessionRunner {
         conversation: [],
         metadata: {},
       };
-      emitTerminal({
-        type: "error",
-        sessionId,
-        timestamp: Date.now(),
-        data: { error: message },
-      });
+      emitTerminal(keepWorkspaceChangesForReview
+        ? { type: "agent_completed", sessionId, timestamp: Date.now(), data: { requiresReview: true, pendingChanges: review.changes.length, summary: message } }
+        : { type: "error", sessionId, timestamp: Date.now(), data: { error: message } });
     } finally {
+      if (liveDiffTimer) clearInterval(liveDiffTimer);
       // Keep reviewable edits on disk until the user accepts or rejects them.
       if (!keepWorkspaceChangesForReview) await this.restoreGuard();
     }
@@ -183,7 +213,7 @@ export class LocalSessionRunner {
         type: "file_changed",
         sessionId: this.options.sessionId,
         timestamp: Date.now(),
-        data: { changes: review.changes },
+        data: { changes: review.changes, live: false },
       });
     }
     return review;

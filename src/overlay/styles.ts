@@ -1721,7 +1721,7 @@ export function buildStyles(): string {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 6px 10px 5px 18px;
+      padding: 5px 9px 5px 10px;
       border: 0;
       border-radius: var(--lo-radius-sm);
       background: transparent;
@@ -1733,8 +1733,24 @@ export function buildStyles(): string {
       cursor: pointer;
     }
     .lasso-cli-subgroup-header:hover { background: var(--lo-surface-hover); color: var(--lo-text); }
+    .lasso-cli-subgroup-brand { display: flex; align-items: center; gap: 7px; min-width: 0; }
     .lasso-cli-subgroup-chevron { color: var(--lo-text-3); }
-    .lasso-cli-subgroup-items { padding-left: 6px; }
+    .lasso-cli-subgroup-items {
+      margin: 1px 0 3px 17px;
+      padding-left: 5px;
+      border-left: 1px solid var(--lo-border);
+    }
+    .lasso-cli-subgroup-brand .lasso-model-item-icon {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 16px;
+      padding: 2px;
+      border-radius: 4px;
+    }
+    .lasso-cli-subgroup-brand .lasso-model-item-icon svg {
+      width: 12px;
+      height: 12px;
+    }
 
     .lasso-model-item-icon {
       display: inline-flex;
@@ -1784,6 +1800,13 @@ export function buildStyles(): string {
     .provider-claude-code { background: rgba(245, 158, 11, 0.16); color: #f59e0b; }
     .provider-codex { background: rgba(129, 201, 149, 0.16); color: var(--lo-success); }
     .provider-cli { background: rgba(192, 132, 252, 0.16); color: #c084fc; }
+    .provider-claude_code { background: rgba(245, 158, 11, 0.16); }
+    .provider-claude_code svg,
+    .provider-cursor svg { filter: brightness(0) invert(1); }
+    .provider-codex_cli { background: #fff; color: #111; padding: 4px; border-radius: 5px; }
+    .provider-opencode { background: rgba(255, 255, 255, 0.1); }
+    .provider-cursor { background: rgba(255, 255, 255, 0.1); }
+    .provider-antigravity { background: rgba(255, 255, 255, 0.1); }
 
     .lasso-prompt-model-name,
     .lasso-prompt-model-name-text,
@@ -4348,6 +4371,14 @@ export function buildStyles(): string {
       align-items: center;
       gap: 8px;
       margin-top: 2px;
+      flex-wrap: wrap;
+    }
+
+    .lasso-command-live-review-note {
+      flex-basis: 100%;
+      color: var(--lo-text-3);
+      font-size: 11px;
+      line-height: 1.4;
     }
 
     .lasso-command-status-applied,
@@ -4559,6 +4590,214 @@ export function buildStyles(): string {
       border-radius: var(--lo-radius-lg);
       background: rgba(255,255,255,0.04);
       position: relative;
+    }
+
+    .lasso-command-live-review-tray {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 210px;
+      padding: 10px 12px 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      overflow: auto;
+    }
+
+    .lasso-command-live-review-tray[hidden] {
+      display: none;
+    }
+
+    .lasso-review-tray-header,
+    .lasso-review-tray-file-heading,
+    .lasso-review-tray-actions,
+    .lasso-review-tray-actions > div {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .lasso-review-tray-header {
+      color: var(--lo-text-2);
+      font-size: 11px;
+    }
+
+    .lasso-review-tray-header strong {
+      color: var(--lo-text);
+      font-size: 12px;
+    }
+
+    .lasso-review-tray-files {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .lasso-review-tray-file {
+      display: block;
+      width: 100%;
+      min-width: 0;
+      padding: 0;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 7px;
+      background: rgba(0,0,0,0.16);
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
+      overflow: hidden;
+      transition: border-color 120ms ease, background 120ms ease;
+    }
+
+    .lasso-review-tray-file:hover {
+      border-color: rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.06);
+    }
+
+    .lasso-review-tray-file-heading {
+      min-width: 0;
+      justify-content: flex-start;
+      padding: 5px 8px;
+    }
+
+    .lasso-review-tray-open-icon {
+      margin-left: auto;
+      color: var(--lo-text-3);
+      font-size: 13px;
+    }
+
+    .lasso-review-tray-file-name {
+      flex: 1;
+      overflow: hidden;
+      color: var(--lo-text-2);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .lasso-review-tray-diff {
+      max-height: 76px;
+      margin: 0;
+      padding: 5px 8px;
+      overflow: auto;
+      color: var(--lo-text-3);
+      font-family: var(--lo-font-mono);
+      font-size: 10px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+
+    .lasso-review-tray-actions {
+      color: var(--lo-text-3);
+      font-size: 10px;
+    }
+
+    .lasso-review-tray-actions > div {
+      flex-shrink: 0;
+    }
+
+    .lasso-review-tray-actions .lasso-command-apply-btn,
+    .lasso-review-tray-actions .lasso-command-undo-btn {
+      padding: 5px 8px;
+      font-size: 11px;
+    }
+
+    .lasso-review-diff-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(4, 5, 7, 0.72);
+      backdrop-filter: blur(5px);
+      -webkit-backdrop-filter: blur(5px);
+      pointer-events: auto;
+    }
+
+    .lasso-review-diff-backdrop[hidden] {
+      display: none;
+    }
+
+    .lasso-review-diff-modal {
+      display: flex;
+      flex-direction: column;
+      width: min(860px, calc(100vw - 40px));
+      max-height: min(760px, calc(100vh - 40px));
+      overflow: hidden;
+      border: 1px solid var(--lo-border);
+      border-radius: var(--lo-radius-lg);
+      background: #131419;
+      color: var(--lo-text);
+      box-shadow: 0 24px 80px rgba(0,0,0,0.65);
+    }
+
+    .lasso-review-diff-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--lo-border);
+    }
+
+    .lasso-review-diff-modal-file {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .lasso-review-diff-modal-file > div {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      gap: 3px;
+    }
+
+    .lasso-review-diff-modal-file strong {
+      color: var(--lo-text);
+      font-size: 13px;
+    }
+
+    .lasso-review-diff-modal-file > div > span {
+      overflow: hidden;
+      color: var(--lo-text-3);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .lasso-review-diff-close {
+      flex: 0 0 auto;
+      width: 30px;
+      height: 30px;
+      border: 0;
+      border-radius: 7px;
+      background: rgba(255,255,255,0.06);
+      color: var(--lo-text-2);
+      font-size: 21px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .lasso-review-diff-close:hover {
+      background: rgba(255,255,255,0.12);
+      color: var(--lo-text);
+    }
+
+    .lasso-review-diff-modal-body {
+      min-height: 0;
+      overflow: auto;
+      background: rgba(0,0,0,0.2);
+    }
+
+    .lasso-review-diff-modal-body .lasso-command-diff-content {
+      max-height: none;
+      margin: 0;
+      padding: 14px 16px;
+      font-size: 12px;
+      line-height: 1.6;
+      white-space: pre;
     }
 
     .lasso-command-input {

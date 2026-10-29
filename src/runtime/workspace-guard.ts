@@ -199,13 +199,17 @@ export class WorkspaceGuard {
 
       if (hashBuffer(current) === entry.hash) continue;
 
-      if (entry.binary || looksBinary(current)) {
+      // Classify the resulting file rather than inheriting the original
+      // classification. A text source file can contain a stray NUL byte and
+      // then be repaired by the agent; treating it as binary here would hide
+      // the edit from review and cause the safety restore to discard it.
+      if (looksBinary(current)) {
         changes.push({ filePath: relPath, operation: "modified", binary: true });
       } else {
         changes.push({
           filePath: relPath,
           operation: "modified",
-          oldContent: entry.content ? entry.content.toString("utf8") : undefined,
+          oldContent: entry.binary ? "(original file contained binary data)" : entry.content ? entry.content.toString("utf8") : undefined,
           newContent: current.toString("utf8"),
         });
       }

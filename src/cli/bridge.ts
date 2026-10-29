@@ -193,8 +193,10 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   // in this process), RuntimeClient for hosted models (via Lasso server).
   const taskFacades = new Map<string, RuntimeFacade>();
   const taskControllers = new Map<string, AbortController>();
+  const activeRuns = new Map<string, Promise<void>>();
+  const earlyReviewDecisions = new Set<string>();
+  const latestReviewChanges = new Map<string, any[]>();
   const pendingBrowserContext = new Map<string, { resolve: (value: any) => void; reject: (error: Error) => void }>();
-  const correctiveAttempts = new Map<string, number>();
   const envRoots = [cwd, path.join(cwd, "web"), path.join(cwd, "server")];
   const fileEnv = envRoots.reduce<Record<string, string>>(
     (values, root) => ({
@@ -366,6 +368,23 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     }
 
     switch (event.type) {
+      case "file_changed": {
+        const data = (event.data as any) || {};
+        if (Array.isArray(data.changes) && data.changes.length) {
+          latestReviewChanges.set(taskId, data.changes);
+          socket.send(JSON.stringify({
+            type: "agent_status",
+            taskId,
+            status: "working",
+            message: data.live ? "Live file changes" : "Preparing file review",
+            changes: data.changes,
+            // The overlay should show the final diff as soon as the local
+            // runner publishes it, even if the backend labels it non-live.
+            liveChanges: true,
+          } satisfies ServerBridgeMessage));
+        }
+        break;
+      }
       case "agent_started":
         // The command bar owns the neutral initial status; real runtime events
         // replace it as soon as the agent has useful progress to report.
@@ -475,7 +494,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         }
         const pendingChanges = typeof data.pendingChanges === "number" ? data.pendingChanges : 0;
         const requiresReview = data.requiresReview === true || pendingChanges > 0;
-        if (review && requiresReview) {
+        if (review && requiresReview && !earlyReviewDecisions.has(taskId)) {
           pendingReviewTasks.add(taskId);
           void handleReviewReady(session, socket, taskId);
         } else {
@@ -590,8 +609,9 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       const facade = taskFacades.get(taskId) || runtimeClient;
       const finalSession = await facade.getSession(session.id);
       const changes = extractChangesFromSession(finalSession);
+      const reviewChanges = changes.length ? changes : latestReviewChanges.get(taskId) || [];
 
-      if (changes.length > 0) {
+      if (reviewChanges.length > 0) {
         pendingReviewTasks.add(taskId);
 
         // Extract the assistant's reply from the session conversation so the user
@@ -608,7 +628,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
             taskId,
             status: "review",
             message: assistantReply || "Review changes",
-            changes,
+            changes: reviewChanges,
           } satisfies ServerBridgeMessage)
         );
       } else {
@@ -616,21 +636,27 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         await sendLocalConversationReply(facade, session, taskId, socket);
       }
     } catch (error) {
-      const facade = taskFacades.get(taskId) || runtimeClient;
-      try {
-        await facade.resolveReview(session.id, []);
-      } catch {
-        /* The run may have failed before creating a review guard. */
-      }
-      pendingReviewTasks.delete(taskId);
-      socket.send(
-        JSON.stringify({
+      const fallbackChanges = latestReviewChanges.get(taskId) || [];
+      if (fallbackChanges.length) {
+        // A transient session-read failure must never reject the workspace
+        // review implicitly. The streamed diff is enough to let the user
+        // explicitly accept or reject the preserved edits.
+        pendingReviewTasks.add(taskId);
+        socket.send(JSON.stringify({
+          type: "agent_status",
+          taskId,
+          status: "review",
+          message: "Changes are ready for review",
+          changes: fallbackChanges,
+        } satisfies ServerBridgeMessage));
+      } else {
+        socket.send(JSON.stringify({
           type: "agent_status",
           taskId,
           status: "error",
-          message: error instanceof Error ? error.message : "Failed to load review changes",
-        } satisfies ServerBridgeMessage)
-      );
+          message: `${error instanceof Error ? error.message : "Failed to load review changes"} Agent edits were preserved.`,
+        } satisfies ServerBridgeMessage));
+      }
     }
   }
 
@@ -740,6 +766,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   }
 
   async function handleEditOrAsk(message: any, socket: WebSocket, taskId: string, instruction: string, model: string, provider: string, context: any, element: any, messages: any[] | undefined) {
+    latestReviewChanges.delete(taskId);
     if (pendingReviewTasks.size > 0) {
       socket.send(JSON.stringify({ type: "agent_status", taskId, status: "error", message: "Accept or reject the open file review before starting another coding task." } satisfies ServerBridgeMessage));
       return;
@@ -816,7 +843,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
 
       // The guard captures original contents before the agent starts.
 
-      await facade.runSession(
+      const activeRun = facade.runSession(
         session.id,
         cwd,
         (event: RuntimeEvent) => {
@@ -828,6 +855,8 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
           browserContextProvider: ((action) => requestBrowserContext(action, taskId)) as BrowserContextProvider,
         }
       );
+      activeRuns.set(taskId, activeRun);
+      await activeRun;
     } catch (error) {
       socket.send(
         JSON.stringify({
@@ -838,14 +867,24 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         } satisfies ServerBridgeMessage)
       );
     } finally {
+      activeRuns.delete(taskId);
       if (taskControllers.get(taskId) === controller) taskControllers.delete(taskId);
     }
   }
 
-  // Handler for approval: keep selected edits, restore excluded files, then
-  // run verification. On failure a corrective run is started automatically.
+  // Accept/reject only resolves the captured workspace review. It never calls
+  // a model or runs project verification, so acceptance stays immediate.
   async function handleApply(message: any, socket: WebSocket, cwd: string) {
     const { taskId, changes } = message;
+    if (activeRuns.has(taskId)) {
+      earlyReviewDecisions.add(taskId);
+      taskControllers.get(taskId)?.abort();
+      try {
+        await activeRuns.get(taskId);
+      } catch {
+        // The final review state below provides the actionable error.
+      }
+    }
     const session = activeSessions.get(taskId);
     const facade = taskFacades.get(taskId) || runtimeClient;
     if (!session || !Array.isArray(changes)) {
@@ -875,6 +914,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       );
       return;
     }
+    if (earlyReviewDecisions.has(taskId)) pendingReviewTasks.add(taskId);
     const filePaths = authoritative.map((c) => c.filePath);
     if (authoritative.some((change) => !resolveWorkspacePath(change.filePath))) {
       socket.send(
@@ -929,35 +969,16 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     );
     createSnapshot(cwd, taskId, `Apply changes for task ${taskId}`, approvedFilePaths, undefined, session.id, originalFiles);
     pendingReviewTasks.delete(taskId);
-
-    // Post-apply verification (inconclusive when the engine can't run —
-    // never reported as a failure of the changes themselves).
-    let validation: { passed: boolean; errors: string[]; command: string } | undefined;
-    if (session) {
-      try {
-        const result = await facade.verifySession(session.id, cwd);
-        validation = {
-          passed: result.passed,
-          errors: result.errors.map((e) => e.message),
-          command: result.command || "verification",
-        };
-      } catch {
-        validation = undefined;
-      }
-    }
+    earlyReviewDecisions.delete(taskId);
+    latestReviewChanges.delete(taskId);
 
     socket.send(
       JSON.stringify({
         type: "applied",
         taskId,
         message: "Changes accepted successfully",
-        ...(validation ? { validation } : {}),
       } satisfies ServerBridgeMessage)
     );
-
-    if (validation && !validation.passed && session) {
-      await runCorrectiveFix(session, facade, taskId, socket);
-    }
   }
 
   function restoreOriginalFiles(originalFiles: Map<string, string | null>): void {
@@ -1009,50 +1030,24 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     return null;
   }
 
-  // Automatic corrective run after failed post-apply verification (bounded).
-  async function runCorrectiveFix(session: RuntimeSession, facade: RuntimeFacade, taskId: string, socket: WebSocket): Promise<void> {
-    const attempts = correctiveAttempts.get(taskId) || 0;
-    if (attempts >= 2) return;
-    correctiveAttempts.set(taskId, attempts + 1);
-
-    taskControllers.get(taskId)?.abort();
-    const controller = new AbortController();
-    taskControllers.set(taskId, controller);
-
-    socket.send(
-      JSON.stringify({
-        type: "agent_status",
-        taskId,
-        status: "thinking",
-        message: "Fixing verification errors...",
-      } satisfies ServerBridgeMessage)
-    );
-
-    try {
-      await facade.runSession(
-        session.id,
-        cwd,
-        (event: RuntimeEvent) => {
-          handleRuntimeEvent(event, socket, taskId, session, "Corrective run", true);
-        },
-        controller.signal,
-        { providerApiKey: providerApiKeyFor(session.model?.provider || "") }
-      );
-    } catch (error) {
-      socket.send(
-        JSON.stringify({
-          type: "agent_status",
-          taskId,
-          status: "error",
-          message: error instanceof Error ? error.message : "Corrective run failed",
-        } satisfies ServerBridgeMessage)
-      );
-    }
-  }
-
   // Handler for undo - restores snapshot
   async function handleUndo(message: any, socket: WebSocket, cwd: string) {
     const { taskId } = message;
+    if (activeRuns.has(taskId)) {
+      earlyReviewDecisions.add(taskId);
+      taskControllers.get(taskId)?.abort();
+      try {
+        await activeRuns.get(taskId);
+        const session = activeSessions.get(taskId);
+        const facade = taskFacades.get(taskId) || runtimeClient;
+        if (session) {
+          const latest = await facade.getSession(session.id);
+          if (Array.isArray(latest.metadata?.pendingChanges) && latest.metadata.pendingChanges.length) pendingReviewTasks.add(taskId);
+        }
+      } catch {
+        // Continue and report if no review state was produced.
+      }
+    }
     if (pendingReviewTasks.has(taskId)) {
       const session = activeSessions.get(taskId);
       const facade = taskFacades.get(taskId) || runtimeClient;
@@ -1063,6 +1058,8 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       try {
         await facade.resolveReview(session.id, []);
         pendingReviewTasks.delete(taskId);
+        earlyReviewDecisions.delete(taskId);
+        latestReviewChanges.delete(taskId);
       } catch (error) {
         socket.send(JSON.stringify({ type: "agent_status", taskId, status: "error", message: error instanceof Error ? error.message : "Could not reject the file review." } satisfies ServerBridgeMessage));
         return;
@@ -1295,6 +1292,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   // Handler for oneshot
   async function handleOneshot(message: any, socket: WebSocket, cwd: string) {
     const { taskId, prompt, model, provider, messages, conversation } = message;
+    latestReviewChanges.delete(taskId);
     if (pendingReviewTasks.size > 0) {
       socket.send(JSON.stringify({ type: "agent_status", taskId, status: "error", message: "Accept or reject the open file review before starting another coding task." } satisfies ServerBridgeMessage));
       return;
@@ -1369,7 +1367,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       activeSessions.set(taskId, session);
       taskFacades.set(taskId, facade);
 
-      await facade.runSession(
+      const activeRun = facade.runSession(
         session.id,
         cwd,
         (event: RuntimeEvent) => {
@@ -1379,6 +1377,8 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         controller.signal,
         { providerApiKey: providerApiKeyFor(provider) }
       );
+      activeRuns.set(taskId, activeRun);
+      await activeRun;
     } catch (error) {
       socket.send(
         JSON.stringify({
@@ -1389,6 +1389,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         } satisfies ServerBridgeMessage)
       );
     } finally {
+      activeRuns.delete(taskId);
       if (taskControllers.get(taskId) === controller) taskControllers.delete(taskId);
     }
   }
