@@ -40,10 +40,11 @@ function serveOverlayBundle(res: ServerResponse, cwd: string) {
 
 export async function startNextServer(cwd: string): Promise<{ nextProcess: ChildProcess; server: http.Server }> {
   // 1. Spawn the user's own Next dev server on an internal port
-  const nextBin = resolve(cwd, "node_modules/.bin/next");
+  const nextBin = resolve(cwd, "node_modules/.bin", process.platform === "win32" ? "next.cmd" : "next");
 
   const nextProcess = spawn(nextBin, ["dev", "--port", String(INTERNAL_PORT)], {
     cwd,
+    shell: process.platform === "win32",
     stdio: "inherit",
   });
 

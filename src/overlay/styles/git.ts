@@ -270,6 +270,33 @@ export const gitStyles = `    /* ===============================================
       white-space: nowrap;
     }
 
+    .lasso-git-stage-row {
+      display: flex;
+      justify-content: flex-end;
+      margin: -2px 0 10px;
+    }
+
+    .lasso-git-stage-btn {
+      height: 26px;
+      padding: 0 10px;
+      border: 1px solid var(--lo-border);
+      border-radius: var(--lo-radius-full);
+      background: var(--lo-surface);
+      color: var(--lo-text-2);
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .lasso-git-stage-btn:hover:not(:disabled) {
+      color: var(--lo-text);
+      background: var(--lo-surface-hover);
+    }
+
+    .lasso-git-stage-btn:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
+
     .lasso-git-file-dir {
       color: var(--lo-text-3);
     }

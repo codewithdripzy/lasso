@@ -111,6 +111,7 @@ export type BridgeMessage =
   | { type: "create_page"; folder: string; fileName: string; content: string }
   | { type: "create_page_folder"; parent: string; name: string }
   | { type: "git_status" }
+  | { type: "git_stage" }
   | { type: "git_generate_message"; model: string; provider?: Provider; taskId?: string; pageContext?: any }
   | { type: "git_init" }
   | { type: "git_commit"; message: string }

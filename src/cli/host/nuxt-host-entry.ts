@@ -57,11 +57,12 @@ void (async () => {
   if (!bridgeAlreadyRunning) await startBridge(cwd, null, bridgePort);
 
   const nuxtPort = await freePort();
-  const nuxtBin = path.join(cwd, "node_modules", ".bin", "nuxt");
+  const nuxtBin = path.join(cwd, "node_modules", ".bin", process.platform === "win32" ? "nuxt.cmd" : "nuxt");
   if (!fs.existsSync(nuxtBin)) throw new Error("Nuxt is not installed in this project. Run your package manager's install command.");
 
   const nuxt = spawn(nuxtBin, ["dev", "--port", String(nuxtPort), "--host", "127.0.0.1"], {
     cwd,
+    shell: process.platform === "win32",
     env: { ...process.env, PORT: String(nuxtPort), NUXT_PORT: String(nuxtPort), NUXT_HOST: "127.0.0.1" },
     stdio: "inherit",
   });

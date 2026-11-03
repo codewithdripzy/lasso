@@ -250,6 +250,19 @@ export class RuntimeClient {
     return (await response.json()) as RequestRouteResult;
   }
 
+  async generateText(input: { provider: RuntimeProvider; model: string; system?: string; prompt: string; apiKey?: string }): Promise<string> {
+    const response = await this.request("POST", "/api/v1/agent/generate", {
+      provider: input.provider,
+      model: input.model,
+      system: input.system,
+      prompt: input.prompt,
+      apiKey: input.apiKey,
+    });
+    if (!response.ok) throw await RuntimeClient.responseError(response, "Failed to generate text");
+    const data = (await response.json()) as { text?: string };
+    return typeof data.text === "string" ? data.text.trim() : "";
+  }
+
   private async request(method: string, endpoint: string, body?: unknown): Promise<Response> {
     const startedAt = Date.now();
     writeLassoLog("info", "agent_request_started", { method, baseUrl: this.serverUrl, endpoint });

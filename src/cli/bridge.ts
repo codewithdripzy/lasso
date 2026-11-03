@@ -1355,19 +1355,47 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     socket.send(JSON.stringify({ type: "git_state", git: await getGitState(cwd) }));
   }
 
+  async function handleGitStage(socket: WebSocket, cwd: string) {
+    try {
+      const git = await getGitState(cwd);
+      if (!git.isRepo) throw new Error("Not a git repository");
+      if (!git.hasChanges) throw new Error("No changes to stage");
+      await gitCommand(cwd, ["add", "--all"]);
+      socket.send(JSON.stringify({ type: "git_result", message: "All changes staged" }));
+    } catch (error) {
+      socket.send(JSON.stringify({ type: "git_result", error: error instanceof Error ? error.message : "Failed to stage changes" }));
+    }
+  }
+
   async function handleGitGenerateMessage(message: any, socket: WebSocket, cwd: string) {
     const git = await getGitState(cwd);
     if (!git.isRepo) {
       socket.send(JSON.stringify({ type: "git_commit_message", error: "Not a git repository" }));
       return;
     }
+    if (git.hasChanges) await gitCommand(cwd, ["add", "--all"]);
     const diff = await gitCommand(cwd, ["diff", "--cached"]).catch(() => "");
     if (!diff) {
       socket.send(JSON.stringify({ type: "git_commit_message", error: "No staged changes" }));
       return;
     }
-    // TODO: Use runtime for commit message generation
-    socket.send(JSON.stringify({ type: "git_commit_message", message: "feat: changes" }));
+    const stat = await gitCommand(cwd, ["diff", "--cached", "--stat"]).catch(() => "");
+    const files = stat.split("\n").filter((line) => line.includes("|")).length;
+    const fallbackMessage = files === 1 ? "feat: update project files" : `feat: update ${files || "project"} files`;
+    let generatedMessage = fallbackMessage;
+    try {
+      const aiMessage = await runtimeClient.generateText({
+        provider: message.provider || "anthropic",
+        model: message.model,
+        apiKey: providerApiKeyFor(message.provider || "anthropic"),
+        system: "Return only one concise conventional Git commit message. Do not use quotes, markdown, or a trailing period.",
+        prompt: `Generate a commit message for this staged diff:\n\n${diff.slice(0, 24000)}`,
+      });
+      if (aiMessage) generatedMessage = aiMessage.split(/\r?\n/).find((line) => line.trim())?.replace(/^[-*]\s*/, "").trim() || fallbackMessage;
+    } catch {
+      // Local fallback keeps commit generation useful when the hosted model is unavailable.
+    }
+    socket.send(JSON.stringify({ type: "git_commit_message", message: generatedMessage }));
   }
 
   async function handleGitInit(socket: WebSocket, cwd: string) {
@@ -1381,6 +1409,9 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
 
   async function handleGitCommit(message: any, socket: WebSocket, cwd: string) {
     try {
+      const git = await getGitState(cwd);
+      if (!git.isRepo) throw new Error("Not a git repository");
+      if (git.hasChanges) await gitCommand(cwd, ["add", "--all"]);
       await gitCommand(cwd, ["commit", "-m", message.message]);
       socket.send(JSON.stringify({ type: "git_result", message: "Changes committed" }));
     } catch (error) {
@@ -1496,6 +1527,10 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
 
           case "git_status":
             await handleGitStatus(socket, cwd);
+            break;
+
+          case "git_stage":
+            await handleGitStage(socket, cwd);
             break;
 
           case "git_generate_message":

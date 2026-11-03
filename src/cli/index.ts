@@ -189,7 +189,8 @@ const daemon = program.command("daemon [action]")
 
                 const enabled = await enableAutoStart();
                 if (enabled.error) console.error(chalk.yellow("!") + ` ${enabled.error}`);
-                else console.log(chalk.green("✓") + " Automatic startup configured (LaunchAgent).");
+                else if (process.platform === "darwin") console.log(chalk.green("✓") + " Automatic startup configured (LaunchAgent).");
+                else console.log(chalk.dim("  Automatic startup is not installed on this OS; use `lasso daemon start` when needed."));
 
                 const resolverResult = await createResolverInstall(dnsPort);
                 if (resolverResult.ok) console.log(chalk.green("✓") + ` Domain resolution: ${resolverResult.message}`);

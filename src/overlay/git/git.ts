@@ -122,6 +122,10 @@ export function buildGitPanel(): HTMLDivElement {
 
       <div class="lasso-git-files-list"></div>
 
+      <div class="lasso-git-stage-row">
+        <button class="lasso-git-stage-btn" type="button">Stage all changes</button>
+      </div>
+
       <!-- Commit section -->
       <div class="lasso-git-commit-box">
         <div class="lasso-git-prefix-chips">
@@ -179,6 +183,7 @@ export function buildGitPanel(): HTMLDivElement {
   const refreshBtn = el.querySelector<HTMLButtonElement>(".lasso-git-refresh-btn")!;
   const initBtn = el.querySelector<HTMLButtonElement>(".lasso-git-init-btn")!;
   const commitBtn = el.querySelector<HTMLButtonElement>(".lasso-git-commit-btn")!;
+  const stageBtn = el.querySelector<HTMLButtonElement>(".lasso-git-stage-btn")!;
   const pushBtn = el.querySelector<HTMLButtonElement>(".lasso-git-push-btn")!;
   const commitInput = el.querySelector<HTMLTextAreaElement>(".lasso-git-commit-textarea")!;
   const aiMessageBtn = el.querySelector<HTMLButtonElement>(".lasso-git-ai-btn")!;
@@ -218,6 +223,14 @@ export function buildGitPanel(): HTMLDivElement {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       commitBtn.click();
+    }
+  });
+
+  stageBtn.addEventListener("click", () => {
+    if (state.bridgeSocket?.readyState === WebSocket.OPEN) {
+      stageBtn.disabled = true;
+      setGitMessage("Staging changes…");
+      state.bridgeSocket.send(JSON.stringify({ type: "git_stage" }));
     }
   });
 
@@ -273,6 +286,7 @@ export function renderGitState(next: GitState) {
   const badge = gitPanelEl.querySelector<HTMLSpanElement>(".lasso-git-changes-badge");
   const commitBtn = gitPanelEl.querySelector<HTMLButtonElement>(".lasso-git-commit-btn");
   const commitBtnText = gitPanelEl.querySelector<HTMLSpanElement>(".lasso-git-commit-btn-text");
+  const stageBtn = gitPanelEl.querySelector<HTMLButtonElement>(".lasso-git-stage-btn");
   const pushBtn = gitPanelEl.querySelector<HTMLButtonElement>(".lasso-git-push-btn");
 
   // Update branch and remote
@@ -342,6 +356,7 @@ export function renderGitState(next: GitState) {
       commitBtn.disabled = count === 0;
       commitBtnText.textContent = count > 0 ? `Commit changes (${count})` : "Commit changes";
     }
+    if (stageBtn) stageBtn.disabled = count === 0;
   }
 
   if (pushBtn) {

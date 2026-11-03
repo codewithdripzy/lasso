@@ -21,7 +21,7 @@ function isMkcertInstalled(): boolean {
   } catch {
     // Check local installation
     try {
-      const localMkcert = path.join(os.homedir(), ".lasso", "bin", "mkcert");
+      const localMkcert = localMkcertPath();
       if (fs.existsSync(localMkcert)) {
         execFileSync(localMkcert, ["-version"], { stdio: "ignore" });
         return true;
@@ -33,11 +33,15 @@ function isMkcertInstalled(): boolean {
 
 function getMkcertPath(): string {
   // Check local installation first
-  const localMkcert = path.join(os.homedir(), ".lasso", "bin", "mkcert");
+  const localMkcert = localMkcertPath();
   if (fs.existsSync(localMkcert)) {
     return localMkcert;
   }
   return "mkcert";
+}
+
+function localMkcertPath(): string {
+  return path.join(os.homedir(), ".lasso", "bin", process.platform === "win32" ? "mkcert.exe" : "mkcert");
 }
 
 async function downloadMkcert(): Promise<{ ok: boolean; path?: string; error?: string }> {
@@ -64,6 +68,19 @@ async function downloadMkcert(): Promise<{ ok: boolean; path?: string; error?: s
     } else if (arch === "arm64") {
       downloadUrl = "https://github.com/FiloSottile/mkcert/releases/download/v1.4.4/mkcert-v1.4.4-linux-arm64";
       binaryName = "mkcert-linux-arm64";
+    } else {
+      return { ok: false, error: `Unsupported architecture: ${arch}` };
+    }
+  } else if (platform === "win32") {
+    if (arch === "x64") {
+      downloadUrl = "https://github.com/FiloSottile/mkcert/releases/download/v1.4.4/mkcert-v1.4.4-windows-amd64.exe";
+      binaryName = "mkcert-windows-amd64.exe";
+    } else if (arch === "arm64") {
+      downloadUrl = "https://github.com/FiloSottile/mkcert/releases/download/v1.4.4/mkcert-v1.4.4-windows-arm64.exe";
+      binaryName = "mkcert-windows-arm64.exe";
+    } else if (arch === "ia32") {
+      downloadUrl = "https://github.com/FiloSottile/mkcert/releases/download/v1.4.4/mkcert-v1.4.4-windows-386.exe";
+      binaryName = "mkcert-windows-386.exe";
     } else {
       return { ok: false, error: `Unsupported architecture: ${arch}` };
     }
@@ -182,7 +199,7 @@ async function installMkcert(): Promise<{ ok: boolean; error?: string }> {
   // Copy binary to a permanent location
   const binDir = path.join(os.homedir(), ".lasso", "bin");
   fs.mkdirSync(binDir, { recursive: true, mode: 0o755 });
-  const mkcertPath = path.join(binDir, "mkcert");
+  const mkcertPath = localMkcertPath();
   fs.copyFileSync(downloadResult.path, mkcertPath);
   fs.chmodSync(mkcertPath, 0o755);
 
