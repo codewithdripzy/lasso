@@ -189,7 +189,14 @@ export class LassoHost {
 
           const next = registerProject({ domain, directory, projectId, registry: this.registry });
           this.commitRegistry(next);
-          await syncResolverAfterRegister();
+          const synced = await syncResolverAfterRegister();
+          if (!synced) {
+            this.log(`could not update resolver for ${domain}`);
+            return writeJson(res, 500, {
+              ok: false,
+              error: "Could not update the Windows hosts file. Approve the UAC prompt or run `lasso register` from an elevated terminal.",
+            });
+          }
           this.log(`registered ${domain} → ${directory}`);
           writeJson(res, 200, { ok: true, domain, directory: path.resolve(directory), projects: Object.keys(next).length });
         },
@@ -206,7 +213,14 @@ export class LassoHost {
           this.running.get(domain)?.child.kill("SIGTERM");
           this.running.delete(domain);
           this.commitRegistry(unregisterDomain(this.registry, domain));
-          await syncResolverAfterRegister();
+          const synced = await syncResolverAfterRegister();
+          if (!synced) {
+            this.log(`could not update resolver while unregistering ${domain}`);
+            return writeJson(res, 500, {
+              ok: false,
+              error: "Could not update the Windows hosts file. Approve the UAC prompt or run `lasso unregister` from an elevated terminal.",
+            });
+          }
           this.log(`unregistered ${domain}`);
           writeJson(res, 200, { ok: true, domain, removed: had });
         },

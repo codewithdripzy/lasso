@@ -78,7 +78,15 @@ export async function registerWithHost(domain: string, directory: string, projec
     const current = loadRegistry();
     const next = registerProject({ domain, directory, projectId, registry: current });
     saveRegistry(next);
-    await syncResolverAfterRegister();
+    const synced = await syncResolverAfterRegister();
+    if (!synced) {
+      return {
+        ok: false,
+        domain,
+        directory,
+        error: "Could not update the Windows hosts file. Approve the UAC prompt or run `lasso register` from an elevated terminal.",
+      };
+    }
     return { ok: true, domain, directory: path.resolve(directory), replaced: Boolean(current[domain] && current[domain].directory !== path.resolve(directory)) };
   } catch (error) {
     return { ok: false, domain, directory, error: error instanceof Error ? error.message : "Could not write the Lasso Host registry." };
@@ -99,7 +107,8 @@ export async function unregisterFromHost(domain: string, port: number): Promise<
   }
   const had = domain in loadRegistry();
   saveRegistry(unregisterDomain(loadRegistry(), domain));
-  await syncResolverAfterRegister();
+  const synced = await syncResolverAfterRegister();
+  if (!synced) return { ok: false, error: "Could not update the Windows hosts file. Approve the UAC prompt or run `lasso unregister` from an elevated terminal." };
   return { ok: true, removed: had };
 }
 

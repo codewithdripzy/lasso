@@ -82,7 +82,7 @@ export function buildToolbar(): { toolbar: HTMLDivElement; voiceBar: HTMLDivElem
   toolbar.innerHTML = `
     <button class="lasso-tool-btn select-tool" type="button" aria-label="Select element" title="Select">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M4 4l7.07 17 2.51-7.39L21 11.07 4 4z"/>
+        <pathx d="M4 4l7.07 17 2.51-7.39L21 11.07 4 4z"/>
       </svg>
       <span class="lasso-tool-label">Select</span>
     </button>

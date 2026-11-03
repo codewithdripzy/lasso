@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { TLD } from "./paths";
+import { HOST_DIR, TLD } from "./paths";
 import { loadRegistry, type HostRegistry } from "./registry";
 
 const execFileAsync = promisify(execFile);
@@ -218,7 +218,7 @@ export class WindowsResolver implements DomainResolver {
   async readHostsBlock(): Promise<string[]> {
     try {
       const content = fs.readFileSync(WINDOWS_HOSTS, "utf8");
-      const match = content.match(new RegExp(`${HOSTS_BLOCK_START}\\n([\\s\\S]*?)\\n${HOSTS_BLOCK_END}`));
+      const match = content.match(new RegExp(`${HOSTS_BLOCK_START}\\r?\\n([\\s\\S]*?)\\r?\\n${HOSTS_BLOCK_END}`));
       if (!match) return [];
       return match[1]
         .split(/\r?\n/)
@@ -239,23 +239,45 @@ export class WindowsResolver implements DomainResolver {
     lines.push(`${HOSTS_BLOCK_END}`);
     const block = lines.join("\n");
     const contents = fs.existsSync(WINDOWS_HOSTS) ? fs.readFileSync(WINDOWS_HOSTS, "utf8") : "";
-    const next = contents.includes(HOSTS_BLOCK_START) ? contents.replace(new RegExp(`${HOSTS_BLOCK_START}\\n[\\s\\S]*?\\n${HOSTS_BLOCK_END}`), block) : contents.trimEnd() + "\n" + block + "\n";
+    const next = contents.includes(HOSTS_BLOCK_START) ? contents.replace(new RegExp(`${HOSTS_BLOCK_START}\\r?\\n[\\s\\S]*?\\r?\\n${HOSTS_BLOCK_END}`), block) : contents.trimEnd() + "\n" + block + "\n";
     try {
-      await execFileAsync("net", ["session"]).catch(() => undefined);
       fs.writeFileSync(WINDOWS_HOSTS, next);
-      return true;
+      return this.hostsFileContainsBlock();
     } catch {
-      return false;
+      try {
+        const tempFile = path.join(HOST_DIR, "lasso-hosts.tmp");
+        fs.writeFileSync(tempFile, next, "utf8");
+        const copyScript = `Copy-Item -LiteralPath '${escapePowerShellString(tempFile)}' -Destination '${escapePowerShellString(WINDOWS_HOSTS)}' -Force`;
+        const encodedScript = Buffer.from(copyScript, "utf16le").toString("base64");
+        const elevateScript = `Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand','${encodedScript}')`;
+        await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", elevateScript]);
+        fs.rmSync(tempFile, { force: true });
+        return this.hostsFileContainsBlock();
+      } catch {
+        return false;
+      }
     }
   }
 
   async install() {
-    return { ok: false, message: "Windows has no per-domain DNS configuration. `lasso register` will add each registered domain to the hosts file instead (run from an elevated terminal)." };
+    return { ok: true, message: "Windows resolves registered .lasso domains through the hosts file. `lasso register` will request UAC elevation when it adds or updates the Lasso mappings." };
   }
 
   async uninstall() {
     return { ok: true, message: "Remove the '# --- lasso-host ---' block from your hosts file to remove Lasso Host mappings." };
   }
+
+  private hostsFileContainsBlock(): boolean {
+    try {
+      return fs.readFileSync(WINDOWS_HOSTS, "utf8").includes(HOSTS_BLOCK_START);
+    } catch {
+      return false;
+    }
+  }
+}
+
+function escapePowerShellString(value: string): string {
+  return value.replace(/'/g, "''");
 }
 
 let resolverSingleton: DomainResolver | null = null;

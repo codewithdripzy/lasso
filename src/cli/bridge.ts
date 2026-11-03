@@ -14,7 +14,7 @@ import { getLocalRuntime } from "./local-runtime";
 import type { BridgeMessage, ModelOption, PageEntry, ServerBridgeMessage } from "../core/interfaces/data";
 import { lassoLogPath, writeLassoLog } from "./logging";
 import { discoverSkills, saveUploadedSkill, selectedSkillInstructions, toSkillCatalog } from "./skills";
-import { cleanConversationReply, detectProjectFramework, extractChangesFromSession, getGitState, gitCommand, loadProjectEnvironment, toRuntimeConversation } from "./bridge/project-context";
+import { cleanConversationReply, compactSkillInstructions, detectProjectFramework, extractChangesFromSession, getGitState, gitCommand, listProjectFiles, loadProjectEnvironment, toRuntimeConversation } from "./bridge/project-context";
 
 export const DEFAULT_BRIDGE_PORT = 3056;
 export type { BridgeMessage, ServerBridgeMessage } from "../core/interfaces/data";
@@ -107,6 +107,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   const workspaceConfig = await resolveWorkspaceConfig(fileEnv);
   const projectId = workspaceConfig?.workspaceId || "";
   const framework = detectProjectFramework(cwd);
+  const projectFiles = listProjectFiles(cwd);
 
   // Fetch models
   let models: ModelOption[] = [];
@@ -665,7 +666,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       // agent CLIs need the unprefixed/normalized form.
       const backendModelId = modelIdForBackend(model || "", provider || "");
 
-      const taskSkills = selectedSkillInstructions(cwd, message.skillIds, [instruction, ...(messages || []).filter((entry: any) => entry.role === "user").map((entry: any) => entry.content)].join("\n"), Boolean(context));
+      const taskSkills = compactSkillInstructions(selectedSkillInstructions(cwd, message.skillIds, [instruction, ...(messages || []).filter((entry: any) => entry.role === "user").map((entry: any) => entry.content)].join("\n"), Boolean(context)));
       const sessionConversation = toRuntimeConversation(messages) || [];
       if (taskSkills.length && !isLocalAgent)
         sessionConversation.push({
@@ -682,6 +683,8 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
           framework,
           hasTypeScript: fs.existsSync(path.join(cwd, "tsconfig.json")),
           hasReact: fs.existsSync(path.join(cwd, "package.json")) && fs.readFileSync(path.join(cwd, "package.json"), "utf8").includes("react"),
+          files: projectFiles,
+          currentRoute: typeof context?.viewport?.url === "string" ? new URL(context.viewport.url).pathname : undefined,
         },
         model: {
           provider: (provider || "anthropic") as any,
@@ -698,7 +701,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
                   }
                 : undefined,
               viewport: context?.viewport as any,
-              route: (context?.position as any)?.route as string,
+              route: typeof context?.viewport?.url === "string" ? new URL(context.viewport.url).pathname : undefined,
               screenshot: context?.screenshots?.full,
             }
           : undefined,
@@ -1213,7 +1216,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       }
       const backendModelId = modelIdForBackend(model || "", provider || "");
 
-      const taskSkills = selectedSkillInstructions(cwd, message.skillIds, [instruction, ...(runtimeConversation || []).filter((entry) => entry.role === "user").map((entry) => entry.content)].join("\n"));
+      const taskSkills = compactSkillInstructions(selectedSkillInstructions(cwd, message.skillIds, [instruction, ...(runtimeConversation || []).filter((entry) => entry.role === "user").map((entry) => entry.content)].join("\n")));
       const sessionConversation = runtimeConversation ? [...runtimeConversation] : [];
       if (taskSkills.length && !isLocalAgent)
         sessionConversation.push({
@@ -1232,6 +1235,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
           framework,
           hasTypeScript: fs.existsSync(path.join(cwd, "tsconfig.json")),
           hasReact: fs.existsSync(path.join(cwd, "package.json")) && fs.readFileSync(path.join(cwd, "package.json"), "utf8").includes("react"),
+          files: projectFiles,
         },
         model: {
           provider: (provider || "anthropic") as any,

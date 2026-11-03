@@ -9,6 +9,16 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+const MAX_RUNTIME_CONVERSATION_MESSAGES = 12;
+const MAX_RUNTIME_CONVERSATION_CHARS = 24000;
+const MAX_SKILL_CHARS = 12000;
+const MAX_TOTAL_SKILL_CHARS = 30000;
+const MAX_PROJECT_FILES = 500;
+
+function clipContextText(value: string, maxChars: number): string {
+  return value.length > maxChars ? `${value.slice(0, maxChars)}\n[context truncated]` : value;
+}
+
 export function toRuntimeConversation(messages: Array<{ role: string; content: string; createdAt?: string; timestamp?: number }> | undefined): RuntimeSessionInput["conversation"] | undefined {
   if (!Array.isArray(messages) || messages.length === 0) return undefined;
 
@@ -16,11 +26,60 @@ export function toRuntimeConversation(messages: Array<{ role: string; content: s
     .filter((message) => typeof message?.content === "string" && message.content.trim())
     .map((message) => ({
       role: (message.role === "user" ? "user" : message.role === "assistant" ? "assistant" : "system") as "user" | "assistant" | "system",
-      content: message.content,
+      content: clipContextText(message.content.trim(), MAX_RUNTIME_CONVERSATION_CHARS),
       timestamp: typeof message.timestamp === "number" ? message.timestamp : message.createdAt ? Date.parse(message.createdAt) || Date.now() : Date.now(),
     }));
 
-  return turns.length > 0 ? turns : undefined;
+  if (turns.length === 0) return undefined;
+
+  const selected: typeof turns = [];
+  let totalChars = 0;
+  for (let index = turns.length - 1; index >= 0 && selected.length < MAX_RUNTIME_CONVERSATION_MESSAGES; index -= 1) {
+    const turn = turns[index];
+    if (selected.length > 0 && totalChars + turn.content.length > MAX_RUNTIME_CONVERSATION_CHARS) break;
+    selected.unshift(turn);
+    totalChars += turn.content.length;
+  }
+
+  return selected;
+}
+
+export function compactSkillInstructions(skills: Array<{ name: string; description: string; content: string }>): Array<{ name: string; description: string; content: string }> {
+  let remaining = MAX_TOTAL_SKILL_CHARS;
+  return skills.flatMap((skill) => {
+    if (remaining <= 0) return [];
+    const content = clipContextText(skill.content, Math.min(MAX_SKILL_CHARS, remaining));
+    remaining -= content.length;
+    return [{ ...skill, content }];
+  });
+}
+
+export function listProjectFiles(projectPath: string): string[] {
+  const files: string[] = [];
+  const ignored = new Set([".git", ".lasso", ".next", "build", "dist", "node_modules"]);
+
+  const visit = (directory: string): void => {
+    if (files.length >= MAX_PROJECT_FILES) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (files.length >= MAX_PROJECT_FILES || ignored.has(entry.name)) continue;
+      const absolutePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(absolutePath);
+      } else if (entry.isFile()) {
+        files.push(path.relative(projectPath, absolutePath));
+      }
+    }
+  };
+
+  visit(projectPath);
+  return files.sort();
 }
 
 export function cleanConversationReply(value: unknown): string {

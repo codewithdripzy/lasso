@@ -265,7 +265,10 @@ export async function initProject(cwd: string, fileEnv: Record<string, string>, 
       return { ok: false, error: "The server did not return a project id." };
     }
 
-    await registerWithHost(domain, cwd, projectId, hostProxyPort(fileEnv));
+    const hostRegistration = await registerWithHost(domain, cwd, projectId, hostProxyPort(fileEnv));
+    if (!hostRegistration.ok) {
+      return { ok: false, error: hostRegistration.error || "Could not register the project with Lasso Host." };
+    }
 
     if (framework === "next") {
       const injected = ensureNextAllowedDevOrigin(cwd, domain);
