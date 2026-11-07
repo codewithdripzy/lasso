@@ -42,6 +42,8 @@ let activeStartTime = 0;
 // Persistent conversation tracking
 let activeConversationId: string | null = null;
 let conversationList: Array<{ id: string; title: string; scope: string; updatedAt: string }> = [];
+const commandBarOpenKey = "lasso:commandbar-open";
+const activeCommandTaskKey = "lasso:active-command-task";
 
 /** Detects "try again", "retry", "do it again", "run again", etc. */
 export function isRetryIntent(prompt: string): boolean {
@@ -129,6 +131,23 @@ function loadLocalSession(convId: string): boolean {
     if (session && Array.isArray(session.messages)) {
       commandMessages = session.messages;
       activeConversationId = convId;
+      const runningMessage = [...commandMessages].reverse().find((message) => message.role === "assistant" && message.isStreaming);
+      if (runningMessage) {
+        activeTaskId = runningMessage.id;
+        try {
+          localStorage.setItem(activeCommandTaskKey, runningMessage.id);
+        } catch {}
+        activeStartTime = Date.now() - (runningMessage.thinking?.durationSeconds || 0) * 1000;
+        updateSubmitButton(true);
+        if (activeThinkingInterval) clearInterval(activeThinkingInterval);
+        activeThinkingInterval = setInterval(() => {
+          const active = commandMessages.find((message) => message.id === activeTaskId);
+          if (active?.thinking && !active.thinking.completed) {
+            active.thinking.durationSeconds = Math.max(1, Math.round((Date.now() - activeStartTime) / 1000));
+            updateActiveTimerDisplay(active.thinking.durationSeconds);
+          }
+        }, 1000);
+      }
       renderMessages();
       scrollToBottom();
       return true;
@@ -953,6 +972,9 @@ export function openCommandBar(): void {
   }
 
   commandBarEl.hidden = false;
+  try {
+    localStorage.setItem(commandBarOpenKey, "1");
+  } catch {}
   isOneShotMode = true;
 
   getDOM().shadow.querySelector<HTMLButtonElement>(".command-tool")?.classList.add("active");
@@ -986,6 +1008,9 @@ export function closeCommandBar(): void {
   if (!commandBarEl) return;
 
   commandBarEl.hidden = true;
+  try {
+    localStorage.removeItem(commandBarOpenKey);
+  } catch {}
   if (commandModelMenu) {
     commandModelMenu.hidden = true;
     commandModelBtn?.setAttribute("aria-expanded", "false");
@@ -993,6 +1018,13 @@ export function closeCommandBar(): void {
   isOneShotMode = false;
 
   getDOM().shadow.querySelector<HTMLButtonElement>(".command-tool")?.classList.remove("active");
+}
+
+/** Restore the sidebar and active task after a development-server page reload. */
+export function restoreCommandBarAfterReload(): void {
+  try {
+    if (localStorage.getItem(commandBarOpenKey) === "1") openCommandBar();
+  } catch {}
 }
 
 export function isCommandBarOpen(): boolean {
@@ -1185,6 +1217,9 @@ async function runPrompt(prompt: string, skipUserMessage = false): Promise<void>
 
   const taskId = `oneshot-${Date.now()}`;
   activeTaskId = taskId;
+  try {
+    localStorage.setItem(activeCommandTaskKey, taskId);
+  } catch {}
   activeStartTime = Date.now();
 
   // Append an assistant thinking widget without echoing the user's prompt.
@@ -1331,6 +1366,7 @@ export function handleCommandBarAgentStatus(message: any): void {
 
     renderMessages();
     scrollToBottom();
+    saveLocalSession();
   } else if (message.status === "review" || message.status === "complete") {
     if (activeThinkingInterval) {
       clearInterval(activeThinkingInterval);
@@ -1372,6 +1408,9 @@ export function handleCommandBarAgentStatus(message: any): void {
     }
     targetMsg.isStreaming = false;
     activeTaskId = null;
+    try {
+      localStorage.removeItem(activeCommandTaskKey);
+    } catch {}
     updateSubmitButton(false);
 
     // Unblock teammates — Build Mode is over
@@ -1416,6 +1455,9 @@ export function handleCommandBarAgentStatus(message: any): void {
     targetMsg.error = message.message || "An error occurred during execution.";
     targetMsg.isStreaming = false;
     activeTaskId = null;
+    try {
+      localStorage.removeItem(activeCommandTaskKey);
+    } catch {}
     updateSubmitButton(false);
 
     // Unblock teammates — Build Mode is over

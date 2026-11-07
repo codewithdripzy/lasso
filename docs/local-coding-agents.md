@@ -39,6 +39,39 @@ Lasso's built-in **UI Design Craft** skill is included automatically for selecte
 
 Selected skill instructions are scoped to the current task. Hosted coding requests send them to the AI service as task context; local CLI requests include them in the local agent prompt.
 
+## Design context passed to agents
+
+Lasso intentionally sends a compact visual context rather than an unrestricted
+page dump. For a selected element, the context can include:
+
+- element tag, visible text, source hint, and relevant attributes;
+- current route and viewport dimensions/scroll position;
+- page title, headings, section names, buttons, and a visible-text summary;
+- recent browser runtime errors, limited to the latest useful entries.
+
+This gives agents enough information to make product-native UI decisions while
+keeping prompts small enough for responsive local and hosted execution. Agents
+should inspect the repository and existing design system before editing rather
+than treating the live-page summary as a replacement for source context.
+
+The built-in UI Design Craft skill is applied to UI, UX, layout, component, and
+styling work. This applies equally to hosted models and local CLI agents; local
+agents receive the skill instructions directly in their task prompt.
+
+## Next.js development URL
+
+For Next.js projects, Lasso runs Next internally behind a public proxy that
+injects the overlay. Open the `Local` or `Network` URL printed by Lasso, not
+the internal Next.js port. The displayed URLs use this format:
+
+```text
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.10:3000
+```
+
+The port changes automatically when the preferred port is already in use.
+Pressing Ctrl+C stops both the proxy and the internal Next.js process.
+
 ## Model selection
 
 The model menu groups available hosted providers and detected local CLIs. Local agent model names follow each CLI's own conventions. If a CLI provides a configured default, select its default entry in Lasso to use that configuration.

@@ -457,7 +457,7 @@ export abstract class LocalAgentAdapter implements IBackend {
     lines.push("2. All file changes will be captured as a diff, reviewed by the user, and only applied if approved.");
     lines.push("3. Do not commit, push, or perform operations outside this project directory.");
     if (context.skills?.length) {
-      lines.push("4. Apply the following user-selected project skills when they are relevant to the task:");
+      lines.push("4. Apply the following skills when they are relevant. The built-in UI Design Craft skill is mandatory for UI, UX, layout, component, or styling work; follow it without repeating its full text in your response:");
       for (const skill of context.skills) {
         lines.push(`\n--- Skill: ${skill.name} ---`);
         if (skill.description) lines.push(skill.description);
@@ -495,12 +495,50 @@ export abstract class LocalAgentAdapter implements IBackend {
 
     if (context.selection) {
       lines.push("");
-      lines.push("Selected element:");
+      lines.push("Visual design context:");
       if (context.selection.element) {
         lines.push(`- Tag: ${context.selection.element.tag}`);
         if (context.selection.element.text) lines.push(`- Text: ${context.selection.element.text}`);
+        if (context.selection.element.source) lines.push(`- Source hint: ${context.selection.element.source}`);
+        if (context.selection.element.attributes) {
+          const attributes = Object.entries(context.selection.element.attributes)
+            .slice(0, 12)
+            .map(([name, value]) => `${name}=${value}`)
+            .join(", ");
+          if (attributes) lines.push(`- Attributes: ${attributes}`);
+        }
       }
       if (context.selection.route) lines.push(`- Route: ${context.selection.route}`);
+      if (context.selection.viewport) {
+        lines.push(`- Viewport: ${context.selection.viewport.width}x${context.selection.viewport.height}`);
+        if (typeof context.selection.viewport.scrollY === "number") lines.push(`- Scroll position: ${context.selection.viewport.scrollY}px`);
+      }
+    }
+
+    const pageContext = context.project.pageContext;
+    if (pageContext) {
+      lines.push("");
+      lines.push("Live page summary:");
+      if (pageContext.title) lines.push(`- Title: ${pageContext.title}`);
+      if (pageContext.domSummary?.headings?.length) {
+        lines.push(
+          `- Headings: ${pageContext.domSummary.headings
+            .slice(0, 8)
+            .map((heading) => heading.text)
+            .join(" | ")}`
+        );
+      }
+      if (pageContext.domSummary?.sections?.length) {
+        lines.push(
+          `- Sections: ${pageContext.domSummary.sections
+            .slice(0, 8)
+            .map((section) => section.name)
+            .join(" | ")}`
+        );
+      }
+      if (pageContext.domSummary?.buttons?.length) lines.push(`- Buttons: ${pageContext.domSummary.buttons.slice(0, 10).join(" | ")}`);
+      if (pageContext.domSummary?.visibleTextSnippet) lines.push(`- Visible text: ${pageContext.domSummary.visibleTextSnippet.slice(0, 1200)}`);
+      if (pageContext.runtimeErrors?.length) lines.push(`- Runtime errors: ${pageContext.runtimeErrors.slice(0, 5).join(" | ")}`);
     }
 
     if (context.conversation.length > 1) {

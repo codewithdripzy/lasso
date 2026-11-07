@@ -88,8 +88,7 @@ export async function authLogin(cwd: string, fileEnv: Record<string, string>): P
   try {
     startResponse = await fetchWithTimeout(`${apiUrl}/auth/cli/start`, { method: "POST" });
   } catch (error) {
-    const reason = error instanceof Error ? error.message : "request failed";
-    return { ok: false, error: `Could not reach the Lasso API at ${serverUrl} (${reason}). Is the Lasso server running?` };
+    return { ok: false, error: "Connection error: could not reach Lasso services. Check your internet connection and try again." };
   }
 
   if (!startResponse.ok) {

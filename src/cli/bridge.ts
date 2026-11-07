@@ -63,6 +63,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   // in this process), RuntimeClient for hosted models (via Lasso server).
   const taskFacades = new Map<string, RuntimeFacade>();
   const taskControllers = new Map<string, AbortController>();
+  const taskSockets = new Map<string, WebSocket>();
   const activeRuns = new Map<string, Promise<void>>();
   const earlyReviewDecisions = new Set<string>();
   const latestReviewChanges = new Map<string, any[]>();
@@ -211,6 +212,9 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
   // review=true opens the diff review on agent_completed (edit/ask flow).
   function handleRuntimeEvent(event: RuntimeEvent, socket: WebSocket, taskId: string, session: RuntimeSession, instruction: string, review: boolean): void {
     if (taskControllers.get(taskId)?.signal.aborted) return;
+    // Follow the latest overlay connection so progress resumes after refresh.
+    socket = taskSockets.get(taskId) || socket;
+    if (socket.readyState !== socket.OPEN) return;
 
     if (["agent_started", "agent_reasoning", "tool_started", "tool_completed", "agent_completed", "agent_failed", "agent_cancelled", "error"].includes(event.type)) {
       const data = (event as { data?: Record<string, unknown> }).data || {};
@@ -685,6 +689,22 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
           hasReact: fs.existsSync(path.join(cwd, "package.json")) && fs.readFileSync(path.join(cwd, "package.json"), "utf8").includes("react"),
           files: projectFiles,
           currentRoute: typeof context?.viewport?.url === "string" ? new URL(context.viewport.url).pathname : undefined,
+          pageContext: context
+            ? {
+                route: typeof context?.viewport?.url === "string" ? new URL(context.viewport.url).pathname : undefined,
+                title: typeof context?.title === "string" ? context.title : undefined,
+                viewport: context?.viewport,
+                domSummary: context?.domSummary,
+                runtimeErrors: Array.isArray(context?.runtimeErrors) ? context.runtimeErrors.slice(0, 5) : undefined,
+                selectedElement: element
+                  ? {
+                      tag: element.tag,
+                      text: element.label,
+                      source: element.sourceHint,
+                    }
+                  : undefined,
+              }
+            : undefined,
         },
         model: {
           provider: (provider || "anthropic") as any,
@@ -1191,6 +1211,7 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     taskControllers.get(taskId)?.abort();
     const controller = new AbortController();
     taskControllers.set(taskId, controller);
+    taskSockets.set(taskId, socket);
 
     // All oneshot prompts go through the selected agent/model. The agent
     // decides whether the request needs project work or a conversational reply.
@@ -1269,17 +1290,21 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
       activeRuns.set(taskId, activeRun);
       await activeRun;
     } catch (error) {
-      socket.send(
-        JSON.stringify({
-          type: "agent_status",
-          taskId,
-          status: "error",
-          message: error instanceof Error ? error.message : "Unknown oneshot error",
-        } satisfies ServerBridgeMessage)
-      );
+      const taskSocket = taskSockets.get(taskId) || socket;
+      if (taskSocket.readyState === taskSocket.OPEN) {
+        taskSocket.send(
+          JSON.stringify({
+            type: "agent_status",
+            taskId,
+            status: "error",
+            message: error instanceof Error ? error.message : "Unknown oneshot error",
+          } satisfies ServerBridgeMessage)
+        );
+      }
     } finally {
       activeRuns.delete(taskId);
       if (taskControllers.get(taskId) === controller) taskControllers.delete(taskId);
+      taskSockets.delete(taskId);
     }
   }
 
@@ -1391,7 +1416,13 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         system: "Return only one concise conventional Git commit message. Do not use quotes, markdown, or a trailing period.",
         prompt: `Generate a commit message for this staged diff:\n\n${diff.slice(0, 24000)}`,
       });
-      if (aiMessage) generatedMessage = aiMessage.split(/\r?\n/).find((line) => line.trim())?.replace(/^[-*]\s*/, "").trim() || fallbackMessage;
+      if (aiMessage)
+        generatedMessage =
+          aiMessage
+            .split(/\r?\n/)
+            .find((line) => line.trim())
+            ?.replace(/^[-*]\s*/, "")
+            .trim() || fallbackMessage;
     } catch {
       // Local fallback keeps commit generation useful when the hosted model is unavailable.
     }
@@ -1461,6 +1492,10 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
         writeLassoLog("info", "overlay_message", { type: msg.type, taskId: (msg as any).taskId });
         switch (msg.type) {
           case "hello":
+            if (msg.from === "overlay" && msg.taskId && taskControllers.has(msg.taskId)) {
+              taskSockets.set(msg.taskId, socket);
+              socket.send(JSON.stringify({ type: "agent_status", taskId: msg.taskId, status: "working", message: "Agent is continuing the task…" } satisfies ServerBridgeMessage));
+            }
             break;
 
           case "get_skills":
@@ -1661,5 +1696,15 @@ export async function startBridge(cwd = process.cwd(), collabConfig: CollabConfi
     writeLassoLog("info", "bridge_ready", { port: bridgePort, logFile: lassoLogPath() });
   });
 
-  return { ok: true };
+  return {
+    ok: true,
+    close: async () => {
+      for (const controller of taskControllers.values()) controller.abort();
+      for (const socket of taskSockets.values()) socket.close();
+      for (const socket of wss.clients) socket.close();
+      await new Promise<void>((resolve) => {
+        bridgeServer.close(() => resolve());
+      });
+    },
+  };
 }

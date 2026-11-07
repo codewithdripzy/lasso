@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Next.js overlay sessions now shut down cleanly.** Pressing Ctrl+C closes the
+  Lasso bridge and proxy and terminates the internal Next.js process instead of
+  leaving development servers running.
+- **Next.js output points to the overlay-enabled URL.** Lasso hides the internal
+  Next.js `Local` and `Network` URLs and prints the public proxy URLs in the same
+  format, so every displayed URL includes the injected overlay.
+- **The Select icon renders correctly.** Fixed the malformed SVG path element in
+  the floating toolbar.
+
 - **Bridge environment files load from the project roots correctly.** Fixed the
   argument order used to read `.env`, `.env.local`, and `.env.production`, which
   could prevent provider configuration from being discovered.
@@ -33,6 +42,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the gateway, which cannot reach the user's `localhost`.
 
 ### Changed
+
+- **Next.js development uses collision-safe ports.** Lasso keeps Next.js on an
+  internal port and automatically chooses nearby available ports when the
+  preferred ports are already in use.
+- **Agents receive compact live design context.** Selected-element and page
+  requests now include source hints, attributes, route, viewport, page title,
+  headings, sections, controls, visible text, and recent runtime errors without
+  sending unbounded page content.
+- **Local CLI agents consistently apply design skills.** Claude Code, OpenCode,
+  Codex CLI, Cursor, and Antigravity receive the built-in UI Design Craft skill
+  for relevant UI work, alongside selected project and personal skills.
 
 - **Separated command-bar rendering and bridge context helpers.** Shared prompt
   contracts now live in core interfaces, and the obsolete inline change-card renderer

@@ -56,7 +56,7 @@ export type PageEntry = {
 };
 
 export type BridgeMessage =
-  | { type: "hello"; from: "overlay" | "cli" }
+  | { type: "hello"; from: "overlay" | "cli"; taskId?: string }
   | { type: "get_skills" }
   | { type: "upload_skill"; name: string; content: string }
   | {

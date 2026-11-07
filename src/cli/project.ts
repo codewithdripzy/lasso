@@ -286,8 +286,7 @@ export async function initProject(cwd: string, fileEnv: Record<string, string>, 
       domain,
     };
   } catch (error) {
-    const reason = error instanceof Error ? error.message : "request failed";
-    return { ok: false, error: `Could not reach the Lasso API at ${serverUrl} (${reason}). Is it running?` };
+    return { ok: false, error: "Connection error: could not reach Lasso services. Check your internet connection and try again." };
   }
 }
 

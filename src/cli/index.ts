@@ -515,7 +515,7 @@ program.command("dev", { isDefault: true }).description("Start your dev server w
         console.log(chalk.yellow("!") + ` No ${chalk.bold(LASSO_CONFIG_FILE)} found. Run ${chalk.cyan("npx @lasso-ai/cli init")} to enable realtime collaboration.`);
     }
 
-    await startBridge(cwd, collabConfig);
+    const bridge = await startBridge(cwd, collabConfig);
 
     switch (framework) {
       case "vite":
@@ -524,7 +524,20 @@ program.command("dev", { isDefault: true }).description("Start your dev server w
         break;
       case "next":
         console.log(chalk.green("✓") + " Detected: Next.js");
-        await startNextServer(cwd);
+        {
+          const next = await startNextServer(cwd);
+          let shuttingDown = false;
+          const shutdown = async () => {
+            if (shuttingDown) return;
+            shuttingDown = true;
+            await bridge.close?.();
+            next.nextProcess.kill("SIGTERM");
+            await new Promise<void>((resolve) => next.server.close(() => resolve()));
+            process.exit(0);
+          };
+          process.once("SIGINT", shutdown);
+          process.once("SIGTERM", shutdown);
+        }
         break;
       case "nuxt":
         console.log(chalk.green("✓") + " Detected: Nuxt");

@@ -27,6 +27,29 @@ export interface RuntimeSessionInput {
     hasVite?: boolean;
     files?: string[];
     currentRoute?: string;
+    pageContext?: {
+      route?: string;
+      title?: string;
+      viewport?: {
+        width: number;
+        height: number;
+        scrollY?: number;
+        scrollHeight?: number;
+      };
+      domSummary?: {
+        headings?: Array<{ level: number; text: string }>;
+        sections?: Array<{ name: string; textPreview: string }>;
+        buttons?: string[];
+        links?: string[];
+        visibleTextSnippet?: string;
+      };
+      runtimeErrors?: string[];
+      selectedElement?: {
+        tag: string;
+        text?: string;
+        source?: string;
+      };
+    };
   };
   model: {
     provider: RuntimeProvider;

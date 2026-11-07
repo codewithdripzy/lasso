@@ -77,7 +77,11 @@ export function connectBridge() {
     state.bridgeSocket = new WebSocket(`${protocol}//127.0.0.1:${bridgePort}`);
 
     state.bridgeSocket.addEventListener("open", () => {
-      state.bridgeSocket?.send(JSON.stringify({ type: "hello", from: "overlay" }));
+      let taskId: string | null = null;
+      try {
+        taskId = localStorage.getItem("lasso:active-command-task");
+      } catch {}
+      state.bridgeSocket?.send(JSON.stringify({ type: "hello", from: "overlay", taskId: taskId || undefined }));
     });
 
     state.bridgeSocket.addEventListener("message", (event) => {

@@ -17,7 +17,7 @@ import { connectBridge, initErrorListeners } from "./bridge/bridge";
 import { initCollabPagehide, sendPresenceUpdate, initCursorTracking } from "./collab/socket";
 import { renderRemoteBoxes } from "./collab/presence";
 import { updateLockChip } from "./collab/locks";
-import { buildCommandBar, openCommandBar, closeCommandBar, isCommandBarOpen } from "./commandbar/commandbar";
+import { buildCommandBar, openCommandBar, closeCommandBar, isCommandBarOpen, restoreCommandBarAfterReload } from "./commandbar/commandbar";
 
 console.log("[lasso] overlay initializing");
 initErrorListeners();
@@ -44,6 +44,7 @@ export function init() {
   buildPrompt();
   buildDrag();
   buildCommandBar();
+  restoreCommandBarAfterReload();
 
   // Connect local bridge & collab
   initErrorListeners();
