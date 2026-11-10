@@ -17,7 +17,8 @@
       "name": "Lasso",
       "description": "Lasso lets you select part of a running website, describe a change, and review the code edits made by an AI coding agent. It connects your running app to your local project so the agent can inspect and change the source files that render it.",
       "webpageUrl": {
-        "url": "https://lasso.byorello.space"
+        "url": "https://lasso.byorello.space",
+        "wellKnown": "https://lasso.byorello.space/.well-known/funding-manifest-urls"
       },
       "repositoryUrl": {
         "url": "https://github.com/codewithdripzy/lasso"
