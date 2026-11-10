@@ -1,0 +1,51 @@
+{
+  "$schema": "https://fundingjson.org/schema/v1.1.0.json",
+  "version": "v1.1.0",
+  "entity": {
+    "type": "individual",
+    "role": "maintainer",
+    "name": "Emmanuel Bankole",
+    "email": "thecodeguyy@gmail.com",
+    "description": "Independent software engineer and open-source developer.",
+    "webpageUrl": {
+      "url": "https://github.com/codewithdripzy"
+    }
+  },
+  "projects": [
+    {
+      "guid": "lasso",
+      "name": "Lasso",
+      "description": "Lasso lets you select part of a running website, describe a change, and review the code edits made by an AI coding agent. It connects your running app to your local project so the agent can inspect and change the source files that render it.",
+      "webpageUrl": {
+        "url": "https://lasso.byorello.space"
+      },
+      "repositoryUrl": {
+        "url": "https://github.com/codewithdripzy/lasso"
+      },
+      "licenses": ["spdx:ISC"],
+      "tags": ["ai", "developer-tools", "code-editing"]
+    }
+  ],
+  "funding": {
+    "channels": [
+      {
+        "guid": "buymeacoffee",
+        "type": "payment-provider",
+        "address": "https://www.buymeacoffee.com/thecodeguyy",
+        "description": "Support Lasso through Buy Me a Coffee."
+      }
+    ],
+    "plans": [
+      {
+        "guid": "one-time-support",
+        "status": "active",
+        "name": "One-time support",
+        "description": "Contribute any amount to support Lasso's ongoing development and maintenance.",
+        "amount": 0,
+        "currency": "USD",
+        "frequency": "one-time",
+        "channels": ["buymeacoffee"]
+      }
+    ]
+  }
+}
